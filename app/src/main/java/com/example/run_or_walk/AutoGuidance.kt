@@ -6,12 +6,16 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-enum class AutoGuidanceStatus { WALK, RUN, NEXT, UNKNOWN }
+enum class AutoGuidanceStatus { WALK, FAST_WALK, NEXT_TRAIN, UNKNOWN }
+
+/** Source-data trust, distinct from transport success and boarding identity matching. */
+enum class ArrivalTrustState { VALID, STALE, FUTURE_TIMESTAMP, INVALID_ETA, UNKNOWN }
 
 enum class AutoGuidanceUnknownReason {
     LOCATION_PERMISSION_REQUIRED, LOCATION_UNAVAILABLE, LOCATION_INACCURATE, LOCATION_STALE,
     BOARDING_UNCONFIRMED,
     ARRIVAL_UNAVAILABLE, ARRIVAL_FAILED, ARRIVAL_MISMATCH, ARRIVAL_STALE, ARRIVAL_UNCERTAIN,
+    ARRIVAL_FUTURE_TIMESTAMP, ARRIVAL_INVALID_ETA, NEXT_ARRIVAL_UNAVAILABLE, NO_CATCHABLE_TRAIN,
     WALKING_UNAVAILABLE, WALKING_STALE, WALKING_MISMATCH, INVALID_INPUT
 }
 
@@ -63,7 +67,8 @@ data class RealtimeArrivalSnapshot(
     val nextArrivalAtEpochMillis: Long? = null,
     val fetchedAtEpochMillis: Long,
     val validForMillis: Long,
-    val reliable: Boolean = true
+    val reliable: Boolean = true,
+    val trustState: ArrivalTrustState = ArrivalTrustState.VALID
 )
 
 data class AutoGuidanceInput(
@@ -93,7 +98,7 @@ data class AutoGuidanceAssessment(
     val firstArrivalAtEpochMillis: Long? = null,
     val nextArrivalAtEpochMillis: Long? = null,
     val walkingSeconds: Int? = null,
-    /** An estimate, calculated as ceil(walkingSeconds * fastTravelRatio), not a measured run time. */
+    /** A fast-walking estimate, calculated as ceil(walkingSeconds * fastTravelRatio). */
     val fastTravelSeconds: Int? = null,
     val bufferSeconds: Int = 120,
     val arrivalFetchedAtEpochMillis: Long? = null,
@@ -145,7 +150,17 @@ fun calculateAutoGuidance(
     if (arrivals.identity != boarding.identity) {
         return unknown(AutoGuidanceUnknownReason.ARRIVAL_MISMATCH)
     }
+    when (arrivals.trustState) {
+        ArrivalTrustState.STALE -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_STALE)
+        ArrivalTrustState.FUTURE_TIMESTAMP -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP)
+        ArrivalTrustState.INVALID_ETA -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_INVALID_ETA)
+        ArrivalTrustState.UNKNOWN -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
+        ArrivalTrustState.VALID -> Unit
+    }
     if (!arrivals.reliable) return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
+    if (arrivals.fetchedAtEpochMillis > nowEpochMillis) {
+        return unknown(AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP)
+    }
     if (arrivals.validForMillis <= 0L ||
         !isFresh(arrivals.fetchedAtEpochMillis, nowEpochMillis,
             minOf(arrivals.validForMillis, policy.maxArrivalAgeMillis)) ||
@@ -181,8 +196,12 @@ fun calculateAutoGuidance(
     val fastWithBufferMillis = (fastSeconds.toLong() + input.bufferSeconds) * 1_000L
     val status = when {
         remainingMillis >= walkingWithBufferMillis -> AutoGuidanceStatus.WALK
-        remainingMillis >= fastWithBufferMillis -> AutoGuidanceStatus.RUN
-        else -> AutoGuidanceStatus.NEXT
+        remainingMillis >= fastWithBufferMillis -> AutoGuidanceStatus.FAST_WALK
+        arrivals.nextArrivalAtEpochMillis == null ->
+            return unknown(AutoGuidanceUnknownReason.NEXT_ARRIVAL_UNAVAILABLE)
+        arrivals.nextArrivalAtEpochMillis - nowEpochMillis >= walkingWithBufferMillis ->
+            AutoGuidanceStatus.NEXT_TRAIN
+        else -> return unknown(AutoGuidanceUnknownReason.NO_CATCHABLE_TRAIN)
     }
     return AutoGuidanceAssessment(
         status = status,

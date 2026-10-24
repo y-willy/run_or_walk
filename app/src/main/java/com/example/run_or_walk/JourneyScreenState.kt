@@ -68,6 +68,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var selectedStation by mutableStateOf<OfficialSubwayStation?>(null)
     var arrivalOptions by mutableStateOf<List<OfficialSubwayArrival>>(emptyList())
     var selectedArrival by mutableStateOf<OfficialSubwayArrival?>(null)
+    var confirmedServiceIdentity by mutableStateOf<OfficialBoardingIdentity?>(null)
+    var liveRetryAtEpochMillis by mutableStateOf<Long?>(null)
     var arrivalRequestFailed by mutableStateOf(false)
     var liveLoading by mutableStateOf(false)
     var liveError by mutableStateOf<String?>(null)
@@ -114,6 +116,13 @@ internal class JourneyScreenState(val mode: FeatureMode,
         error = null
     }
 
+    /** Query edits invalidate both catalog and arrival/walking work from the old selection. */
+    fun editStationQuery(value: String) {
+        invalidateRequests()
+        clearOfficialSelection()
+        stationQuery = value
+    }
+
     fun invalidateRequests() {
         revision++
         requestId++
@@ -138,6 +147,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
         selectedStation = null
         lastArrivalPollElapsedMillis = null
         selectedArrival = null
+        confirmedServiceIdentity = null
+        liveRetryAtEpochMillis = null
         stationOptions = emptyList()
         stationsSearched = false
         arrivalOptions = emptyList()
@@ -190,9 +201,11 @@ internal class JourneyScreenState(val mode: FeatureMode,
     fun applyArrivalOptions(options: List<OfficialSubwayArrival>): OfficialSubwayArrival? {
         arrivalOptions = options
         val previous = selectedArrival ?: return null
-        val matching = options.firstOrNull {
+        // Missing vehicle IDs and conflicting duplicate rows cannot establish the same train.
+        val matching = options.filter {
+            previous.trainId.isNotBlank() &&
             it.identity == previous.identity && it.trainId == previous.trainId
-        }
+        }.distinct().singleOrNull()
         arrivalRequestFailed = matching == null
         if (matching != null) selectedArrival = matching
         return matching

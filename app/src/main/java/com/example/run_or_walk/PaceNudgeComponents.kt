@@ -144,8 +144,8 @@ fun AutomaticGuidanceCard(
     val dark = MaterialTheme.colorScheme.surface.luminance() < .5f
     val (symbol, title, tint) = when (assessment.status) {
         AutoGuidanceStatus.WALK -> Triple("✓", "걸어가세요", if (dark) Color(0xFF86EFAC) else Color(0xFF23734C))
-        AutoGuidanceStatus.RUN -> Triple("»", "서둘러 이동하세요", if (dark) Color(0xFFFDBA74) else Color(0xFF9C5800))
-        AutoGuidanceStatus.NEXT -> Triple("→", "다음 차를 이용하세요", MaterialTheme.colorScheme.error)
+        AutoGuidanceStatus.FAST_WALK -> Triple("»", "빠른 걸음으로 이동하세요", if (dark) Color(0xFFFDBA74) else Color(0xFF9C5800))
+        AutoGuidanceStatus.NEXT_TRAIN -> Triple("→", "확인된 다음 열차를 이용하세요", MaterialTheme.colorScheme.error)
         AutoGuidanceStatus.UNKNOWN -> Triple("?", "확인이 필요해요", MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Surface(modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -163,7 +163,7 @@ fun AutomaticGuidanceCard(
             Text("차량 도착: ${arrivalText(firstArrivalAtEpochMillis, nowEpochMillis)}",
                 style = MaterialTheme.typography.bodyMedium)
             walkingSeconds?.let {
-                Text("정류장까지: 도보 약 ${ceil(it / 60.0).toInt()}분",
+                Text("승차 지점까지: 도보 ${durationText(it.toLong())}",
                     style = MaterialTheme.typography.bodyMedium)
             }
             nextArrivalAtEpochMillis?.let {
@@ -171,8 +171,8 @@ fun AutomaticGuidanceCard(
                     style = MaterialTheme.typography.bodySmall)
             }
             arrivalFetchedAtEpochMillis?.let {
-                val time = SimpleDateFormat("HH:mm:ss", Locale.KOREA).format(Date(it))
-                Text("실시간 정보 · $time 조회", style = MaterialTheme.typography.labelSmall,
+                val age = ((nowEpochMillis - it) / 1000L).coerceAtLeast(0)
+                Text("마지막 정보 갱신: ${age}초 전", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (assessment.status != AutoGuidanceStatus.UNKNOWN) {
@@ -180,9 +180,9 @@ fun AutomaticGuidanceCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (assessment.status == AutoGuidanceStatus.RUN) {
-                Text("빠른 이동 약 ${ceil((assessment.fastTravelSeconds ?: 0) / 60.0).toInt()}분 · 추정 " +
-                    "(도보시간의 ${(assessment.fastTravelRatio * 100).toInt()}%). 무리한 달리기·위험한 횡단은 피하세요.",
+            if (assessment.status == AutoGuidanceStatus.FAST_WALK) {
+                Text("빠른 걸음 ${durationText((assessment.fastTravelSeconds ?: 0).toLong())} · 추정 " +
+                    "(도보시간의 ${(assessment.fastTravelRatio * 100).toInt()}%). 신호와 안전한 보행을 우선하세요.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -193,7 +193,7 @@ fun AutomaticGuidanceCard(
 private fun arrivalText(arrival: Long?, now: Long): String = when {
     arrival == null -> "정보 없음"
     arrival <= now -> "도착 시각 경과 · 갱신 필요"
-    else -> "${ceil((arrival - now) / 60_000.0).toInt()}분 후"
+    else -> "${durationText(ceil((arrival - now) / 1000.0).toLong())} 후"
 }
 
 @Composable
@@ -226,3 +226,6 @@ fun NoticeCard(message: String, isError: Boolean = false) {
         style = MaterialTheme.typography.bodySmall,
         color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 }
+
+private fun durationText(seconds: Long): String = if (seconds < 60) "${seconds}초"
+    else "${seconds / 60}분 ${seconds % 60}초"

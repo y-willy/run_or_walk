@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "run-or-walk",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-24",
+  "workers_dev": true,
+  "keep_vars": true,
+  "secrets": { "required": ["SEOUL_SUBWAY_KEY"] },
+  "observability": { "enabled": false },
+  "durable_objects": {
+    "bindings": [
+      { "name": "SUBWAY_COORDINATOR", "class_name": "SubwayCoordinator" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SubwayCoordinator"] }
+  ],
+  "ratelimits": [
+    {
+      "name": "IP_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 60, "period": 60 }
+    }
+  ]
+}

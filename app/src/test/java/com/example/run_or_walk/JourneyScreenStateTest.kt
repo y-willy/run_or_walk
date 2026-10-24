@@ -103,6 +103,34 @@ class JourneyScreenStateTest {
     }
 
     @Test
+    fun editingOfficialStationQueryInvalidatesCatalogLiveAndWalkingResponses() {
+        val state = JourneyScreenState(FeatureMode.STOP)
+        state.selectedStation = OfficialSubwayStation(identity.stopId, identity.routeId, "서울", "1호선")
+        state.selectedArrival = arrival()
+        state.arrivalOptions = listOf(arrival())
+        state.guidanceWalkingRoute = GuidanceWalkingRoute(point, point, identity, 300, 1_000L, 120_000L)
+        state.stationOptions = listOf(requireNotNull(state.selectedStation))
+        state.stationsSearched = true
+        val request = state.beginRequest("도보 경로")
+        val live = state.beginLiveRequest()
+        val revision = state.revision
+
+        state.editStationQuery("강남")
+
+        assertEquals("강남", state.stationQuery)
+        assertFalse(state.acceptsResponse(request))
+        assertFalse(state.acceptsLiveResponse(live))
+        assertNotEquals(revision, state.revision)
+        assertNull(state.selectedStation)
+        assertNull(state.selectedArrival)
+        assertNull(state.guidanceWalkingRoute)
+        assertTrue(state.stationOptions.isEmpty())
+        assertTrue(state.arrivalOptions.isEmpty())
+        assertFalse(state.stationsSearched)
+        assertFalse(state.liveLoading)
+    }
+
+    @Test
     fun newerSearchAndLiveGenerationsRejectOlderResponses() {
         val state = JourneyScreenState(FeatureMode.ROUTE)
         val search = state.beginRequest("첫 검색")
@@ -162,20 +190,37 @@ class JourneyScreenStateTest {
     }
 
     @Test
+    fun liveUpdatesRejectMissingVehicleIdentityAndConflictingDuplicateRows() {
+        val state = JourneyScreenState(FeatureMode.STOP)
+        val chosen = arrival()
+        state.selectedArrival = chosen
+        assertNull(state.applyArrivalOptions(listOf(arrival(), arrival(fetchedAt = 31_000L))))
+        assertSame(chosen, state.selectedArrival)
+        assertTrue(state.arrivalRequestFailed)
+
+        // An identical repeated row is harmless; conflicting observations are ambiguous.
+        assertSame(chosen, state.applyArrivalOptions(listOf(chosen, chosen)))
+        assertFalse(state.arrivalRequestFailed)
+        state.selectedArrival = arrival(train = "")
+        assertNull(state.applyArrivalOptions(listOf(arrival(train = ""))))
+        assertTrue(state.arrivalRequestFailed)
+    }
+
+    @Test
     fun automaticVibrationRequiresOptInAndIgnoresRepeatedEtasAndUnknownRecovery() {
         val state = JourneyScreenState(FeatureMode.STOP)
         state.selectedArrival = arrival()
         assertFalse(state.alertsEnabled)
-        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 1_000L))
+        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 1_000L))
         state.alertsEnabled = true
-        assertTrue(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 1_000L))
+        assertTrue(state.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 1_000L))
         state.selectedArrival = arrival(fetchedAt = 31_000L)
-        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 31_000L))
+        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 31_000L))
         assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.UNKNOWN, 61_000L))
-        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 91_000L))
+        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 91_000L))
         state.invalidateRequests() // Switching tabs or pausing must not reset consent/deduplication.
-        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 121_000L))
-        assertTrue(state.claimAutomaticAlert(AutoGuidanceStatus.NEXT, 151_000L))
+        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 121_000L))
+        assertTrue(state.claimAutomaticAlert(AutoGuidanceStatus.NEXT_TRAIN, 151_000L))
     }
 
     @Test
@@ -187,10 +232,10 @@ class JourneyScreenStateTest {
         second.alertsEnabled = true
         first.selectedArrival = arrival()
         second.selectedArrival = arrival()
-        assertTrue(first.claimAutomaticAlert(AutoGuidanceStatus.RUN, 1_000L))
-        assertFalse(second.claimAutomaticAlert(AutoGuidanceStatus.RUN, 2_000L))
-        assertFalse(second.claimAutomaticAlert(AutoGuidanceStatus.RUN, 32_000L))
+        assertTrue(first.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 1_000L))
+        assertFalse(second.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 2_000L))
+        assertFalse(second.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 32_000L))
         second.selectedArrival = arrival("different-vehicle")
-        assertTrue(second.claimAutomaticAlert(AutoGuidanceStatus.RUN, 33_000L))
+        assertTrue(second.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 33_000L))
     }
 }

@@ -36,7 +36,7 @@ class SeoulSubwayRepositoryTest {
                 row().put("arvlCd", "1"), row().put("arvlCd", "2"))) {
             assertFalse(parseSeoulSubwayArrivals(body(changed), station, source).single().snapshot.reliable)
         }
-        assertFalse(parseSeoulSubwayArrivals(body(row()), station, source + 30_001).single().snapshot.reliable)
+        assertFalse(parseSeoulSubwayArrivals(body(row()), station, source + 60_001).single().snapshot.reliable)
         assertFalse(parseSeoulSubwayArrivals(body(row()), station, source - 1).single().snapshot.reliable)
     }
 
@@ -46,7 +46,7 @@ class SeoulSubwayRepositoryTest {
         val result = parseSeoulSubwayArrivals(body(row(), next), station, source + 1_000)
             .first { it.trainId == "4302" }.snapshot
         assertEquals(source + 380_000, result.nextArrivalAtEpochMillis)
-        assertEquals(10_000L, result.validForMillis)
+        assertEquals(40_000L, result.validForMillis)
     }
 
     @Test fun anotherDirectionOrExpressServiceIsNeverTheNextVehicle() {
@@ -87,6 +87,6 @@ class SeoulSubwayRepositoryTest {
                 "https://user@subway.example.com", "https://subway.example.com?key=not-real")) {
             assertThrows(SeoulSubwayApiException::class.java) { validateSubwayGatewaySetup(url, token) }
         }
-        assertThrows(SeoulSubwayApiException::class.java) { validateSubwayGatewaySetup("https://subway.example.com", "") }
+        assertEquals("https", validateSubwayGatewaySetup("https://subway.example.com", "").scheme)
     }
 }

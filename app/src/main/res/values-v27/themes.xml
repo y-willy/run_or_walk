@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.RUN_or_WALK" parent="Theme.RUN_or_WALK.Base">
+        <item name="android:navigationBarColor">@color/brand_launch_background</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

@@ -2,7 +2,9 @@
 
 현재 위치, 실제 도보시간과 서울 지하철 도착정보를 비교하는 Android 앱이다. Kotlin·Jetpack Compose·Material 3·Kakao Maps를 사용한다.
 
-현재 구현은 두 탭, Kakao 단일 경로 검색, 최대 세 경로, 공식 역·호선·방향·차량 선택, WALK/RUN/NEXT/UNKNOWN 판단과 선택형 진동 알림을 제공한다. **HTTPS 중계 서버 배포와 서울 전용 키 설정은 아직 필요하다.** 이 조건 전에는 실시간 판단을 확정하지 않는다. 경기권은 서울 API가 실제 제공하는 역별로 추가 검증해야 하며 버스 실시간 정보는 아직 미지원이다.
+현재 구현은 두 탭, Kakao 단일 경로 검색, 최대 세 경로, 공식 역·호선·방향 확인, WALK/FAST_WALK/NEXT_TRAIN/UNKNOWN 판단과 선택형 진동 알림을 제공한다. 앱의 기본 중계 주소는 `https://run-or-walk.willy0723.workers.dev`다. **기존 Worker에 새 소스·바인딩을 배포해야 추가 원본 필드와 공유 캐시·요청 제한이 적용된다.** 불완전하거나 미래 시각인 데이터로 판단을 확정하지 않는다. 경기권은 역별 검증이 필요하며 버스 실시간 정보는 아직 미지원이다.
+
+Run_or_Walk 로고 기반 아이콘과 짧은 시작 화면을 적용했다. 시작 포스터는 비율을 유지해 표시하며 화면 복원·회전 시 반복하지 않는다.
 
 ## 빌드
 
@@ -18,10 +20,20 @@ Linux/macOS는 `bash gradlew`를 사용한다. 디버그 APK는 `app/build/outpu
 
 ## 실시간 연결
 
-[HTTPS 중계 서버 배포 안내](gateway/README.md)에 따라 서울 실시간 지하철 전용 키를 **서버에만** 설정한다. 공개 HTTPS 서버를 검증한 다음 앱의 로컬 설정에 `SUBWAY_GATEWAY_URL`, `SUBWAY_GATEWAY_TOKEN`을 설정해 다시 빌드한다. 앱에는 서울 인증키가 포함되지 않는다. 샘플 데이터는 테스트 전용이며 실제 차량 정보로 표시하지 않는다.
+[Cloudflare 운영·배포 안내](docs/CLOUDFLARE_WORKERS_NOTES.md)에 따라 기존 `run-or-walk` Worker에 배포한다. 이미 Cloudflare에 있는 **`SEOUL_SUBWAY_KEY` Secret을 그대로 사용**하며 키를 앱·로컬 소스에 복사하거나 재입력하지 않는다. `worker/`는 SQLite Durable Object 공유 캐시·최근 24시간 900건 원본 예산·IP 제한을 포함한다. 새 장부는 이전 사용량을 알 수 없어 최초 조회부터 24시간 보호 대기를 적용한다. 장부·네임스페이스를 초기화해서 예산을 우회하지 않는다.
+
+```bash
+cd worker
+npm ci
+npm run check
+npm test
+npm run build
+```
+
+기존 공개 주소에서는 앱 고정 토큰이 필수가 아니다. 다른 승인된 중계 주소를 사용할 때만 로컬 `SUBWAY_GATEWAY_URL`을 덮어쓴다. `SUBWAY_GATEWAY_TOKEN`은 선택적 호환 설정이며 강력한 앱 인증으로 간주하지 않는다. 샘플 데이터는 테스트 전용이며 현재 차량 정보로 표시하지 않는다.
 
 ```bash
 python3 -m unittest discover -s gateway -p 'test_*.py' -v
 ```
 
-[핵심 재설계·검증 보고](docs/CORE_REDESIGN.md)와 [공식 API·지원 지역 조사](docs/REALTIME_API_RESEARCH.md)에 구현 범위와 미검증 사항을 기록했다. 컴파일·단위 테스트 성공은 스마트폰의 지도 렌더링·실제 운행·GPS·진동 검증과 구분한다.
+[현재 Worker 연동 보고](docs/WORKER_INTEGRATION.md), [공식 API·지원 지역 조사](docs/REALTIME_API_RESEARCH.md)에 구현 범위와 미검증 사항을 기록했다. `gateway/`의 Python 서버는 이전 대안 구현이다. 컴파일·단위 테스트 성공은 스마트폰의 지도 렌더링·실제 운행·GPS·진동 검증과 구분한다.

@@ -39,7 +39,7 @@ android {
         buildConfigField("String", "KAKAO_REST_KEY", buildConfigString(localString("KAKAO_REST_KEY")))
         buildConfigField("String", "KAKAO_NATIVE_KEY", buildConfigString(localString("KAKAO_NATIVE_KEY")))
         // The official Seoul key belongs only on the HTTPS gateway, never in the APK.
-        buildConfigField("String", "SUBWAY_GATEWAY_URL", buildConfigString(localString("SUBWAY_GATEWAY_URL")))
+        buildConfigField("String", "SUBWAY_GATEWAY_URL", buildConfigString(localString("SUBWAY_GATEWAY_URL", "https://run-or-walk.willy0723.workers.dev")))
         buildConfigField("String", "SUBWAY_GATEWAY_TOKEN", buildConfigString(localString("SUBWAY_GATEWAY_TOKEN")))
 
     }

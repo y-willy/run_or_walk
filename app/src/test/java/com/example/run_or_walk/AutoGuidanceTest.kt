@@ -41,12 +41,13 @@ class AutoGuidanceTest {
         // 300 seconds walking, 225 seconds estimated fast travel, 120 seconds buffer.
         val cases = listOf(
             420_000L to AutoGuidanceStatus.WALK,
-            419_999L to AutoGuidanceStatus.RUN,
-            345_000L to AutoGuidanceStatus.RUN,
-            344_999L to AutoGuidanceStatus.NEXT
+            419_999L to AutoGuidanceStatus.FAST_WALK,
+            345_000L to AutoGuidanceStatus.FAST_WALK,
+            344_999L to AutoGuidanceStatus.NEXT_TRAIN
         )
         for ((arrival, expected) in cases) {
-            assertEquals(expected, calculateAutoGuidance(input(arrivalAfterMillis = arrival), now).status)
+            assertEquals(expected, calculateAutoGuidance(input(
+                arrivalAfterMillis = arrival, nextAfterMillis = 720_000L), now).status)
         }
     }
 
@@ -57,27 +58,35 @@ class AutoGuidanceTest {
         assertEquals(301, result.walkingSeconds)
         assertEquals(226, result.fastTravelSeconds)
         assertEquals(0.75, result.fastTravelRatio, 0.0)
-        assertEquals(AutoGuidanceStatus.RUN, result.status)
+        assertEquals(AutoGuidanceStatus.FAST_WALK, result.status)
         val slower = calculateAutoGuidance(input(), now, AutoGuidancePolicy(fastTravelRatio = 1.0))
         assertEquals(300, slower.fastTravelSeconds)
     }
 
     @Test
     fun nextRecommendationDoesNotInventMissingNextArrival() {
-        val result = calculateAutoGuidance(input(arrivalAfterMillis = 120_000L), now)
-
-        assertEquals(AutoGuidanceStatus.NEXT, result.status)
-        assertEquals(now + 120_000L, result.firstArrivalAtEpochMillis)
-        assertNull(result.nextArrivalAtEpochMillis)
+        assertUnknown(input(arrivalAfterMillis = 120_000L),
+            AutoGuidanceUnknownReason.NEXT_ARRIVAL_UNAVAILABLE)
     }
 
     @Test
     fun suppliedNextArrivalIsPreservedExactly() {
         val result = calculateAutoGuidance(input(120_000L, nextAfterMillis = 720_123L), now)
 
-        assertEquals(AutoGuidanceStatus.NEXT, result.status)
+        assertEquals(AutoGuidanceStatus.NEXT_TRAIN, result.status)
         assertEquals(now + 720_123L, result.nextArrivalAtEpochMillis)
         assertEquals(now, result.arrivalFetchedAtEpochMillis)
+    }
+
+    @Test
+    fun nextTrainMustBeCatchableAtNormalWalkingSpeedIncludingBuffer() {
+        assertEquals(AutoGuidanceStatus.NEXT_TRAIN,
+            calculateAutoGuidance(input(120_000L, nextAfterMillis = 420_000L), now).status)
+        assertUnknown(input(120_000L, nextAfterMillis = 419_999L),
+            AutoGuidanceUnknownReason.NO_CATCHABLE_TRAIN)
+        // A next train reachable only at estimated fast-walking pace is not recommended.
+        assertUnknown(input(120_000L, nextAfterMillis = 345_000L),
+            AutoGuidanceUnknownReason.NO_CATCHABLE_TRAIN)
     }
 
     @Test
@@ -87,7 +96,7 @@ class AutoGuidanceTest {
         val thirtySecondsLater = calculateAutoGuidance(original, now + 30_000L)
 
         assertEquals(AutoGuidanceStatus.WALK, fresh.status)
-        assertEquals(AutoGuidanceStatus.RUN, thirtySecondsLater.status)
+        assertEquals(AutoGuidanceStatus.FAST_WALK, thirtySecondsLater.status)
         assertEquals(fresh.firstArrivalAtEpochMillis, thirtySecondsLater.firstArrivalAtEpochMillis)
         assertNull(thirtySecondsLater.nextArrivalAtEpochMillis)
     }
@@ -122,10 +131,54 @@ class AutoGuidanceTest {
     @Test
     fun futureArrivalFetchAndSecondsMistakenForMillisAreRejected() {
         val original = input()
-        for (timestamp in listOf(now + 1L, now / 1_000L, -1L)) {
+        assertUnknown(original.copy(arrivals = original.arrivals!!.copy(fetchedAtEpochMillis = now + 1L)),
+            AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP)
+        for (timestamp in listOf(now / 1_000L, -1L)) {
             assertUnknown(original.copy(arrivals = original.arrivals!!.copy(fetchedAtEpochMillis = timestamp)),
                 AutoGuidanceUnknownReason.ARRIVAL_STALE)
         }
+    }
+
+    @Test
+    fun everyUntrustedSourceStateOverridesApparentlyUsableEta() {
+        val original = input()
+        val cases = mapOf(
+            ArrivalTrustState.STALE to AutoGuidanceUnknownReason.ARRIVAL_STALE,
+            ArrivalTrustState.FUTURE_TIMESTAMP to AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP,
+            ArrivalTrustState.INVALID_ETA to AutoGuidanceUnknownReason.ARRIVAL_INVALID_ETA,
+            ArrivalTrustState.UNKNOWN to AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN
+        )
+        for ((trust, reason) in cases) {
+            assertUnknown(original.copy(arrivals = original.arrivals!!.copy(trustState = trust)), reason)
+        }
+    }
+
+    @Test
+    fun zeroSecondEtaWithAmbiguousArrivalStateCannotGiveGuidance() {
+        val original = input(arrivalAfterMillis = 0, walkingSeconds = 0, bufferSeconds = 0)
+        assertUnknown(original.copy(arrivals = original.arrivals!!.copy(
+            trustState = ArrivalTrustState.UNKNOWN)), AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
+        assertUnknown(original.copy(arrivals = original.arrivals.copy(
+            reliable = false)), AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
+    }
+
+    @Test
+    fun observedKoreanTimestampRemainsFutureAfterTimezoneConversion() {
+        val fetchedAt = java.time.Instant.parse("2026-10-24T21:40:52.482Z").toEpochMilli()
+        val generatedAt = java.time.LocalDateTime.parse("2026-10-25T06:45:37")
+            .toInstant(java.time.ZoneOffset.ofHours(9)).toEpochMilli()
+        assertEquals(284_518L, generatedAt - fetchedAt)
+        val original = input()
+        val shifted = original.copy(
+            location = original.location!!.copy(observedAtEpochMillis = fetchedAt),
+            walkingRoute = original.walkingRoute!!.copy(fetchedAtEpochMillis = fetchedAt),
+            arrivals = original.arrivals!!.copy(
+                fetchedAtEpochMillis = generatedAt,
+                firstArrivalAtEpochMillis = generatedAt + 420_000L))
+        val result = calculateAutoGuidance(shifted, fetchedAt)
+        assertEquals(AutoGuidanceStatus.UNKNOWN, result.status)
+        assertEquals(AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP, result.unknownReason)
+        assertNull(result.firstArrivalAtEpochMillis)
     }
 
     @Test
@@ -243,18 +296,18 @@ class AutoGuidanceTest {
     @Test
     fun vibrationRequiresExplicitConsentAndNeverUsesUnknownOrIncompleteIdentity() {
         val previous = AutoVibrationState()
-        assertFalse(decideAutoGuidanceVibration(previous, false, identity, AutoGuidanceStatus.RUN, now).shouldVibrate)
+        assertFalse(decideAutoGuidanceVibration(previous, false, identity, AutoGuidanceStatus.FAST_WALK, now).shouldVibrate)
         assertFalse(decideAutoGuidanceVibration(previous, true, identity, AutoGuidanceStatus.UNKNOWN, now).shouldVibrate)
-        assertFalse(decideAutoGuidanceVibration(previous, true, null, AutoGuidanceStatus.RUN, now).shouldVibrate)
+        assertFalse(decideAutoGuidanceVibration(previous, true, null, AutoGuidanceStatus.FAST_WALK, now).shouldVibrate)
         assertFalse(decideAutoGuidanceVibration(previous, true, identity.copy(routeId = ""),
-            AutoGuidanceStatus.RUN, now).shouldVibrate)
+            AutoGuidanceStatus.FAST_WALK, now).shouldVibrate)
     }
 
     @Test
     fun refreshOfSameStateDoesNotVibrateEvenAfterCooldown() {
-        val first = decideAutoGuidanceVibration(AutoVibrationState(), true, identity, AutoGuidanceStatus.RUN, now)
+        val first = decideAutoGuidanceVibration(AutoVibrationState(), true, identity, AutoGuidanceStatus.FAST_WALK, now)
         assertTrue(first.shouldVibrate)
-        val repeated = decideAutoGuidanceVibration(first.state, true, identity, AutoGuidanceStatus.RUN, now + 120_000L)
+        val repeated = decideAutoGuidanceVibration(first.state, true, identity, AutoGuidanceStatus.FAST_WALK, now + 120_000L)
         assertFalse(repeated.shouldVibrate)
         assertEquals(now, repeated.state.lastVibratedAtEpochMillis)
     }
@@ -262,22 +315,22 @@ class AutoGuidanceTest {
     @Test
     fun urgencyTransitionsAndNewOfficialSelectionsRespectGlobalCooldown() {
         val first = decideAutoGuidanceVibration(AutoVibrationState(), true, identity, AutoGuidanceStatus.WALK, now)
-        val tooSoon = decideAutoGuidanceVibration(first.state, true, identity, AutoGuidanceStatus.RUN, now + 29_999L)
+        val tooSoon = decideAutoGuidanceVibration(first.state, true, identity, AutoGuidanceStatus.FAST_WALK, now + 29_999L)
         assertFalse(tooSoon.shouldVibrate)
-        val repeated = decideAutoGuidanceVibration(tooSoon.state, true, identity, AutoGuidanceStatus.RUN, now + 30_000L)
+        val repeated = decideAutoGuidanceVibration(tooSoon.state, true, identity, AutoGuidanceStatus.FAST_WALK, now + 30_000L)
         assertFalse(repeated.shouldVibrate)
-        val next = decideAutoGuidanceVibration(repeated.state, true, identity, AutoGuidanceStatus.NEXT, now + 30_000L)
+        val next = decideAutoGuidanceVibration(repeated.state, true, identity, AutoGuidanceStatus.NEXT_TRAIN, now + 30_000L)
         assertTrue(next.shouldVibrate)
         val newSelection = decideAutoGuidanceVibration(next.state, true, identity.copy(directionId = "하행"),
-            AutoGuidanceStatus.NEXT, now + 60_000L)
+            AutoGuidanceStatus.NEXT_TRAIN, now + 60_000L)
         assertTrue(newSelection.shouldVibrate)
     }
 
     @Test
     fun unknownDuringRefreshDoesNotResetVibrationDeduplication() {
-        val first = decideAutoGuidanceVibration(AutoVibrationState(), true, identity, AutoGuidanceStatus.RUN, now)
+        val first = decideAutoGuidanceVibration(AutoVibrationState(), true, identity, AutoGuidanceStatus.FAST_WALK, now)
         val unknown = decideAutoGuidanceVibration(first.state, true, identity, AutoGuidanceStatus.UNKNOWN, now + 30_000L)
-        val recovered = decideAutoGuidanceVibration(unknown.state, true, identity, AutoGuidanceStatus.RUN, now + 60_000L)
+        val recovered = decideAutoGuidanceVibration(unknown.state, true, identity, AutoGuidanceStatus.FAST_WALK, now + 60_000L)
         assertFalse(unknown.shouldVibrate)
         assertFalse(recovered.shouldVibrate)
         assertEquals(first.state, recovered.state)
@@ -286,7 +339,7 @@ class AutoGuidanceTest {
     @Test
     fun backwardClockDoesNotBypassVibrationCooldown() {
         val first = decideAutoGuidanceVibration(AutoVibrationState(), true, identity, AutoGuidanceStatus.WALK, now)
-        val backward = decideAutoGuidanceVibration(first.state, true, identity, AutoGuidanceStatus.RUN, now - 1L)
+        val backward = decideAutoGuidanceVibration(first.state, true, identity, AutoGuidanceStatus.FAST_WALK, now - 1L)
         assertFalse(backward.shouldVibrate)
     }
 }

@@ -1,5 +1,7 @@
 # HTTPS 지하철 중계 서버
 
+> 이전 Python 서버 대안입니다. 현재 Android 앱은 Cloudflare Worker의 `/health`, `/subway`를 사용합니다. 현재 배포는 [Cloudflare 안내](../docs/CLOUDFLARE_WORKERS_NOTES.md)를 따르세요.
+
 사용자가 선택한 HTTPS 중계 방식의 배포 코드다. 아직 공개 서버·도메인·서울 전용 인증키가 없어 배포하지 않았다. 앱은 공식 키를 갖지 않고 이 서버를 HTTPS로 호출한다.
 
 필요한 것:
