@@ -4,6 +4,7 @@ package com.example.run_or_walk
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -27,8 +28,8 @@ fun hasLocationPermission(context: Context): Boolean {
     return fine || coarse
 }
 
-// GPS로 현재 위치 한 번 가져오기
-suspend fun getCurrentPoint(context: Context): MapPoint =
+// Keep the accuracy and actual sensor age; receiving a cached fix is not a fresh GPS reading.
+suspend fun getCurrentLocationSample(context: Context): GuidanceLocation =
     suspendCancellableCoroutine { continuation ->
 
         if (!hasLocationPermission(context)) {
@@ -59,11 +60,14 @@ suspend fun getCurrentPoint(context: Context): MapPoint =
             task.addOnSuccessListener { location ->
                 if (continuation.isActive) {
                     if (location != null) {
-                        // GPS 위도·경도를 ODsay 좌표 형식으로 변환
+                        val ageMillis = ((SystemClock.elapsedRealtimeNanos() -
+                            location.elapsedRealtimeNanos) / 1_000_000L).coerceAtLeast(0L)
                         continuation.resume(
-                            MapPoint(
-                                x = location.longitude,
-                                y = location.latitude
+                            GuidanceLocation(
+                                point = MapPoint(x = location.longitude, y = location.latitude),
+                                accuracyMeters = if (location.hasAccuracy()) location.accuracy.toDouble()
+                                    else Double.POSITIVE_INFINITY,
+                                observedAtEpochMillis = System.currentTimeMillis() - ageMillis
                             )
                         )
                     } else {
@@ -93,3 +97,6 @@ suspend fun getCurrentPoint(context: Context): MapPoint =
             }
         }
     }
+
+// Existing callers can still request coordinates alone.
+suspend fun getCurrentPoint(context: Context): MapPoint = getCurrentLocationSample(context).point

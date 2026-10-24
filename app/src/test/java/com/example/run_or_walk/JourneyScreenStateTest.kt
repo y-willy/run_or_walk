@@ -10,141 +10,187 @@ import org.junit.Test
 
 class JourneyScreenStateTest {
     private val point = MapPoint(126.9726, 37.5547)
-    private val place = JourneyPlace("place-1", "서울역", "서울 용산구", point)
+    private val place = JourneyPlace("kakao-place-1", "서울역", "서울 용산구", point)
+    private val identity = OfficialBoardingIdentity("seoul-subway", "1001000133", "1001", "상행", "소요산행")
+    private fun arrival(train: String = "123", direction: OfficialBoardingIdentity = identity,
+        fetchedAt: Long = 1_000L) = OfficialSubwayArrival(
+        direction, "상행 · 소요산행", "1호선", train,
+        RealtimeArrivalSnapshot(direction, 601_000L, fetchedAtEpochMillis = fetchedAt,
+            validForMillis = 60_000L))
 
     @Test
-    fun switchingFeatureAndProviderKeepsEachJourneyIndependent() {
-        val routeKakao = JourneyScreenState(FeatureMode.ROUTE, SearchProvider.KAKAO)
-        val stopKakao = JourneyScreenState(FeatureMode.STOP, SearchProvider.KAKAO)
-        val routeOdsay = JourneyScreenState(FeatureMode.ROUTE, SearchProvider.ODSAY)
-        val stopOdsay = JourneyScreenState(FeatureMode.STOP, SearchProvider.ODSAY)
-        routeKakao.origin.query = "강남역"
-        routeKakao.origin.selected = place
-        routeKakao.arrivalMinutes = "12"
-        routeKakao.walkRoute = WalkRoute(400, 300)
-        stopKakao.stop.query = "시청역"
-        routeOdsay.origin.query = "수원역"
-        stopOdsay.stop.query = "광화문"
+    fun twoFeatureStatesKeepSearchesAndResultsIndependentWithoutDefaultDestinations() {
+        val route = JourneyScreenState(FeatureMode.ROUTE)
+        val stop = JourneyScreenState(FeatureMode.STOP)
+        assertEquals("", route.destination.query)
+        assertEquals("", stop.stop.query)
+        route.destination.query = "강남역"
+        route.destination.selected = place
+        route.walkRoute = WalkRoute(400, 300)
+        stop.stop.query = "시청역"
 
-        stopOdsay.editQuery(SearchField.STOP, "종각")
+        stop.editQuery(SearchField.STOP, "종각역")
 
-        assertEquals("강남역", routeKakao.origin.query)
-        assertSame(place, routeKakao.origin.selected)
-        assertEquals("12", routeKakao.arrivalMinutes)
-        assertEquals(WalkRoute(400, 300), routeKakao.walkRoute)
-        assertEquals("시청역", stopKakao.stop.query)
-        assertEquals("수원역", routeOdsay.origin.query)
-        assertEquals("종각", stopOdsay.stop.query)
-        assertNull(stopKakao.walkRoute)
-        assertNull(routeOdsay.origin.selected)
+        assertEquals("강남역", route.destination.query)
+        assertSame(place, route.destination.selected)
+        assertEquals(WalkRoute(400, 300), route.walkRoute)
+        assertEquals("종각역", stop.stop.query)
+        assertNull(stop.walkRoute)
+        assertEquals(2, FeatureMode.entries.size)
     }
 
     @Test
-    fun editingOriginInvalidatesOldRouteAndWalkingGuidance() {
-        val state = JourneyScreenState(FeatureMode.ROUTE, SearchProvider.KAKAO)
-        val route = JourneyTransitRoute(
-            id = "route-1",
-            kakao = KakaoTransitChoice(600, 1, "1호선", "서울역", point)
-        )
-        state.origin.selected = place
-        state.origin.options = listOf(place)
-        state.origin.searched = true
-        state.destination.selected = place.copy(id = "destination", name = "동탄역")
+    fun editingDestinationInvalidatesRoutesBoardingLiveSelectionAndWalking() {
+        val state = JourneyScreenState(FeatureMode.ROUTE)
+        val route = JourneyTransitRoute("route-1", KakaoTransitChoice(600, 1, "1호선", "서울역", point))
+        state.destination.selected = place
+        state.destination.options = listOf(place)
+        state.destination.searched = true
         state.routes = listOf(route)
         state.routeSearchCompleted = true
         state.selectedRoute = route
         state.boarding = place
+        state.boardingChosenByUser = true
         state.boardingCandidates = listOf(place)
-        state.candidatesSearched = true
+        state.selectedStation = OfficialSubwayStation(identity.stopId, identity.routeId, "서울", "1호선")
+        state.selectedArrival = arrival()
+        state.arrivalOptions = listOf(arrival())
         state.walkRoute = WalkRoute(400, 300)
         state.walkingPoints = listOf(point)
-        state.assessment = calculateUrgency(10.0, 2.0, 300)
+        state.guidanceWalkingRoute = GuidanceWalkingRoute(point, point, identity, 300, 1_000L, 120_000L)
+        state.location = GuidanceLocation(point, 10.0, 1_000L)
         state.mapCenter = point
+        val pending = state.beginLiveRequest()
 
-        state.editQuery(SearchField.ORIGIN, "시청역")
+        state.editQuery(SearchField.DESTINATION, "시청역")
 
-        assertNull(state.origin.selected)
-        assertTrue(state.origin.options.isEmpty())
-        assertFalse(state.origin.searched)
+        assertNull(state.destination.selected)
+        assertTrue(state.destination.options.isEmpty())
+        assertFalse(state.destination.searched)
         assertTrue(state.routes.isEmpty())
         assertFalse(state.routeSearchCompleted)
         assertNull(state.selectedRoute)
         assertNull(state.boarding)
-        assertTrue(state.boardingCandidates.isEmpty())
-        assertFalse(state.candidatesSearched)
+        assertFalse(state.boardingChosenByUser)
+        assertNull(state.selectedStation)
+        assertNull(state.selectedArrival)
+        assertTrue(state.arrivalOptions.isEmpty())
         assertNull(state.walkRoute)
         assertTrue(state.walkingPoints.isEmpty())
-        assertNull(state.assessment)
+        assertNull(state.guidanceWalkingRoute)
+        assertNull(state.location)
         assertNull(state.mapCenter)
-        // The unrelated destination selection remains useful for the next search.
-        assertEquals("동탄역", state.destination.selected?.name)
+        assertFalse(state.acceptsLiveResponse(pending))
     }
 
     @Test
-    fun changingStopInvalidatesPendingWorkAndPreservesManualTimePreferences() {
-        val state = JourneyScreenState(FeatureMode.STOP, SearchProvider.ODSAY)
+    fun editingStopInvalidatesPermissionAndAllPendingResponses() {
+        val state = JourneyScreenState(FeatureMode.STOP)
         state.stop.selected = place
-        state.arrivalMinutes = "8.5"
-        state.bufferMinutes = "1.5"
-        val oldRequest = state.beginRequest("현재 위치 확인 중")
+        val request = state.beginRequest("現在位置")
+        val live = state.beginLiveRequest()
         state.waitingForPermission = true
-        val oldRevision = state.revision
+        val revision = state.revision
 
         state.editQuery(SearchField.STOP, "신촌역")
 
-        assertNotEquals(oldRequest, state.requestId)
-        assertNotEquals(oldRevision, state.revision)
+        assertFalse(state.acceptsResponse(request))
+        assertFalse(state.acceptsLiveResponse(live))
+        assertNotEquals(revision, state.revision)
         assertFalse(state.busy)
+        assertFalse(state.liveLoading)
         assertNull(state.stop.selected)
-        assertEquals("8.5", state.arrivalMinutes)
-        assertEquals("1.5", state.bufferMinutes)
     }
 
     @Test
-    fun aNewRequestMakesThePreviousResponseStale() {
-        val state = JourneyScreenState(FeatureMode.ROUTE, SearchProvider.KAKAO)
-        val firstRequest = state.beginRequest("첫 검색")
-        val secondRequest = state.beginRequest("새 검색")
-
-        assertNotEquals(firstRequest, secondRequest)
-        assertEquals(secondRequest, state.requestId)
-        assertTrue(state.loading)
-        assertEquals("새 검색", state.status)
+    fun newerSearchAndLiveGenerationsRejectOlderResponses() {
+        val state = JourneyScreenState(FeatureMode.ROUTE)
+        val search = state.beginRequest("첫 검색")
+        val newerSearch = state.beginRequest("새 검색")
+        val live = state.beginLiveRequest()
+        val newerLive = state.beginLiveRequest()
+        assertFalse(state.acceptsResponse(search))
+        assertTrue(state.acceptsResponse(newerSearch))
+        assertFalse(state.acceptsLiveResponse(live))
+        assertTrue(state.acceptsLiveResponse(newerLive))
     }
 
     @Test
-    fun uncertainBoardingCoordinatesAlwaysKeepAWarning() {
-        val state = JourneyScreenState(FeatureMode.ROUTE, SearchProvider.KAKAO)
+    fun leavingTabRejectsResponsesButRetainsItsSelectedPlace() {
+        val state = JourneyScreenState(FeatureMode.STOP)
+        state.stop.selected = place
+        val request = state.beginRequest("검색")
+        val live = state.beginLiveRequest()
+
+        state.invalidateRequests()
+
+        assertFalse(state.acceptsResponse(request))
+        assertFalse(state.acceptsLiveResponse(live))
+        assertSame(place, state.stop.selected)
+        assertFalse(state.busy)
+    }
+
+    @Test
+    fun routeCoordinateNeverConfirmsAnOfficialBoardingIdentity() {
+        val state = JourneyScreenState(FeatureMode.ROUTE)
+        state.boarding = place
         state.boardingSource = BoardingPointSource.ESTIMATED
-        val estimated = requireNotNull(state.boardingNotice)
-        assertTrue(estimated.contains("추정"))
-        assertFalse(estimated.contains("검증된"))
-        assertFalse(estimated.contains("확정"))
-
+        assertFalse(state.boardingChosenByUser)
+        assertNull(state.selectedStation)
+        assertNull(state.selectedArrival)
+        assertTrue(requireNotNull(state.boardingNotice).contains("추정"))
         state.boardingSource = BoardingPointSource.UNKNOWN
-        val unknown = requireNotNull(state.boardingNotice)
-        assertTrue(unknown.contains("미확인"))
-        assertTrue(unknown.contains("후보"))
-        assertFalse(unknown.contains("검증된"))
-        assertFalse(unknown.contains("확정"))
-
-        state.boardingChosenByUser = true
-        val chosen = requireNotNull(state.boardingNotice)
-        assertTrue(chosen.contains("직접 선택"))
-        assertTrue(chosen.contains("확인"))
-        assertFalse(chosen.contains("검증된"))
+        assertTrue(requireNotNull(state.boardingNotice).contains("확인 필요"))
     }
 
     @Test
-    fun odsayRouteDoesNotInventMissingTransferInformation() {
-        val stop = TransitStop(1, "서울역", 1, point, "1호선")
-        val route = JourneyTransitRoute(
-            id = "odsay-route",
-            odsay = TransitPlan(20, stop, "1호선", "청량리 방면")
-        )
+    fun liveUpdatesNeverSubstituteAnotherTrainOrDirection() {
+        val state = JourneyScreenState(FeatureMode.STOP)
+        val selected = arrival()
+        state.selectedArrival = selected
+        val differentDirection = identity.copy(directionId = "하행", serviceVariant = "인천행")
 
-        assertEquals(20, route.durationMinutes)
-        assertTrue(route.detail.contains("청량리 방면"))
-        assertFalse(route.detail.contains("환승"))
+        val match = state.applyArrivalOptions(listOf(arrival("999"), arrival(direction = differentDirection)))
+
+        assertNull(match)
+        assertSame(selected, state.selectedArrival)
+        assertTrue(state.arrivalRequestFailed)
+        val refreshed = arrival(fetchedAt = 31_000L)
+        assertSame(refreshed, state.applyArrivalOptions(listOf(refreshed)))
+        assertSame(refreshed, state.selectedArrival)
+        assertFalse(state.arrivalRequestFailed)
+    }
+
+    @Test
+    fun automaticVibrationRequiresOptInAndIgnoresRepeatedEtasAndUnknownRecovery() {
+        val state = JourneyScreenState(FeatureMode.STOP)
+        state.selectedArrival = arrival()
+        assertFalse(state.alertsEnabled)
+        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 1_000L))
+        state.alertsEnabled = true
+        assertTrue(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 1_000L))
+        state.selectedArrival = arrival(fetchedAt = 31_000L)
+        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 31_000L))
+        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.UNKNOWN, 61_000L))
+        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 91_000L))
+        state.invalidateRequests() // Switching tabs or pausing must not reset consent/deduplication.
+        assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.RUN, 121_000L))
+        assertTrue(state.claimAutomaticAlert(AutoGuidanceStatus.NEXT, 151_000L))
+    }
+
+    @Test
+    fun sharedGatePreventsDuplicateTabAlertsAndDistinguishesActualVehicles() {
+        val gate = AutomaticAlertGate()
+        val first = JourneyScreenState(FeatureMode.ROUTE, gate)
+        val second = JourneyScreenState(FeatureMode.STOP, gate)
+        first.alertsEnabled = true
+        second.alertsEnabled = true
+        first.selectedArrival = arrival()
+        second.selectedArrival = arrival()
+        assertTrue(first.claimAutomaticAlert(AutoGuidanceStatus.RUN, 1_000L))
+        assertFalse(second.claimAutomaticAlert(AutoGuidanceStatus.RUN, 2_000L))
+        assertFalse(second.claimAutomaticAlert(AutoGuidanceStatus.RUN, 32_000L))
+        second.selectedArrival = arrival("different-vehicle")
+        assertTrue(second.claimAutomaticAlert(AutoGuidanceStatus.RUN, 33_000L))
     }
 }

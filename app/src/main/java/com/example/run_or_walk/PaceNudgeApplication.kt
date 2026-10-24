@@ -1,22 +1,38 @@
 package com.example.run_or_walk
 
 import android.app.Application
+import android.util.Log
 import com.kakao.vectormap.KakaoMapSdk
 
 class PaceNudgeApplication : Application() {
 
+    internal var mapInitializationFailure: MapLoadFailure? = null
+        private set
+
     override fun onCreate() {
         super.onCreate()
 
-        // 네이티브 앱 키가 설정되었는지 확인
-        check(BuildConfig.KAKAO_NATIVE_KEY.isNotBlank()) {
-            "KAKAO_NATIVE_KEY를 local.properties에 설정하세요."
-        }
+        initializeMapSdk()
+    }
 
-        // 카카오맵 SDK 초기화
-        KakaoMapSdk.init(
-            this,
-            BuildConfig.KAKAO_NATIVE_KEY
-        )
+    /** A map configuration/native failure must not prevent the rest of the app opening. */
+    internal fun initializeMapSdk(): MapLoadFailure? {
+        mapInitializationFailure = if (KakaoMapSdk.isInitialized()) {
+            null
+        } else if (BuildConfig.KAKAO_NATIVE_KEY.isBlank()) {
+            MapLoadFailure(MapFailureCategory.CONFIGURATION)
+        } else {
+            try {
+                KakaoMapSdk.init(this, BuildConfig.KAKAO_NATIVE_KEY)
+                if (KakaoMapSdk.isInitialized()) null
+                else MapLoadFailure(MapFailureCategory.INITIALIZATION)
+            } catch (error: Exception) {
+                MapLoadFailure.from(error)
+            } catch (error: LinkageError) {
+                MapLoadFailure.from(error)
+            }
+        }
+        mapInitializationFailure?.let { Log.w("PaceNudgeMap", it.diagnosticCode) }
+        return mapInitializationFailure
     }
 }

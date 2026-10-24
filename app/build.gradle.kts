@@ -5,47 +5,15 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-val kakaoNativeKey = Properties().run {
-    val propertiesFile = rootProject.file("local.properties")
-
-    if (propertiesFile.exists()) {
-        propertiesFile.inputStream().use {
-            load(it)
-        }
-    }
-
-    getProperty("KAKAO_NATIVE_KEY", "")
+// Credentials stay in the ignored local file, never in tracked source.
+val localConfig = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { load(it) }
 }
-
-// 개발 테스트용 REST 키
-val kakaoRestKey = Properties().run {
-    val propertiesFile = rootProject.file("local.properties")
-
-    if (propertiesFile.exists()) {
-        propertiesFile.inputStream().use {
-            load(it)
-        }
-    }
-
-    getProperty("KAKAO_REST_KEY", "")
-}
-
-// ODsay API 키 가져오기
-val odsayApiKey = Properties().run {
-
-    // 프로젝트 최상위 local.properties 파일
-    val file = rootProject.file("local.properties")
-
-    // 파일이 존재하면 읽기
-    if (file.exists()) {
-        file.inputStream().use {
-            load(it)
-        }
-    }
-
-    // API 키 반환
-    getProperty("ODSAY_API_KEY", "")
-}
+fun localString(name: String, default: String = ""): String =
+    localConfig.getProperty(name, default)
+fun buildConfigString(value: String): String = "\"" + value
+    .replace("\\", "\\\\").replace("\"", "\\\"")
+    .replace("\n", "\\n").replace("\r", "\\r") + "\""
 
 android {
 
@@ -68,23 +36,12 @@ android {
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField(
-            "String",
-            "KAKAO_REST_KEY",
-            "\"$kakaoRestKey\""
-        )
-        // 카카오 네이티브 키를 BuildConfig에 등록
-        buildConfigField(
-            "String",
-            "KAKAO_NATIVE_KEY",
-            "\"$kakaoNativeKey\""
-        )
-        // ODsay API 키를 BuildConfig에 등록
-        buildConfigField(
-            "String",
-            "ODSAY_API_KEY",
-            "\"$odsayApiKey\""
-        )
+        buildConfigField("String", "KAKAO_REST_KEY", buildConfigString(localString("KAKAO_REST_KEY")))
+        buildConfigField("String", "KAKAO_NATIVE_KEY", buildConfigString(localString("KAKAO_NATIVE_KEY")))
+        // The official Seoul key belongs only on the HTTPS gateway, never in the APK.
+        buildConfigField("String", "SUBWAY_GATEWAY_URL", buildConfigString(localString("SUBWAY_GATEWAY_URL")))
+        buildConfigField("String", "SUBWAY_GATEWAY_TOKEN", buildConfigString(localString("SUBWAY_GATEWAY_TOKEN")))
+
     }
 
     buildTypes {
@@ -125,6 +82,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
 
     testImplementation(libs.junit)
+    // Android provides org.json in production; unit tests exercise the actual provider JSON parser.
+    testImplementation("org.json:json:20240303")
 
     androidTestImplementation(
         platform(libs.androidx.compose.bom)

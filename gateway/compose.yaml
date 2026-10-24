@@ -1,0 +1,31 @@
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: gateway/Dockerfile
+    environment:
+      SEOUL_SUBWAY_API_KEY: ${SEOUL_SUBWAY_API_KEY:?Set the official subway API key}
+      SUBWAY_GATEWAY_TOKEN: ${SUBWAY_GATEWAY_TOKEN:?Set an app access token of at least 32 characters}
+      SUBWAY_DAILY_LIMIT: ${SUBWAY_DAILY_LIMIT:-900}
+    volumes:
+      - request-budget:/data
+    restart: unless-stopped
+  https:
+    image: caddy:2@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489
+    environment:
+      SUBWAY_GATEWAY_DOMAIN: ${SUBWAY_GATEWAY_DOMAIN:?Set your public DNS hostname}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - gateway
+    restart: unless-stopped
+volumes:
+  request-budget:
+  caddy-data:
+  caddy-config:

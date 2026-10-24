@@ -1,0 +1,4178 @@
+[
+  {
+    "stopId": "1001000100",
+    "routeId": "1001",
+    "name": "소요산",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000101",
+    "routeId": "1001",
+    "name": "동두천",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000102",
+    "routeId": "1001",
+    "name": "보산",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000103",
+    "routeId": "1001",
+    "name": "동두천중앙",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000104",
+    "routeId": "1001",
+    "name": "지행",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000105",
+    "routeId": "1001",
+    "name": "덕정",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000106",
+    "routeId": "1001",
+    "name": "덕계",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000107",
+    "routeId": "1001",
+    "name": "양주",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000108",
+    "routeId": "1001",
+    "name": "녹양",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000109",
+    "routeId": "1001",
+    "name": "가능",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000110",
+    "routeId": "1001",
+    "name": "의정부",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000111",
+    "routeId": "1001",
+    "name": "회룡",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000112",
+    "routeId": "1001",
+    "name": "망월사",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000113",
+    "routeId": "1001",
+    "name": "도봉산",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000114",
+    "routeId": "1001",
+    "name": "도봉",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000115",
+    "routeId": "1001",
+    "name": "방학",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000116",
+    "routeId": "1001",
+    "name": "창동",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000117",
+    "routeId": "1001",
+    "name": "녹천",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000118",
+    "routeId": "1001",
+    "name": "월계",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000119",
+    "routeId": "1001",
+    "name": "광운대",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000120",
+    "routeId": "1001",
+    "name": "석계",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000121",
+    "routeId": "1001",
+    "name": "신이문",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000122",
+    "routeId": "1001",
+    "name": "외대앞",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000123",
+    "routeId": "1001",
+    "name": "회기",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000124",
+    "routeId": "1001",
+    "name": "청량리",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000125",
+    "routeId": "1001",
+    "name": "제기동",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000126",
+    "routeId": "1001",
+    "name": "신설동",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000127",
+    "routeId": "1001",
+    "name": "동묘앞",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000128",
+    "routeId": "1001",
+    "name": "동대문",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000129",
+    "routeId": "1001",
+    "name": "종로5가",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000130",
+    "routeId": "1001",
+    "name": "종로3가",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000131",
+    "routeId": "1001",
+    "name": "종각",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000132",
+    "routeId": "1001",
+    "name": "시청",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000133",
+    "routeId": "1001",
+    "name": "서울",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000134",
+    "routeId": "1001",
+    "name": "남영",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000135",
+    "routeId": "1001",
+    "name": "용산",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000136",
+    "routeId": "1001",
+    "name": "노량진",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000137",
+    "routeId": "1001",
+    "name": "대방",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000138",
+    "routeId": "1001",
+    "name": "신길",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000139",
+    "routeId": "1001",
+    "name": "영등포",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000140",
+    "routeId": "1001",
+    "name": "신도림",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000141",
+    "routeId": "1001",
+    "name": "구로",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000142",
+    "routeId": "1001",
+    "name": "구일",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000143",
+    "routeId": "1001",
+    "name": "개봉",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000144",
+    "routeId": "1001",
+    "name": "오류동",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000145",
+    "routeId": "1001",
+    "name": "온수",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000146",
+    "routeId": "1001",
+    "name": "역곡",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000147",
+    "routeId": "1001",
+    "name": "소사",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000148",
+    "routeId": "1001",
+    "name": "부천",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000149",
+    "routeId": "1001",
+    "name": "중동",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000150",
+    "routeId": "1001",
+    "name": "송내",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000151",
+    "routeId": "1001",
+    "name": "부개",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000152",
+    "routeId": "1001",
+    "name": "부평",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000153",
+    "routeId": "1001",
+    "name": "백운",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000154",
+    "routeId": "1001",
+    "name": "동암",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000155",
+    "routeId": "1001",
+    "name": "간석",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000156",
+    "routeId": "1001",
+    "name": "주안",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000157",
+    "routeId": "1001",
+    "name": "도화",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000158",
+    "routeId": "1001",
+    "name": "제물포",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000159",
+    "routeId": "1001",
+    "name": "도원",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000160",
+    "routeId": "1001",
+    "name": "동인천",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001000161",
+    "routeId": "1001",
+    "name": "인천",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001001001",
+    "routeId": "1001",
+    "name": "청산",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001001002",
+    "routeId": "1001",
+    "name": "전곡",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001001003",
+    "routeId": "1001",
+    "name": "연천",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001075410",
+    "routeId": "1001",
+    "name": "광명",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080142",
+    "routeId": "1001",
+    "name": "가산디지털단지",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080143",
+    "routeId": "1001",
+    "name": "독산",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080144",
+    "routeId": "1001",
+    "name": "금천구청",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080145",
+    "routeId": "1001",
+    "name": "석수",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080146",
+    "routeId": "1001",
+    "name": "관악",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080147",
+    "routeId": "1001",
+    "name": "안양",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080148",
+    "routeId": "1001",
+    "name": "명학",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080149",
+    "routeId": "1001",
+    "name": "금정",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080150",
+    "routeId": "1001",
+    "name": "군포",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080151",
+    "routeId": "1001",
+    "name": "당정",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080152",
+    "routeId": "1001",
+    "name": "의왕",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080153",
+    "routeId": "1001",
+    "name": "성균관대",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080154",
+    "routeId": "1001",
+    "name": "화서",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080155",
+    "routeId": "1001",
+    "name": "수원",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080156",
+    "routeId": "1001",
+    "name": "세류",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080157",
+    "routeId": "1001",
+    "name": "병점",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080158",
+    "routeId": "1001",
+    "name": "세마",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080159",
+    "routeId": "1001",
+    "name": "오산대",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080160",
+    "routeId": "1001",
+    "name": "오산",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080161",
+    "routeId": "1001",
+    "name": "진위",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080162",
+    "routeId": "1001",
+    "name": "송탄",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080163",
+    "routeId": "1001",
+    "name": "서정리",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080164",
+    "routeId": "1001",
+    "name": "지제",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080165",
+    "routeId": "1001",
+    "name": "평택",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080166",
+    "routeId": "1001",
+    "name": "성환",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080167",
+    "routeId": "1001",
+    "name": "직산",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080168",
+    "routeId": "1001",
+    "name": "두정",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080169",
+    "routeId": "1001",
+    "name": "천안",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080170",
+    "routeId": "1001",
+    "name": "봉명",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080171",
+    "routeId": "1001",
+    "name": "쌍용(나사렛대)",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080172",
+    "routeId": "1001",
+    "name": "아산",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080173",
+    "routeId": "1001",
+    "name": "탕정",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080174",
+    "routeId": "1001",
+    "name": "배방",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080175",
+    "routeId": "1001",
+    "name": "온양온천",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001080176",
+    "routeId": "1001",
+    "name": "신창",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1001801571",
+    "routeId": "1001",
+    "name": "서동탄",
+    "lineName": "1호선"
+  },
+  {
+    "stopId": "1002000201",
+    "routeId": "1002",
+    "name": "시청",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000202",
+    "routeId": "1002",
+    "name": "을지로입구",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000203",
+    "routeId": "1002",
+    "name": "을지로3가",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000204",
+    "routeId": "1002",
+    "name": "을지로4가",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000205",
+    "routeId": "1002",
+    "name": "동대문역사문화공원",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000206",
+    "routeId": "1002",
+    "name": "신당",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000207",
+    "routeId": "1002",
+    "name": "상왕십리",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000208",
+    "routeId": "1002",
+    "name": "왕십리",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000209",
+    "routeId": "1002",
+    "name": "한양대",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000210",
+    "routeId": "1002",
+    "name": "뚝섬",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000211",
+    "routeId": "1002",
+    "name": "성수",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000212",
+    "routeId": "1002",
+    "name": "건대입구",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000213",
+    "routeId": "1002",
+    "name": "구의",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000214",
+    "routeId": "1002",
+    "name": "강변",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000215",
+    "routeId": "1002",
+    "name": "잠실나루",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000216",
+    "routeId": "1002",
+    "name": "잠실",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000217",
+    "routeId": "1002",
+    "name": "잠실새내",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000218",
+    "routeId": "1002",
+    "name": "종합운동장",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000219",
+    "routeId": "1002",
+    "name": "삼성",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000220",
+    "routeId": "1002",
+    "name": "선릉",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000221",
+    "routeId": "1002",
+    "name": "역삼",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000222",
+    "routeId": "1002",
+    "name": "강남",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000223",
+    "routeId": "1002",
+    "name": "교대",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000224",
+    "routeId": "1002",
+    "name": "서초",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000225",
+    "routeId": "1002",
+    "name": "방배",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000226",
+    "routeId": "1002",
+    "name": "사당",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000227",
+    "routeId": "1002",
+    "name": "낙성대",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000228",
+    "routeId": "1002",
+    "name": "서울대입구",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000229",
+    "routeId": "1002",
+    "name": "봉천",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000230",
+    "routeId": "1002",
+    "name": "신림",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000231",
+    "routeId": "1002",
+    "name": "신대방",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000232",
+    "routeId": "1002",
+    "name": "구로디지털단지",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000233",
+    "routeId": "1002",
+    "name": "대림",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000234",
+    "routeId": "1002",
+    "name": "신도림",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000235",
+    "routeId": "1002",
+    "name": "문래",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000236",
+    "routeId": "1002",
+    "name": "영등포구청",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000237",
+    "routeId": "1002",
+    "name": "당산",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000238",
+    "routeId": "1002",
+    "name": "합정",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000239",
+    "routeId": "1002",
+    "name": "홍대입구",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000240",
+    "routeId": "1002",
+    "name": "신촌",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000241",
+    "routeId": "1002",
+    "name": "이대",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000242",
+    "routeId": "1002",
+    "name": "아현",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002000243",
+    "routeId": "1002",
+    "name": "충정로",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002002111",
+    "routeId": "1002",
+    "name": "용답",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002002112",
+    "routeId": "1002",
+    "name": "신답",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002002113",
+    "routeId": "1002",
+    "name": "용두",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002002114",
+    "routeId": "1002",
+    "name": "신설동",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002002341",
+    "routeId": "1002",
+    "name": "도림천",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002002342",
+    "routeId": "1002",
+    "name": "양천구청",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002002343",
+    "routeId": "1002",
+    "name": "신정네거리",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1002002344",
+    "routeId": "1002",
+    "name": "까치산",
+    "lineName": "2호선"
+  },
+  {
+    "stopId": "1003000309",
+    "routeId": "1003",
+    "name": "대화",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000310",
+    "routeId": "1003",
+    "name": "주엽",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000311",
+    "routeId": "1003",
+    "name": "정발산",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000312",
+    "routeId": "1003",
+    "name": "마두",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000313",
+    "routeId": "1003",
+    "name": "백석",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000314",
+    "routeId": "1003",
+    "name": "대곡",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000315",
+    "routeId": "1003",
+    "name": "화정",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000316",
+    "routeId": "1003",
+    "name": "원당",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000317",
+    "routeId": "1003",
+    "name": "원흥",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000318",
+    "routeId": "1003",
+    "name": "삼송",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000319",
+    "routeId": "1003",
+    "name": "지축",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000320",
+    "routeId": "1003",
+    "name": "구파발",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000321",
+    "routeId": "1003",
+    "name": "연신내",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000322",
+    "routeId": "1003",
+    "name": "불광",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000323",
+    "routeId": "1003",
+    "name": "녹번",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000324",
+    "routeId": "1003",
+    "name": "홍제",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000325",
+    "routeId": "1003",
+    "name": "무악재",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000326",
+    "routeId": "1003",
+    "name": "독립문",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000327",
+    "routeId": "1003",
+    "name": "경복궁",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000328",
+    "routeId": "1003",
+    "name": "안국",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000329",
+    "routeId": "1003",
+    "name": "종로3가",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000330",
+    "routeId": "1003",
+    "name": "을지로3가",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000331",
+    "routeId": "1003",
+    "name": "충무로",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000332",
+    "routeId": "1003",
+    "name": "동대입구",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000333",
+    "routeId": "1003",
+    "name": "약수",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000334",
+    "routeId": "1003",
+    "name": "금호",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000335",
+    "routeId": "1003",
+    "name": "옥수",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000336",
+    "routeId": "1003",
+    "name": "압구정",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000337",
+    "routeId": "1003",
+    "name": "신사",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000338",
+    "routeId": "1003",
+    "name": "잠원",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000339",
+    "routeId": "1003",
+    "name": "고속터미널",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000340",
+    "routeId": "1003",
+    "name": "교대",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000341",
+    "routeId": "1003",
+    "name": "남부터미널",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000342",
+    "routeId": "1003",
+    "name": "양재",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000343",
+    "routeId": "1003",
+    "name": "매봉",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000344",
+    "routeId": "1003",
+    "name": "도곡",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000345",
+    "routeId": "1003",
+    "name": "대치",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000346",
+    "routeId": "1003",
+    "name": "학여울",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000347",
+    "routeId": "1003",
+    "name": "대청",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000348",
+    "routeId": "1003",
+    "name": "일원",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000349",
+    "routeId": "1003",
+    "name": "수서",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000350",
+    "routeId": "1003",
+    "name": "가락시장",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000351",
+    "routeId": "1003",
+    "name": "경찰병원",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1003000352",
+    "routeId": "1003",
+    "name": "오금",
+    "lineName": "3호선"
+  },
+  {
+    "stopId": "1004000409",
+    "routeId": "1004",
+    "name": "불암산",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000410",
+    "routeId": "1004",
+    "name": "상계",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000411",
+    "routeId": "1004",
+    "name": "노원",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000412",
+    "routeId": "1004",
+    "name": "창동",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000413",
+    "routeId": "1004",
+    "name": "쌍문",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000414",
+    "routeId": "1004",
+    "name": "수유",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000415",
+    "routeId": "1004",
+    "name": "미아",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000416",
+    "routeId": "1004",
+    "name": "미아사거리",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000417",
+    "routeId": "1004",
+    "name": "길음",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000418",
+    "routeId": "1004",
+    "name": "성신여대입구",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000419",
+    "routeId": "1004",
+    "name": "한성대입구",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000420",
+    "routeId": "1004",
+    "name": "혜화",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000421",
+    "routeId": "1004",
+    "name": "동대문",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000422",
+    "routeId": "1004",
+    "name": "동대문역사문화공원",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000423",
+    "routeId": "1004",
+    "name": "충무로",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000424",
+    "routeId": "1004",
+    "name": "명동",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000425",
+    "routeId": "1004",
+    "name": "회현",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000426",
+    "routeId": "1004",
+    "name": "서울",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000427",
+    "routeId": "1004",
+    "name": "숙대입구",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000428",
+    "routeId": "1004",
+    "name": "삼각지",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000429",
+    "routeId": "1004",
+    "name": "신용산",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000430",
+    "routeId": "1004",
+    "name": "이촌",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000431",
+    "routeId": "1004",
+    "name": "동작",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000432",
+    "routeId": "1004",
+    "name": "총신대입구(이수)",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000433",
+    "routeId": "1004",
+    "name": "사당",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000434",
+    "routeId": "1004",
+    "name": "남태령",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000435",
+    "routeId": "1004",
+    "name": "선바위",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000436",
+    "routeId": "1004",
+    "name": "경마공원",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000437",
+    "routeId": "1004",
+    "name": "대공원",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000438",
+    "routeId": "1004",
+    "name": "과천",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000439",
+    "routeId": "1004",
+    "name": "정부과천청사",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000440",
+    "routeId": "1004",
+    "name": "인덕원",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000441",
+    "routeId": "1004",
+    "name": "평촌",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000442",
+    "routeId": "1004",
+    "name": "범계",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000443",
+    "routeId": "1004",
+    "name": "금정",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000444",
+    "routeId": "1004",
+    "name": "산본",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000445",
+    "routeId": "1004",
+    "name": "수리산",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000446",
+    "routeId": "1004",
+    "name": "대야미",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000447",
+    "routeId": "1004",
+    "name": "반월",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000448",
+    "routeId": "1004",
+    "name": "상록수",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000449",
+    "routeId": "1004",
+    "name": "한대앞",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000450",
+    "routeId": "1004",
+    "name": "중앙",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000451",
+    "routeId": "1004",
+    "name": "고잔",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000452",
+    "routeId": "1004",
+    "name": "초지",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000453",
+    "routeId": "1004",
+    "name": "안산",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000454",
+    "routeId": "1004",
+    "name": "신길온천",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000455",
+    "routeId": "1004",
+    "name": "정왕",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1004000456",
+    "routeId": "1004",
+    "name": "오이도",
+    "lineName": "4호선"
+  },
+  {
+    "stopId": "1005000510",
+    "routeId": "1005",
+    "name": "방화",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000511",
+    "routeId": "1005",
+    "name": "개화산",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000512",
+    "routeId": "1005",
+    "name": "김포공항",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000513",
+    "routeId": "1005",
+    "name": "송정",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000514",
+    "routeId": "1005",
+    "name": "마곡",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000515",
+    "routeId": "1005",
+    "name": "발산",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000516",
+    "routeId": "1005",
+    "name": "우장산",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000517",
+    "routeId": "1005",
+    "name": "화곡",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000518",
+    "routeId": "1005",
+    "name": "까치산",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000519",
+    "routeId": "1005",
+    "name": "신정(은행정)",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000520",
+    "routeId": "1005",
+    "name": "목동",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000521",
+    "routeId": "1005",
+    "name": "오목교(목동운동장앞)",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000522",
+    "routeId": "1005",
+    "name": "양평",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000523",
+    "routeId": "1005",
+    "name": "영등포구청",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000524",
+    "routeId": "1005",
+    "name": "영등포시장",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000525",
+    "routeId": "1005",
+    "name": "신길",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000526",
+    "routeId": "1005",
+    "name": "여의도",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000527",
+    "routeId": "1005",
+    "name": "여의나루",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000528",
+    "routeId": "1005",
+    "name": "마포",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000529",
+    "routeId": "1005",
+    "name": "공덕",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000530",
+    "routeId": "1005",
+    "name": "애오개",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000531",
+    "routeId": "1005",
+    "name": "충정로",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000532",
+    "routeId": "1005",
+    "name": "서대문",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000533",
+    "routeId": "1005",
+    "name": "광화문",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000534",
+    "routeId": "1005",
+    "name": "종로3가",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000535",
+    "routeId": "1005",
+    "name": "을지로4가",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000536",
+    "routeId": "1005",
+    "name": "동대문역사문화공원",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000537",
+    "routeId": "1005",
+    "name": "청구",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000538",
+    "routeId": "1005",
+    "name": "신금호",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000539",
+    "routeId": "1005",
+    "name": "행당",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000540",
+    "routeId": "1005",
+    "name": "왕십리",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000541",
+    "routeId": "1005",
+    "name": "마장",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000542",
+    "routeId": "1005",
+    "name": "답십리",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000543",
+    "routeId": "1005",
+    "name": "장한평",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000544",
+    "routeId": "1005",
+    "name": "군자(능동)",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000545",
+    "routeId": "1005",
+    "name": "아차산(어린이대공원후문)",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000546",
+    "routeId": "1005",
+    "name": "광나루(장신대)",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000547",
+    "routeId": "1005",
+    "name": "천호(풍납토성)",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000548",
+    "routeId": "1005",
+    "name": "강동",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000549",
+    "routeId": "1005",
+    "name": "길동",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000550",
+    "routeId": "1005",
+    "name": "굽은다리(강동구민회관앞)",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000551",
+    "routeId": "1005",
+    "name": "명일",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000552",
+    "routeId": "1005",
+    "name": "고덕",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000553",
+    "routeId": "1005",
+    "name": "상일동",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000554",
+    "routeId": "1005",
+    "name": "강일",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000555",
+    "routeId": "1005",
+    "name": "미사",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000556",
+    "routeId": "1005",
+    "name": "하남풍산",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000557",
+    "routeId": "1005",
+    "name": "하남시청",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005000558",
+    "routeId": "1005",
+    "name": "하남검단산",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005080549",
+    "routeId": "1005",
+    "name": "둔촌동",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005080550",
+    "routeId": "1005",
+    "name": "올림픽공원(한국체대)",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005080551",
+    "routeId": "1005",
+    "name": "방이",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005080552",
+    "routeId": "1005",
+    "name": "오금",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005080553",
+    "routeId": "1005",
+    "name": "개롱",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005080554",
+    "routeId": "1005",
+    "name": "거여",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1005080555",
+    "routeId": "1005",
+    "name": "마천",
+    "lineName": "5호선"
+  },
+  {
+    "stopId": "1006000610",
+    "routeId": "1006",
+    "name": "응암순환(상선)",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000611",
+    "routeId": "1006",
+    "name": "역촌",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000612",
+    "routeId": "1006",
+    "name": "불광",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000613",
+    "routeId": "1006",
+    "name": "독바위",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000614",
+    "routeId": "1006",
+    "name": "연신내",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000615",
+    "routeId": "1006",
+    "name": "구산",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000616",
+    "routeId": "1006",
+    "name": "새절(신사)",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000617",
+    "routeId": "1006",
+    "name": "증산(명지대앞)",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000618",
+    "routeId": "1006",
+    "name": "디지털미디어시티",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000619",
+    "routeId": "1006",
+    "name": "월드컵경기장(성산)",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000620",
+    "routeId": "1006",
+    "name": "마포구청",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000621",
+    "routeId": "1006",
+    "name": "망원",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000622",
+    "routeId": "1006",
+    "name": "합정",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000623",
+    "routeId": "1006",
+    "name": "상수",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000624",
+    "routeId": "1006",
+    "name": "광흥창",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000625",
+    "routeId": "1006",
+    "name": "대흥(서강대앞)",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000626",
+    "routeId": "1006",
+    "name": "공덕",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000627",
+    "routeId": "1006",
+    "name": "효창공원앞",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000628",
+    "routeId": "1006",
+    "name": "삼각지",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000629",
+    "routeId": "1006",
+    "name": "녹사평",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000630",
+    "routeId": "1006",
+    "name": "이태원",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000631",
+    "routeId": "1006",
+    "name": "한강진",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000632",
+    "routeId": "1006",
+    "name": "버티고개",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000633",
+    "routeId": "1006",
+    "name": "약수",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000634",
+    "routeId": "1006",
+    "name": "청구",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000635",
+    "routeId": "1006",
+    "name": "신당",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000636",
+    "routeId": "1006",
+    "name": "동묘앞",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000637",
+    "routeId": "1006",
+    "name": "창신",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000638",
+    "routeId": "1006",
+    "name": "보문",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000639",
+    "routeId": "1006",
+    "name": "안암(고대병원앞)",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000640",
+    "routeId": "1006",
+    "name": "고려대",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000641",
+    "routeId": "1006",
+    "name": "월곡(동덕여대)",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000642",
+    "routeId": "1006",
+    "name": "상월곡(한국과학기술연구원)",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000643",
+    "routeId": "1006",
+    "name": "돌곶이",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000644",
+    "routeId": "1006",
+    "name": "석계",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000645",
+    "routeId": "1006",
+    "name": "태릉입구",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000646",
+    "routeId": "1006",
+    "name": "화랑대(서울여대입구)",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000647",
+    "routeId": "1006",
+    "name": "봉화산",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1006000648",
+    "routeId": "1006",
+    "name": "신내",
+    "lineName": "6호선"
+  },
+  {
+    "stopId": "1007000709",
+    "routeId": "1007",
+    "name": "장암",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000710",
+    "routeId": "1007",
+    "name": "도봉산",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000711",
+    "routeId": "1007",
+    "name": "수락산",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000712",
+    "routeId": "1007",
+    "name": "마들",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000713",
+    "routeId": "1007",
+    "name": "노원",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000714",
+    "routeId": "1007",
+    "name": "중계",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000715",
+    "routeId": "1007",
+    "name": "하계",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000716",
+    "routeId": "1007",
+    "name": "공릉(서울산업대입구)",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000717",
+    "routeId": "1007",
+    "name": "태릉입구",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000718",
+    "routeId": "1007",
+    "name": "먹골",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000719",
+    "routeId": "1007",
+    "name": "중화",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000720",
+    "routeId": "1007",
+    "name": "상봉",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000721",
+    "routeId": "1007",
+    "name": "면목",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000722",
+    "routeId": "1007",
+    "name": "사가정",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000723",
+    "routeId": "1007",
+    "name": "용마산",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000724",
+    "routeId": "1007",
+    "name": "중곡",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000725",
+    "routeId": "1007",
+    "name": "군자(능동)",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000726",
+    "routeId": "1007",
+    "name": "어린이대공원(세종대)",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000727",
+    "routeId": "1007",
+    "name": "건대입구",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000728",
+    "routeId": "1007",
+    "name": "뚝섬유원지",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000729",
+    "routeId": "1007",
+    "name": "청담",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000730",
+    "routeId": "1007",
+    "name": "강남구청",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000731",
+    "routeId": "1007",
+    "name": "학동",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000732",
+    "routeId": "1007",
+    "name": "논현",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000733",
+    "routeId": "1007",
+    "name": "반포",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000734",
+    "routeId": "1007",
+    "name": "고속터미널",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000735",
+    "routeId": "1007",
+    "name": "내방",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000736",
+    "routeId": "1007",
+    "name": "총신대입구(이수)",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000737",
+    "routeId": "1007",
+    "name": "남성",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000738",
+    "routeId": "1007",
+    "name": "숭실대입구(살피재)",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000739",
+    "routeId": "1007",
+    "name": "상도(중앙대앞)",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000740",
+    "routeId": "1007",
+    "name": "장승배기",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000741",
+    "routeId": "1007",
+    "name": "신대방삼거리",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000742",
+    "routeId": "1007",
+    "name": "보라매",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000743",
+    "routeId": "1007",
+    "name": "신풍",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000744",
+    "routeId": "1007",
+    "name": "대림",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000745",
+    "routeId": "1007",
+    "name": "남구로",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000746",
+    "routeId": "1007",
+    "name": "가산디지털단지",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000747",
+    "routeId": "1007",
+    "name": "철산",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000748",
+    "routeId": "1007",
+    "name": "광명사거리",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000749",
+    "routeId": "1007",
+    "name": "천왕",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000750",
+    "routeId": "1007",
+    "name": "온수",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000751",
+    "routeId": "1007",
+    "name": "까치울",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000752",
+    "routeId": "1007",
+    "name": "부천종합운동장",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000753",
+    "routeId": "1007",
+    "name": "춘의",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000754",
+    "routeId": "1007",
+    "name": "신중동",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000755",
+    "routeId": "1007",
+    "name": "부천시청",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000756",
+    "routeId": "1007",
+    "name": "상동",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000757",
+    "routeId": "1007",
+    "name": "삼산체육관",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000758",
+    "routeId": "1007",
+    "name": "굴포천",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000759",
+    "routeId": "1007",
+    "name": "부평구청",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000760",
+    "routeId": "1007",
+    "name": "산곡",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1007000761",
+    "routeId": "1007",
+    "name": "석남",
+    "lineName": "7호선"
+  },
+  {
+    "stopId": "1008000804",
+    "routeId": "1008",
+    "name": "별내",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000805",
+    "routeId": "1008",
+    "name": "다산",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000806",
+    "routeId": "1008",
+    "name": "동구릉",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000807",
+    "routeId": "1008",
+    "name": "구리",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000808",
+    "routeId": "1008",
+    "name": "장자호수공원",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000809",
+    "routeId": "1008",
+    "name": "암사역사공원",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000810",
+    "routeId": "1008",
+    "name": "암사",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000811",
+    "routeId": "1008",
+    "name": "천호(풍납토성)",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000812",
+    "routeId": "1008",
+    "name": "강동구청",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000813",
+    "routeId": "1008",
+    "name": "몽촌토성(평화의문)",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000814",
+    "routeId": "1008",
+    "name": "잠실",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000815",
+    "routeId": "1008",
+    "name": "석촌",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000816",
+    "routeId": "1008",
+    "name": "송파",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000817",
+    "routeId": "1008",
+    "name": "가락시장",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000818",
+    "routeId": "1008",
+    "name": "문정",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000819",
+    "routeId": "1008",
+    "name": "장지",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000820",
+    "routeId": "1008",
+    "name": "복정",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000821",
+    "routeId": "1008",
+    "name": "남위례",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000822",
+    "routeId": "1008",
+    "name": "산성",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000823",
+    "routeId": "1008",
+    "name": "남한산성입구(성남법원,검찰청)",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000824",
+    "routeId": "1008",
+    "name": "단대오거리",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000825",
+    "routeId": "1008",
+    "name": "신흥",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000826",
+    "routeId": "1008",
+    "name": "수진",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1008000827",
+    "routeId": "1008",
+    "name": "모란",
+    "lineName": "8호선"
+  },
+  {
+    "stopId": "1009000901",
+    "routeId": "1009",
+    "name": "개화",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000902",
+    "routeId": "1009",
+    "name": "김포공항",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000903",
+    "routeId": "1009",
+    "name": "공항시장",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000904",
+    "routeId": "1009",
+    "name": "신방화",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000905",
+    "routeId": "1009",
+    "name": "마곡나루",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000906",
+    "routeId": "1009",
+    "name": "양천향교",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000907",
+    "routeId": "1009",
+    "name": "가양",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000908",
+    "routeId": "1009",
+    "name": "증미",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000909",
+    "routeId": "1009",
+    "name": "등촌",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000910",
+    "routeId": "1009",
+    "name": "염창",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000911",
+    "routeId": "1009",
+    "name": "신목동",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000912",
+    "routeId": "1009",
+    "name": "선유도",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000913",
+    "routeId": "1009",
+    "name": "당산",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000914",
+    "routeId": "1009",
+    "name": "국회의사당",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000915",
+    "routeId": "1009",
+    "name": "여의도",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000916",
+    "routeId": "1009",
+    "name": "샛강",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000917",
+    "routeId": "1009",
+    "name": "노량진",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000918",
+    "routeId": "1009",
+    "name": "노들",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000919",
+    "routeId": "1009",
+    "name": "흑석",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000920",
+    "routeId": "1009",
+    "name": "동작",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000921",
+    "routeId": "1009",
+    "name": "구반포",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000922",
+    "routeId": "1009",
+    "name": "신반포",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000923",
+    "routeId": "1009",
+    "name": "고속터미널",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000924",
+    "routeId": "1009",
+    "name": "사평",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000925",
+    "routeId": "1009",
+    "name": "신논현",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000926",
+    "routeId": "1009",
+    "name": "언주",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000927",
+    "routeId": "1009",
+    "name": "선정릉",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000928",
+    "routeId": "1009",
+    "name": "삼성중앙",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000929",
+    "routeId": "1009",
+    "name": "봉은사",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000930",
+    "routeId": "1009",
+    "name": "종합운동장",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000931",
+    "routeId": "1009",
+    "name": "삼전",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000932",
+    "routeId": "1009",
+    "name": "석촌고분",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000933",
+    "routeId": "1009",
+    "name": "석촌",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000934",
+    "routeId": "1009",
+    "name": "송파나루",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000935",
+    "routeId": "1009",
+    "name": "한성백제",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000936",
+    "routeId": "1009",
+    "name": "올림픽공원",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000937",
+    "routeId": "1009",
+    "name": "둔촌오륜",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1009000938",
+    "routeId": "1009",
+    "name": "중앙보훈병원",
+    "lineName": "9호선"
+  },
+  {
+    "stopId": "1032000346",
+    "routeId": "1032",
+    "name": "운정중앙",
+    "lineName": "GTX-A"
+  },
+  {
+    "stopId": "1032000347",
+    "routeId": "1032",
+    "name": "킨텍스",
+    "lineName": "GTX-A"
+  },
+  {
+    "stopId": "1032000348",
+    "routeId": "1032",
+    "name": "대곡",
+    "lineName": "GTX-A"
+  },
+  {
+    "stopId": "1032000350",
+    "routeId": "1032",
+    "name": "연신내",
+    "lineName": "GTX-A"
+  },
+  {
+    "stopId": "1032000351",
+    "routeId": "1032",
+    "name": "서울",
+    "lineName": "GTX-A"
+  },
+  {
+    "stopId": "1032000353",
+    "routeId": "1032",
+    "name": "수서",
+    "lineName": "GTX-A"
+  },
+  {
+    "stopId": "1032000354",
+    "routeId": "1032",
+    "name": "성남",
+    "lineName": "GTX-A"
+  },
+  {
+    "stopId": "1032000355",
+    "routeId": "1032",
+    "name": "구성",
+    "lineName": "GTX-A"
+  },
+  {
+    "stopId": "1032000356",
+    "routeId": "1032",
+    "name": "동탄",
+    "lineName": "GTX-A"
+  },
+  {
+    "stopId": "1063075110",
+    "routeId": "1063",
+    "name": "용산",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075111",
+    "routeId": "1063",
+    "name": "이촌",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075112",
+    "routeId": "1063",
+    "name": "서빙고",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075113",
+    "routeId": "1063",
+    "name": "한남",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075114",
+    "routeId": "1063",
+    "name": "옥수",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075115",
+    "routeId": "1063",
+    "name": "응봉",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075116",
+    "routeId": "1063",
+    "name": "왕십리",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075117",
+    "routeId": "1063",
+    "name": "청량리",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075118",
+    "routeId": "1063",
+    "name": "회기",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075119",
+    "routeId": "1063",
+    "name": "중랑",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075120",
+    "routeId": "1063",
+    "name": "상봉",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075121",
+    "routeId": "1063",
+    "name": "망우",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075122",
+    "routeId": "1063",
+    "name": "양원",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075123",
+    "routeId": "1063",
+    "name": "구리",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075124",
+    "routeId": "1063",
+    "name": "도농",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075125",
+    "routeId": "1063",
+    "name": "양정",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075126",
+    "routeId": "1063",
+    "name": "덕소",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075127",
+    "routeId": "1063",
+    "name": "도심",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075128",
+    "routeId": "1063",
+    "name": "팔당",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075129",
+    "routeId": "1063",
+    "name": "운길산",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075130",
+    "routeId": "1063",
+    "name": "양수",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075131",
+    "routeId": "1063",
+    "name": "신원",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075132",
+    "routeId": "1063",
+    "name": "국수",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075133",
+    "routeId": "1063",
+    "name": "아신",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075134",
+    "routeId": "1063",
+    "name": "오빈",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075135",
+    "routeId": "1063",
+    "name": "양평",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075136",
+    "routeId": "1063",
+    "name": "원덕",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075137",
+    "routeId": "1063",
+    "name": "용문",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075138",
+    "routeId": "1063",
+    "name": "지평",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075312",
+    "routeId": "1063",
+    "name": "공덕",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075313",
+    "routeId": "1063",
+    "name": "서강대",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075314",
+    "routeId": "1063",
+    "name": "홍대입구",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075315",
+    "routeId": "1063",
+    "name": "가좌",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075316",
+    "routeId": "1063",
+    "name": "디지털미디어시티",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075317",
+    "routeId": "1063",
+    "name": "수색",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075318",
+    "routeId": "1063",
+    "name": "한국항공대",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075319",
+    "routeId": "1063",
+    "name": "강매",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075320",
+    "routeId": "1063",
+    "name": "행신",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075321",
+    "routeId": "1063",
+    "name": "능곡",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075322",
+    "routeId": "1063",
+    "name": "대곡",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075323",
+    "routeId": "1063",
+    "name": "곡산",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075324",
+    "routeId": "1063",
+    "name": "백마",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075325",
+    "routeId": "1063",
+    "name": "풍산",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075326",
+    "routeId": "1063",
+    "name": "일산",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075327",
+    "routeId": "1063",
+    "name": "탄현",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075328",
+    "routeId": "1063",
+    "name": "야당",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075329",
+    "routeId": "1063",
+    "name": "운정",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075330",
+    "routeId": "1063",
+    "name": "금릉",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075331",
+    "routeId": "1063",
+    "name": "금촌",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075333",
+    "routeId": "1063",
+    "name": "월롱",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075334",
+    "routeId": "1063",
+    "name": "파주",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075335",
+    "routeId": "1063",
+    "name": "문산",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075336",
+    "routeId": "1063",
+    "name": "운천",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075337",
+    "routeId": "1063",
+    "name": "임진강",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063075826",
+    "routeId": "1063",
+    "name": "효창공원앞",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063080312",
+    "routeId": "1063",
+    "name": "신촌(경의중앙선)",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1063080313",
+    "routeId": "1063",
+    "name": "서울",
+    "lineName": "경의중앙선"
+  },
+  {
+    "stopId": "1065006501",
+    "routeId": "1065",
+    "name": "서울",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006502",
+    "routeId": "1065",
+    "name": "공덕",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006503",
+    "routeId": "1065",
+    "name": "홍대입구",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006504",
+    "routeId": "1065",
+    "name": "디지털미디어시티",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006505",
+    "routeId": "1065",
+    "name": "김포공항",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006506",
+    "routeId": "1065",
+    "name": "계양",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006507",
+    "routeId": "1065",
+    "name": "검암",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006508",
+    "routeId": "1065",
+    "name": "운서",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006509",
+    "routeId": "1065",
+    "name": "공항화물청사",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006510",
+    "routeId": "1065",
+    "name": "인천공항1터미널",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065006511",
+    "routeId": "1065",
+    "name": "인천공항2터미널",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065065042",
+    "routeId": "1065",
+    "name": "마곡나루",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065065071",
+    "routeId": "1065",
+    "name": "청라국제도시",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1065065072",
+    "routeId": "1065",
+    "name": "영종",
+    "lineName": "공항철도"
+  },
+  {
+    "stopId": "1067080116",
+    "routeId": "1067",
+    "name": "청량리",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080117",
+    "routeId": "1067",
+    "name": "회기",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080118",
+    "routeId": "1067",
+    "name": "중랑",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080119",
+    "routeId": "1067",
+    "name": "광운대",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080120",
+    "routeId": "1067",
+    "name": "상봉",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080121",
+    "routeId": "1067",
+    "name": "망우",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080122",
+    "routeId": "1067",
+    "name": "신내",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080123",
+    "routeId": "1067",
+    "name": "갈매",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080124",
+    "routeId": "1067",
+    "name": "별내",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080125",
+    "routeId": "1067",
+    "name": "퇴계원",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080126",
+    "routeId": "1067",
+    "name": "사릉",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080127",
+    "routeId": "1067",
+    "name": "금곡",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080128",
+    "routeId": "1067",
+    "name": "평내호평",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080129",
+    "routeId": "1067",
+    "name": "천마산",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080130",
+    "routeId": "1067",
+    "name": "마석",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080131",
+    "routeId": "1067",
+    "name": "대성리",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080132",
+    "routeId": "1067",
+    "name": "청평",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080133",
+    "routeId": "1067",
+    "name": "상천",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080134",
+    "routeId": "1067",
+    "name": "가평",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080135",
+    "routeId": "1067",
+    "name": "굴봉산",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080136",
+    "routeId": "1067",
+    "name": "백양리",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080137",
+    "routeId": "1067",
+    "name": "강촌",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080138",
+    "routeId": "1067",
+    "name": "김유정",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080139",
+    "routeId": "1067",
+    "name": "남춘천",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1067080140",
+    "routeId": "1067",
+    "name": "춘천",
+    "lineName": "경춘선"
+  },
+  {
+    "stopId": "1075075209",
+    "routeId": "1075",
+    "name": "청량리",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075210",
+    "routeId": "1075",
+    "name": "왕십리",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075211",
+    "routeId": "1075",
+    "name": "서울숲",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075212",
+    "routeId": "1075",
+    "name": "압구정로데오",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075213",
+    "routeId": "1075",
+    "name": "강남구청",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075214",
+    "routeId": "1075",
+    "name": "선정릉",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075215",
+    "routeId": "1075",
+    "name": "선릉",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075216",
+    "routeId": "1075",
+    "name": "한티",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075217",
+    "routeId": "1075",
+    "name": "도곡",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075218",
+    "routeId": "1075",
+    "name": "구룡",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075219",
+    "routeId": "1075",
+    "name": "개포동",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075220",
+    "routeId": "1075",
+    "name": "대모산입구",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075221",
+    "routeId": "1075",
+    "name": "수서",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075222",
+    "routeId": "1075",
+    "name": "복정",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075223",
+    "routeId": "1075",
+    "name": "가천대",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075224",
+    "routeId": "1075",
+    "name": "태평",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075225",
+    "routeId": "1075",
+    "name": "모란",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075226",
+    "routeId": "1075",
+    "name": "야탑",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075227",
+    "routeId": "1075",
+    "name": "이매",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075228",
+    "routeId": "1075",
+    "name": "서현",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075229",
+    "routeId": "1075",
+    "name": "수내",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075230",
+    "routeId": "1075",
+    "name": "정자",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075231",
+    "routeId": "1075",
+    "name": "미금",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075232",
+    "routeId": "1075",
+    "name": "오리",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075233",
+    "routeId": "1075",
+    "name": "죽전",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075234",
+    "routeId": "1075",
+    "name": "보정",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075235",
+    "routeId": "1075",
+    "name": "구성",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075236",
+    "routeId": "1075",
+    "name": "신갈",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075237",
+    "routeId": "1075",
+    "name": "기흥",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075238",
+    "routeId": "1075",
+    "name": "상갈",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075239",
+    "routeId": "1075",
+    "name": "청명",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075240",
+    "routeId": "1075",
+    "name": "영통",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075241",
+    "routeId": "1075",
+    "name": "망포",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075242",
+    "routeId": "1075",
+    "name": "매탄권선",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075243",
+    "routeId": "1075",
+    "name": "수원시청",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075244",
+    "routeId": "1075",
+    "name": "매교",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075245",
+    "routeId": "1075",
+    "name": "수원",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075246",
+    "routeId": "1075",
+    "name": "고색",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075247",
+    "routeId": "1075",
+    "name": "오목천",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075248",
+    "routeId": "1075",
+    "name": "어천",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075249",
+    "routeId": "1075",
+    "name": "야목",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075250",
+    "routeId": "1075",
+    "name": "사리",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075251",
+    "routeId": "1075",
+    "name": "한대앞",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075252",
+    "routeId": "1075",
+    "name": "중앙",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075253",
+    "routeId": "1075",
+    "name": "고잔",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075254",
+    "routeId": "1075",
+    "name": "초지",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075255",
+    "routeId": "1075",
+    "name": "안산",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075256",
+    "routeId": "1075",
+    "name": "신길온천",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075257",
+    "routeId": "1075",
+    "name": "정왕",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075258",
+    "routeId": "1075",
+    "name": "오이도",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075259",
+    "routeId": "1075",
+    "name": "달월",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075260",
+    "routeId": "1075",
+    "name": "월곶",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075261",
+    "routeId": "1075",
+    "name": "소래포구",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075262",
+    "routeId": "1075",
+    "name": "인천논현",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075263",
+    "routeId": "1075",
+    "name": "호구포",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075264",
+    "routeId": "1075",
+    "name": "남동인더스파크",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075265",
+    "routeId": "1075",
+    "name": "원인재",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075266",
+    "routeId": "1075",
+    "name": "연수",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075267",
+    "routeId": "1075",
+    "name": "송도",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075268",
+    "routeId": "1075",
+    "name": "인하대",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075269",
+    "routeId": "1075",
+    "name": "숭의",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075270",
+    "routeId": "1075",
+    "name": "신포",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1075075271",
+    "routeId": "1075",
+    "name": "인천",
+    "lineName": "수인분당선"
+  },
+  {
+    "stopId": "1077000684",
+    "routeId": "1077",
+    "name": "신사",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077000685",
+    "routeId": "1077",
+    "name": "논현",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077000686",
+    "routeId": "1077",
+    "name": "신논현",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077000687",
+    "routeId": "1077",
+    "name": "강남",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077000688",
+    "routeId": "1077",
+    "name": "양재",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077000689",
+    "routeId": "1077",
+    "name": "양재시민의숲",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006810",
+    "routeId": "1077",
+    "name": "청계산입구",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006811",
+    "routeId": "1077",
+    "name": "판교",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006812",
+    "routeId": "1077",
+    "name": "정자",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006813",
+    "routeId": "1077",
+    "name": "미금",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006814",
+    "routeId": "1077",
+    "name": "동천",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006815",
+    "routeId": "1077",
+    "name": "수지구청",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006816",
+    "routeId": "1077",
+    "name": "성복",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006817",
+    "routeId": "1077",
+    "name": "상현",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006818",
+    "routeId": "1077",
+    "name": "광교중앙",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1077006819",
+    "routeId": "1077",
+    "name": "광교",
+    "lineName": "신분당선"
+  },
+  {
+    "stopId": "1081037409",
+    "routeId": "1081",
+    "name": "판교",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037410",
+    "routeId": "1081",
+    "name": "성남",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037411",
+    "routeId": "1081",
+    "name": "이매",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037412",
+    "routeId": "1081",
+    "name": "삼동",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037413",
+    "routeId": "1081",
+    "name": "경기광주",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037414",
+    "routeId": "1081",
+    "name": "초월",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037415",
+    "routeId": "1081",
+    "name": "곤지암",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037416",
+    "routeId": "1081",
+    "name": "신둔도예촌",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037417",
+    "routeId": "1081",
+    "name": "이천",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037418",
+    "routeId": "1081",
+    "name": "부발",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037419",
+    "routeId": "1081",
+    "name": "세종왕릉",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1081037420",
+    "routeId": "1081",
+    "name": "여주",
+    "lineName": "경강선"
+  },
+  {
+    "stopId": "1092004701",
+    "routeId": "1092",
+    "name": "북한산우이",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004702",
+    "routeId": "1092",
+    "name": "솔밭공원",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004703",
+    "routeId": "1092",
+    "name": "4.19 민주묘지",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004704",
+    "routeId": "1092",
+    "name": "가오리",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004705",
+    "routeId": "1092",
+    "name": "화계",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004706",
+    "routeId": "1092",
+    "name": "삼양",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004707",
+    "routeId": "1092",
+    "name": "삼양사거리",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004708",
+    "routeId": "1092",
+    "name": "솔샘",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004709",
+    "routeId": "1092",
+    "name": "북한산보국문",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004710",
+    "routeId": "1092",
+    "name": "정릉",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004711",
+    "routeId": "1092",
+    "name": "성신여대입구",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004712",
+    "routeId": "1092",
+    "name": "보문",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1092004713",
+    "routeId": "1092",
+    "name": "신설동",
+    "lineName": "우이신설선"
+  },
+  {
+    "stopId": "1093004001",
+    "routeId": "1093",
+    "name": "일산",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004002",
+    "routeId": "1093",
+    "name": "풍산",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004003",
+    "routeId": "1093",
+    "name": "백마",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004004",
+    "routeId": "1093",
+    "name": "곡산",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004005",
+    "routeId": "1093",
+    "name": "대곡",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004006",
+    "routeId": "1093",
+    "name": "능곡",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004007",
+    "routeId": "1093",
+    "name": "김포공항",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004008",
+    "routeId": "1093",
+    "name": "원종",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004009",
+    "routeId": "1093",
+    "name": "부천종합운동장",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004010",
+    "routeId": "1093",
+    "name": "소사",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004011",
+    "routeId": "1093",
+    "name": "소새울",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004012",
+    "routeId": "1093",
+    "name": "시흥대야",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004013",
+    "routeId": "1093",
+    "name": "신천",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004014",
+    "routeId": "1093",
+    "name": "신현",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004016",
+    "routeId": "1093",
+    "name": "시흥시청",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004017",
+    "routeId": "1093",
+    "name": "시흥능곡",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004018",
+    "routeId": "1093",
+    "name": "달미",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004019",
+    "routeId": "1093",
+    "name": "선부",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004020",
+    "routeId": "1093",
+    "name": "초지",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004021",
+    "routeId": "1093",
+    "name": "시우",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1093004022",
+    "routeId": "1093",
+    "name": "원시",
+    "lineName": "서해선"
+  },
+  {
+    "stopId": "1094000401",
+    "routeId": "1094",
+    "name": "샛강",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000402",
+    "routeId": "1094",
+    "name": "대방",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000403",
+    "routeId": "1094",
+    "name": "서울지방병무청",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000404",
+    "routeId": "1094",
+    "name": "보라매",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000405",
+    "routeId": "1094",
+    "name": "보라매공원",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000406",
+    "routeId": "1094",
+    "name": "보라매병원",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000407",
+    "routeId": "1094",
+    "name": "당곡",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000408",
+    "routeId": "1094",
+    "name": "신림",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000409",
+    "routeId": "1094",
+    "name": "서원",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000410",
+    "routeId": "1094",
+    "name": "서울대벤처타운",
+    "lineName": "신림선"
+  },
+  {
+    "stopId": "1094000411",
+    "routeId": "1094",
+    "name": "관악산",
+    "lineName": "신림선"
+  }
+]

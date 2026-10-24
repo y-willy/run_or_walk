@@ -4,83 +4,52 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlin.math.ceil
 
 internal enum class FeatureMode { ROUTE, STOP }
-internal enum class SearchProvider { KAKAO, ODSAY }
-internal enum class SearchField { ORIGIN, DESTINATION, STOP }
+internal enum class SearchField { DESTINATION, STOP }
 
-/** Only values actually returned by a place provider are shown in a candidate. */
 internal data class JourneyPlace(
     val id: String,
     val name: String,
     val detail: String,
-    val point: MapPoint,
-    val transitStop: TransitStop? = null
+    val point: MapPoint
 ) {
     companion object {
         fun from(place: KakaoPlace) = JourneyPlace(
             id = "kakao-${place.id}", name = place.name,
-            detail = place.address.ifBlank { "주소 정보 없음" }, point = place.point
-        )
-
-        fun from(stop: TransitStop) = JourneyPlace(
-            id = "odsay-${stop.id}", name = stop.name,
-            detail = stop.line.ifBlank { "노선 정보 없음" }, point = stop.point,
-            transitStop = stop
-        )
+            detail = place.address.ifBlank { "주소 정보 없음" }, point = place.point)
     }
 }
 
-internal data class JourneyTransitRoute(
-    val id: String,
-    val kakao: KakaoTransitChoice? = null,
-    val odsay: TransitPlan? = null
-) {
-    val durationMinutes: Int
-        get() = kakao?.let { kotlin.math.ceil(it.totalSeconds / 60.0).toInt() }
-            ?: odsay?.totalMinutes ?: 0
-    val serviceName: String
-        get() = kakao?.serviceName ?: odsay?.serviceName.orEmpty()
-    val boardingName: String
-        get() = kakao?.boardingStopName?.ifBlank { "승차 장소 정보 없음" }
-            ?: odsay?.boardingStop?.name.orEmpty()
-    val detail: String
-        get() = kakao?.let {
-            val type = when (it.firstTransitType) {
-                "BUS" -> "버스"
-                "SUBWAY" -> "지하철"
-                else -> "대중교통"
-            }
-            "$type · 환승 ${it.transfers}회"
-        } ?: odsay?.let {
-            // TransitPlan does not expose a transfer count, so do not invent one.
-            val type = when (it.boardingStop.type) {
-                1 -> "지하철"
-                2 -> "버스"
-                else -> "대중교통"
-            }
-            listOf(type, it.direction.takeIf(String::isNotBlank), "ODsay 경로")
-                .filterNotNull().joinToString(" · ")
-        }.orEmpty()
+internal data class JourneyTransitRoute(val id: String, val kakao: KakaoTransitChoice) {
+    val durationMinutes: Int get() = ceil(kakao.totalSeconds / 60.0).toInt()
+    val serviceName: String get() = kakao.serviceName
+    val boardingName: String get() = kakao.boardingStopName
+    val detail: String get() = listOfNotNull(
+        when (kakao.firstTransitType) {
+            "BUS" -> "버스"
+            "SUBWAY" -> "지하철"
+            else -> "대중교통"
+        },
+        kakao.transfers?.let { "환승 ${it}회" },
+        kakao.totalWalkingSeconds?.let { "도보 약 ${ceil(it / 60.0).toInt()}분 포함" }
+    ).joinToString(" · ")
 }
 
-internal class JourneySearchState(initialQuery: String = "") {
-    var query by mutableStateOf(initialQuery)
+internal class JourneySearchState {
+    var query by mutableStateOf("")
     var options by mutableStateOf<List<JourneyPlace>>(emptyList())
     var selected by mutableStateOf<JourneyPlace?>(null)
     var searched by mutableStateOf(false)
 }
 
-/** One instance per feature AND provider. Only the GPS sensor reading is shared. */
-internal class JourneyScreenState(
-    val mode: FeatureMode,
-    val provider: SearchProvider
-) {
-    val origin = JourneySearchState(if (provider == SearchProvider.KAKAO) "서울역" else "")
-    val destination = JourneySearchState(if (provider == SearchProvider.KAKAO) "동탄역" else "")
-    val stop = JourneySearchState(if (provider == SearchProvider.KAKAO) "서울역" else "")
+/** One independent search/result state per tab; only the physical GPS position is shared. */
+internal class JourneyScreenState(val mode: FeatureMode,
+    private val alertGate: AutomaticAlertGate = AutomaticAlertGate()) {
+    val destination = JourneySearchState()
+    val stop = JourneySearchState()
     val scrollState = ScrollState(0)
-
     var routes by mutableStateOf<List<JourneyTransitRoute>>(emptyList())
     var routeSearchCompleted by mutableStateOf(false)
     var selectedRoute by mutableStateOf<JourneyTransitRoute?>(null)
@@ -89,15 +58,29 @@ internal class JourneyScreenState(
     var boardingChosenByUser by mutableStateOf(false)
     var boardingCandidates by mutableStateOf<List<JourneyPlace>>(emptyList())
     var candidatesSearched by mutableStateOf(false)
+    var detailsExpanded by mutableStateOf(false)
+    var changingBoarding by mutableStateOf(false)
 
+    var stationQuery by mutableStateOf("")
+    var lastArrivalPollElapsedMillis: Long? = null
+    var stationOptions by mutableStateOf<List<OfficialSubwayStation>>(emptyList())
+    var stationsSearched by mutableStateOf(false)
+    var selectedStation by mutableStateOf<OfficialSubwayStation?>(null)
+    var arrivalOptions by mutableStateOf<List<OfficialSubwayArrival>>(emptyList())
+    var selectedArrival by mutableStateOf<OfficialSubwayArrival?>(null)
+    var arrivalRequestFailed by mutableStateOf(false)
+    var liveLoading by mutableStateOf(false)
+    var liveError by mutableStateOf<String?>(null)
+    var alertsEnabled by mutableStateOf(false)
+
+    var location by mutableStateOf<GuidanceLocation?>(null)
+    var guidanceWalkingRoute by mutableStateOf<GuidanceWalkingRoute?>(null)
+    var walkRoute by mutableStateOf<WalkRoute?>(null)
+    var walkFetchedAtEpochMillis by mutableStateOf<Long?>(null)
+    var walkOrigin by mutableStateOf<MapPoint?>(null)
+    var walkingPoints by mutableStateOf<List<MapPoint>>(emptyList())
     var mapCenter by mutableStateOf<MapPoint?>(null)
     var recenterRequest by mutableStateOf(0)
-    var walkRoute by mutableStateOf<WalkRoute?>(null)
-    var walkingPoints by mutableStateOf<List<MapPoint>>(emptyList())
-    var arrivalMinutes by mutableStateOf("5")
-    var bufferMinutes by mutableStateOf("2")
-    var assessment by mutableStateOf<UrgencyAssessment?>(null)
-    var timeInputError by mutableStateOf<String?>(null)
 
     var loading by mutableStateOf(false)
     var waitingForPermission by mutableStateOf(false)
@@ -105,42 +88,68 @@ internal class JourneyScreenState(
     var error by mutableStateOf<String?>(null)
     val busy: Boolean get() = loading || waitingForPermission
 
-    // Mutations invalidate captured async work and permission requests.
+    // Search, permission and live responses all carry generations. A new selection
+    // invalidates even a response from an API that does not support cancellation.
     var revision: Long = 0
         private set
     var requestId: Long = 0
         private set
+    var liveRequestId: Long = 0
+        private set
 
     fun search(field: SearchField): JourneySearchState = when (field) {
-        SearchField.ORIGIN -> origin
         SearchField.DESTINATION -> destination
         SearchField.STOP -> stop
     }
 
     fun editQuery(field: SearchField, value: String) {
-        val input = search(field)
-        input.query = value
-        input.selected = null
-        input.options = emptyList()
-        input.searched = false
+        search(field).apply {
+            query = value
+            selected = null
+            options = emptyList()
+            searched = false
+        }
         clearRoutesAndBoarding()
         status = ""
         error = null
     }
 
-    fun clearWalking() {
+    fun invalidateRequests() {
         revision++
         requestId++
+        liveRequestId++
         loading = false
         waitingForPermission = false
+        liveLoading = false
+    }
+
+    fun clearWalking() {
+        invalidateRequests()
+        guidanceWalkingRoute = null
         walkRoute = null
+        walkFetchedAtEpochMillis = null
+        walkOrigin = null
         walkingPoints = emptyList()
-        assessment = null
-        timeInputError = null
+        location = null
+    }
+
+    fun clearOfficialSelection() {
+        liveRequestId++
+        selectedStation = null
+        lastArrivalPollElapsedMillis = null
+        selectedArrival = null
+        stationOptions = emptyList()
+        stationsSearched = false
+        arrivalOptions = emptyList()
+        arrivalRequestFailed = false
+        liveError = null
+        liveLoading = false
+        guidanceWalkingRoute = null
     }
 
     fun clearRoutesAndBoarding() {
         clearWalking()
+        clearOfficialSelection()
         routes = emptyList()
         routeSearchCompleted = false
         selectedRoute = null
@@ -149,6 +158,8 @@ internal class JourneyScreenState(
         boardingChosenByUser = false
         boardingCandidates = emptyList()
         candidatesSearched = false
+        detailsExpanded = false
+        changingBoarding = false
         mapCenter = null
     }
 
@@ -160,18 +171,42 @@ internal class JourneyScreenState(
         return requestId
     }
 
+    fun beginLiveRequest(): Long {
+        liveRequestId++
+        liveLoading = true
+        liveError = null
+        return liveRequestId
+    }
+
+    fun acceptsResponse(generation: Long): Boolean = requestId == generation
+    fun acceptsLiveResponse(generation: Long): Boolean = liveRequestId == generation
+
     fun centerOn(point: MapPoint) {
         mapCenter = point
         recenterRequest++
     }
 
+    /** Keep the chosen train when it disappears, but invalidate its cached live snapshot. */
+    fun applyArrivalOptions(options: List<OfficialSubwayArrival>): OfficialSubwayArrival? {
+        arrivalOptions = options
+        val previous = selectedArrival ?: return null
+        val matching = options.firstOrNull {
+            it.identity == previous.identity && it.trainId == previous.trainId
+        }
+        arrivalRequestFailed = matching == null
+        if (matching != null) selectedArrival = matching
+        return matching
+    }
+
+    /** One shared gate suppresses duplicate notifications when switching tabs. */
+    fun claimAutomaticAlert(status: AutoGuidanceStatus, nowEpochMillis: Long): Boolean =
+        alertGate.claim(alertsEnabled, selectedArrival?.identity, selectedArrival?.trainId,
+            status, nowEpochMillis)
+
     val boardingNotice: String?
         get() = when {
-            boardingChosenByUser -> "직접 선택한 승차 위치예요. 실제 정류장·출입구를 지도에서 확인하세요."
-            boardingSource == BoardingPointSource.ESTIMATED ->
-                "경로에서 추정한 승차 위치예요. 실제 정류장·출입구와 다를 수 있어요."
-            boardingSource == BoardingPointSource.UNKNOWN ->
-                "승차 위치 미확인 · 출발지 기준의 임시 위치예요. 아래 후보에서 정확한 장소를 선택하세요."
-            else -> null
+            boardingChosenByUser -> null
+            boardingSource == BoardingPointSource.ESTIMATED -> "승차 위치 추정 · 지도에서 장소를 선택해 주세요."
+            else -> "승차 위치 확인 필요 · 장소를 직접 선택해 주세요."
         }
 }

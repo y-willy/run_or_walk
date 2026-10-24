@@ -5,6 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
 import android.graphics.Path
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceView
@@ -47,6 +49,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import com.kakao.vectormap.KakaoMap
 import com.kakao.vectormap.KakaoMapReadyCallback
+import com.kakao.vectormap.KakaoMapSdk
 import com.kakao.vectormap.LatLng
 import com.kakao.vectormap.MapLifeCycleCallback
 import com.kakao.vectormap.MapView
@@ -59,6 +62,7 @@ import com.kakao.vectormap.route.RouteLineOptions
 import com.kakao.vectormap.route.RouteLineSegment
 import com.kakao.vectormap.route.RouteLineStyle
 import com.kakao.vectormap.route.RouteLineStyles
+import kotlinx.coroutines.delay
 
 @Composable
 fun KakaoMapPanel(
@@ -74,9 +78,10 @@ fun KakaoMapPanel(
     val context = LocalContext.current
     var retryCount by remember { mutableIntStateOf(0) }
     // Ordinary recomposition retains the View; only an explicit retry replaces it.
-    val mapView = remember(context, retryCount) { MapView(context) }
+    val mapView = remember(context, lifecycleOwner, retryCount) { MapView(context) }
     var kakaoMap by remember(mapView) { mutableStateOf<KakaoMap?>(null) }
-    var mapError by remember(mapView) { mutableStateOf(false) }
+    var mapFailure by remember(mapView) { mutableStateOf<MapLoadFailure?>(null) }
+    var mapResumed by remember(mapView) { mutableStateOf(false) }
     val markerBitmaps = remember(context) {
         val density = context.resources.displayMetrics.density
         createLocationMarker(density, false) to createLocationMarker(density, true)
@@ -97,7 +102,7 @@ fun KakaoMapPanel(
             )
         }
 
-        if (kakaoMap != null && !mapError) {
+        if (kakaoMap != null && mapFailure == null) {
             Surface(
                 modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                 shape = RoundedCornerShape(12.dp),
@@ -143,7 +148,7 @@ fun KakaoMapPanel(
             ) { Text("◎ 현재 위치") }
         }
 
-        if (kakaoMap == null || mapError) {
+        if (kakaoMap == null || mapFailure != null) {
             Surface(
                 modifier = Modifier.align(Alignment.Center).padding(20.dp).semantics {
                     liveRegion = LiveRegionMode.Polite
@@ -157,9 +162,11 @@ fun KakaoMapPanel(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (mapError) {
+                    val failure = mapFailure
+                    if (failure != null) {
                         Text("지도를 불러오지 못했어요", style = MaterialTheme.typography.titleSmall)
-                        Text("네트워크 연결을 확인하고 다시 시도해 주세요.", style = MaterialTheme.typography.bodySmall)
+                        Text(failure.guidance, style = MaterialTheme.typography.bodySmall)
+                        Text("오류 코드: ${failure.diagnosticCode}", style = MaterialTheme.typography.labelSmall)
                         Button(onClick = { retryCount++ }) { Text("지도 다시 불러오기") }
                     } else {
                         Row(
@@ -178,58 +185,95 @@ fun KakaoMapPanel(
     DisposableEffect(mapView, lifecycleOwner) {
         var resumed = false
         var disposed = false
+        var startSucceeded = false
+        var startAttempted = false
         var touchSurface: SurfaceView? = null
-        mapView.setFinishManually(true)
+        val mainHandler = Handler(Looper.getMainLooper())
+        fun onMain(block: () -> Unit) {
+            if (Looper.myLooper() == Looper.getMainLooper()) block()
+            else mainHandler.post { block() }
+        }
+        fun reportFailure(failure: MapLoadFailure) {
+            if (disposed) return
+            if (mapFailure != null && mapFailure?.category != MapFailureCategory.TIMEOUT) return
+            mapFailure = failure
+            kakaoMap = null
+            // SDK exception messages can include request/authentication details.
+            Log.w("PaceNudgeMap", failure.diagnosticCode)
+        }
+        mapResumed = false
+        val initializationFailure =
+            (context.applicationContext as? PaceNudgeApplication)?.initializeMapSdk()
+                ?: if (!KakaoMapSdk.isInitialized()) {
+                    MapLoadFailure(MapFailureCategory.INITIALIZATION)
+                } else null
         try {
-            mapView.start(
-                object : MapLifeCycleCallback() {
-                    override fun onMapDestroy() {
-                        Log.d("PaceNudge", "카카오맵 종료")
-                    }
-
-                    override fun onMapError(error: Exception) {
-                        if (!disposed) mapError = true
-                        Log.e("PaceNudge", "카카오맵 오류", error)
-                    }
-                },
-                object : KakaoMapReadyCallback() {
-                    override fun onMapReady(map: KakaoMap) {
-                        if (disposed) return
-                        // MapView is a FrameLayout: the SDK's child SurfaceView
-                        // consumes touches, so listen there rather than on its parent.
-                        // Returning false preserves the SDK's own gesture handling.
-                        touchSurface = mapView.surfaceView
-                        @Suppress("ClickableViewAccessibility")
-                        touchSurface?.setOnTouchListener { view, event ->
-                            when (event.actionMasked) {
-                                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
-                                    view.parent?.requestDisallowInterceptTouchEvent(true)
-                                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
-                                    view.parent?.requestDisallowInterceptTouchEvent(false)
+            if (initializationFailure != null) {
+                reportFailure(initializationFailure)
+            } else {
+                startAttempted = true
+                mapView.start(
+                    object : MapLifeCycleCallback() {
+                        override fun onMapDestroy() {
+                            onMain {
+                                if (!disposed && mapFailure == null) {
+                                    reportFailure(MapLoadFailure(MapFailureCategory.LIFECYCLE))
+                                }
                             }
-                            false
                         }
-                        kakaoMap = map
-                        mapError = false
-                    }
 
-                    override fun getPosition(): LatLng = LatLng.from(37.5665, 126.9780)
-                    override fun getZoomLevel(): Int = 16
-                }
-            )
+                        override fun onMapError(error: Exception) {
+                            onMain { reportFailure(MapLoadFailure.from(error)) }
+                        }
+                    },
+                    object : KakaoMapReadyCallback() {
+                        override fun onMapReady(map: KakaoMap) {
+                            onMain {
+                                if (disposed || mapFailure != null) return@onMain
+                                // The SDK's child SurfaceView consumes touches.
+                                // Returning false preserves its gesture handling.
+                                touchSurface = mapView.surfaceView
+                                @Suppress("ClickableViewAccessibility")
+                                touchSurface?.setOnTouchListener { view, event ->
+                                    when (event.actionMasked) {
+                                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
+                                            view.parent?.requestDisallowInterceptTouchEvent(true)
+                                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                                            view.parent?.requestDisallowInterceptTouchEvent(false)
+                                    }
+                                    false
+                                }
+                                kakaoMap = map
+                            }
+                        }
+
+                        override fun getPosition(): LatLng = LatLng.from(37.5665, 126.9780)
+                        override fun getZoomLevel(): Int = 16
+                    }
+                )
+            }
+            if (initializationFailure == null && mapFailure == null) {
+                // SDK 2.15.2 ignores this setter before start(): the renderer
+                // must exist. Keep it alive across temporary Surface detach.
+                mapView.setFinishManually(true)
+                startSucceeded = true
+            }
         } catch (error: Exception) {
-            mapError = true
-            Log.e("PaceNudge", "카카오맵 시작 오류", error)
+            reportFailure(MapLoadFailure.from(error))
+        } catch (error: LinkageError) {
+            reportFailure(MapLoadFailure.from(error))
         }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> if (!resumed) {
+                Lifecycle.Event.ON_RESUME -> if (startSucceeded && !resumed) {
                     mapView.resume()
                     resumed = true
+                    mapResumed = true
                 }
                 Lifecycle.Event.ON_PAUSE -> if (resumed) {
                     mapView.pause()
                     resumed = false
+                    mapResumed = false
                 }
                 else -> Unit
             }
@@ -239,12 +283,25 @@ fun KakaoMapPanel(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             disposed = true
+            mapResumed = false
             lifecycleOwner.lifecycle.removeObserver(observer)
             touchSurface?.parent?.requestDisallowInterceptTouchEvent(false)
             touchSurface?.setOnTouchListener(null)
             mapView.parent?.requestDisallowInterceptTouchEvent(false)
             if (resumed) mapView.pause()
-            mapView.finish()
+            if (startAttempted) mapView.finish()
+            mainHandler.removeCallbacksAndMessages(null)
+        }
+    }
+
+    // Count only foreground waiting; backgrounding the Activity cancels the
+    // timer. An explicit retry gets a new View and invalidates old callbacks.
+    LaunchedEffect(mapView, mapResumed, kakaoMap, mapFailure) {
+        if (mapResumed && kakaoMap == null && mapFailure == null) {
+            delay(20_000)
+            val failure = MapLoadFailure(MapFailureCategory.TIMEOUT)
+            mapFailure = failure
+            Log.w("PaceNudgeMap", failure.diagnosticCode)
         }
     }
 

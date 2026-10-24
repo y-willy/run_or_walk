@@ -1,0 +1,8 @@
+**
+!gateway/
+!gateway/server.py
+!app/
+!app/src/
+!app/src/main/
+!app/src/main/assets/
+!app/src/main/assets/seoul_subway_stations.json

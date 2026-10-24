@@ -1,300 +1,213 @@
 package com.example.run_or_walk
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
-
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-// 검색된 장소
-data class KakaoPlace(
-    val id: String,
-    val name: String,
-    val address: String,
-    val point: MapPoint
-)
+class KakaoApiException(message: String, val httpStatus: Int? = null) : IOException(message)
 
-// 실제 도보 경로
-data class KakaoWalkingRoute(
-    val distanceMeters: Int,
-    val durationSeconds: Int,
-    val points: List<MapPoint>
-)
-
-// 승차 위치 출처 및 신뢰도
-enum class BoardingPointSource {
-    VERIFIED,  // 별도 정류장 데이터에서 검증된 위치
-    ESTIMATED, // 경로 좌표 기반 추정 위치
-    UNKNOWN    // 위치 미확인
-}
-
-// 대중교통 경로
-data class KakaoTransitChoice(
-    val totalSeconds: Int,
-    val transfers: Int,
-    val serviceName: String,
-    val boardingStopName: String,
-    val boardingPoint: MapPoint?,
-    val boardingSource: BoardingPointSource = BoardingPointSource.UNKNOWN,
-    val firstTransitType: String = ""
-)
-
-class KakaoApiRepository(
-    private val restKey: String
-) {
-
-    // 공통 REST 요청 함수
-    private fun request(
-        url: String,
-        params: Map<String, String>
-    ): JSONObject {
-
-        check(restKey.isNotBlank()) {
-            "카카오 REST API 키가 설정되지 않았습니다."
-        }
-
+class KakaoApiRepository(private val restKey: String) {
+    private suspend fun request(url: String, params: Map<String, String>): JSONObject {
+        check(restKey.isNotBlank()) { "카카오 REST API 키가 설정되지 않았습니다." }
+        currentCoroutineContext().ensureActive()
         val query = params.entries.joinToString("&") {
-            val key = URLEncoder.encode(it.key, "UTF-8")
-            val value = URLEncoder.encode(it.value, "UTF-8")
-            "$key=$value"
+            "${URLEncoder.encode(it.key, "UTF-8")}=${URLEncoder.encode(it.value, "UTF-8")}"
         }
-
-        val connection = URL("$url?$query")
-            .openConnection() as HttpURLConnection
-
+        val connection = URL("$url?$query").openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
-        connection.connectTimeout = 15000
-        connection.readTimeout = 15000
-
-        // 카카오 REST 인증 헤더
-        connection.setRequestProperty(
-            "Authorization",
-            "KakaoAK $restKey"
-        )
-
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 15_000
+        connection.setRequestProperty("Authorization", "KakaoAK $restKey")
         try {
             val status = connection.responseCode
-
-            val stream = if (status in 200..299) {
-                connection.inputStream
-            } else {
-                connection.errorStream
-            }
-
-            val body = stream?.bufferedReader()?.use {
-                it.readText()
-            }.orEmpty()
-
+            currentCoroutineContext().ensureActive()
             if (status !in 200..299) {
-                error("카카오 API 오류 ($status): $body")
+                // Never expose response bodies or URLs containing auth/location data.
+                val message = when (status) {
+                    401, 403 -> "카카오 API 인증 또는 서비스 이용 권한을 확인해 주세요."
+                    429 -> "카카오 API 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요."
+                    else -> "카카오 API 요청을 처리하지 못했습니다. (HTTP $status)"
+                }
+                throw KakaoApiException(message, status)
             }
-
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            currentCoroutineContext().ensureActive()
             return JSONObject(body)
-
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: KakaoApiException) {
+            throw failure
+        } catch (_: IOException) {
+            currentCoroutineContext().ensureActive()
+            throw KakaoApiException("카카오 서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.")
+        } catch (_: JSONException) {
+            throw KakaoApiException("카카오 API 응답을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.")
         } finally {
             connection.disconnect()
         }
     }
 
-    // 1. 장소 검색: 서울역, 동탄역, 버스 정류장 등
-    suspend fun searchPlaces(
-        query: String
-    ): List<KakaoPlace> = withContext(Dispatchers.IO) {
-
-        require(query.isNotBlank()) {
-            "검색어를 입력하세요."
-        }
-
+    suspend fun searchPlaces(query: String): List<KakaoPlace> = withContext(Dispatchers.IO) {
+        require(query.isNotBlank()) { "검색어를 입력하세요." }
         val json = request(
             "https://dapi.kakao.com/v2/local/search/keyword.json",
-            mapOf(
-                "query" to query,
-                "size" to "15"
-            )
+            mapOf("query" to query, "size" to "15")
         )
-
-        val documents = json.getJSONArray("documents")
-
-        List(documents.length()) { index ->
-            val item = documents.getJSONObject(index)
-
-            KakaoPlace(
-                id = item.getString("id"),
-                name = item.getString("place_name"),
-                address = item.optString("address_name"),
-                point = MapPoint(
-                    x = item.getDouble("x"),
-                    y = item.getDouble("y")
-                )
-            )
-        }
-    }
-
-    // 2. 실제 도로망을 이용한 도보 경로
-    suspend fun searchWalk(
-        start: MapPoint,
-        end: MapPoint
-    ): KakaoWalkingRoute = withContext(Dispatchers.IO) {
-
-        val json = request(
-            "https://dapi.kakao.com/v2/routing/walk",
-            mapOf(
-                "start_x" to start.x.toString(),
-                "start_y" to start.y.toString(),
-                "end_x" to end.x.toString(),
-                "end_y" to end.y.toString(),
-                "route_mode" to "SHORTEST"
-            )
-        )
-
-        val status = json.optString("status")
-
-        if (status != "OK") {
-            error("도보 경로 검색 실패: $status")
-        }
-
-        val route = json.getJSONObject("route")
-        val info = route.getJSONObject("properties")
-        val legs = route.getJSONArray("legs")
-
-        // 지도에 표시할 경로 좌표
-        val points = mutableListOf<MapPoint>()
-
-        for (i in 0 until legs.length()) {
-            val leg = legs.getJSONObject(i)
-            val steps = leg.getJSONArray("steps")
-
-            for (j in 0 until steps.length()) {
-                val step = steps.getJSONObject(j)
-
-                val path = step.optJSONObject("path")
-                    ?.optJSONArray("points")
-                    ?: continue
-
-                for (k in 0 until path.length()) {
-                    val pair = path.getJSONArray(k)
-
-                    // 응답: [경도, 위도]
-                    points.add(
-                        MapPoint(
-                            x = pair.getDouble(0),
-                            y = pair.getDouble(1)
-                        )
-                    )
-                }
+        val documents = json.optJSONArray("documents")
+            ?: throw KakaoApiException("장소 검색 결과를 확인할 수 없습니다.")
+        buildList {
+            for (index in 0 until documents.length()) {
+                val item = documents.optJSONObject(index) ?: continue
+                val point = item.coordinate() ?: continue
+                val id = item.identifier("id") ?: continue
+                val name = item.nonBlankString("place_name") ?: continue
+                add(KakaoPlace(
+                    id = id,
+                    name = name,
+                    address = item.nonBlankString("address_name").orEmpty(),
+                    point = point,
+                    categoryGroupCode = item.nonBlankString("category_group_code"),
+                    categoryName = item.nonBlankString("category_name")
+                ))
             }
         }
-
-        KakaoWalkingRoute(
-            distanceMeters = info.getInt("totalDistance"),
-            durationSeconds = info.getInt("totalTime"),
-            points = points
-        )
     }
 
-    // 3. 출발지 → 목적지 대중교통 경로
-    suspend fun searchPublicTransit(
-        start: MapPoint,
-        end: MapPoint
-    ): List<KakaoTransitChoice> =
-        withContext(Dispatchers.IO) {
+    suspend fun searchStops(query: String): List<KakaoPlace> =
+        searchPlaces(query).filter(KakaoPlace::isTransitStop)
 
+    suspend fun searchWalk(start: MapPoint, end: MapPoint): KakaoWalkingRoute =
+        withContext(Dispatchers.IO) {
+            val json = request(
+                "https://dapi.kakao.com/v2/routing/walk",
+                mapOf(
+                    "start_x" to start.x.toString(), "start_y" to start.y.toString(),
+                    "end_x" to end.x.toString(), "end_y" to end.y.toString(),
+                    "route_mode" to "SHORTEST"
+                )
+            )
+            if (json.optString("status") != "OK") {
+                throw KakaoApiException("도보 경로를 받지 못했습니다. 다시 검색해 주세요.")
+            }
+            val route = json.optJSONObject("route")
+                ?: throw KakaoApiException("도보 경로 정보를 확인할 수 없습니다.")
+            val info = route.optJSONObject("properties")
+                ?: throw KakaoApiException("도보 경로의 요약 정보를 확인할 수 없습니다.")
+            val distance = info.nonNegativeInt("totalDistance")
+                ?: throw KakaoApiException("도보 경로의 거리 정보가 없습니다.")
+            val duration = info.nonNegativeInt("totalTime")
+                ?: throw KakaoApiException("도보 경로의 소요시간 정보가 없습니다.")
+            val points = buildList {
+                val legs = route.optJSONArray("legs") ?: return@buildList
+                for (i in 0 until legs.length()) {
+                    val steps = legs.optJSONObject(i)?.optJSONArray("steps") ?: continue
+                    for (j in 0 until steps.length()) {
+                        val path = steps.optJSONObject(j)?.optJSONObject("path")
+                            ?.optJSONArray("points") ?: continue
+                        for (k in 0 until path.length()) {
+                            path.optJSONArray(k)?.coordinate()?.let(::add)
+                        }
+                    }
+                }
+            }
+            // Missing geometry is never replaced with a straight-line path.
+            KakaoWalkingRoute(distance, duration, points)
+        }
+
+    suspend fun searchPublicTransit(start: MapPoint, end: MapPoint): List<KakaoTransitChoice> =
+        withContext(Dispatchers.IO) {
             val json = request(
                 "https://dapi.kakao.com/v2/routing/publictraffic",
                 mapOf(
-                    "start_x" to start.x.toString(),
-                    "start_y" to start.y.toString(),
-                    "end_x" to end.x.toString(),
-                    "end_y" to end.y.toString()
+                    "start_x" to start.x.toString(), "start_y" to start.y.toString(),
+                    "end_x" to end.x.toString(), "end_y" to end.y.toString()
                 )
             )
-
-            val status = json.optString("status")
-
-            if (status != "OK") {
-                error("대중교통 경로 검색 실패: $status")
+            if (json.optString("status") != "OK") {
+                throw KakaoApiException("대중교통 경로를 받지 못했습니다. 다시 검색해 주세요.")
             }
-
-            val routes = json.optJSONArray("routes")
-                ?: return@withContext emptyList()
-
-            val results = mutableListOf<KakaoTransitChoice>()
-
-            for (i in 0 until routes.length()) {
-
-                val route = routes.getJSONObject(i)
-                val info = route.getJSONObject("properties")
-                val steps = route.getJSONArray("steps")
-
-                // 첫 버스 또는 지하철 탑승 단계 찾기
-                var firstTransit: JSONObject? = null
-
-                for (j in 0 until steps.length()) {
-                    val step = steps.getJSONObject(j)
-
-                    val type = step
-                        .getJSONObject("properties")
-                        .optString("type")
-
-                    if (type == "BUS" || type == "SUBWAY") {
-                        firstTransit = step
-                        break
-                    }
-                }
-
-                val boarding = firstTransit ?: continue
-                val boardingInfo = boarding.getJSONObject("properties")
-                val transitType = boardingInfo.optString("type")
-
-                val serviceName = boardingInfo
-                    .optJSONArray("vehicles")
-                    ?.optJSONObject(0)
-                    ?.optString("name")
-                    .orEmpty()
-
-                val firstStopObj = boardingInfo
-                    .optJSONArray("stops")
-                    ?.optJSONObject(0)
-
-                val stopName = firstStopObj
-                    ?.optString("name")
-                    .orEmpty()
-
-                // 카카오 대중교통 경로의 첫 좌표는 경로 상 추정 좌표(ESTIMATED)로 처리합니다.
-                val firstPoint = boarding
-                    .optJSONObject("path")
-                    ?.optJSONArray("points")
-                    ?.optJSONArray(0)
-
-                val (boardingPoint, boardingSource) = if (
-                    firstPoint != null &&
-                    firstPoint.length() >= 2
-                ) {
-                    MapPoint(
-                        x = firstPoint.getDouble(0),
-                        y = firstPoint.getDouble(1)
-                    ) to BoardingPointSource.ESTIMATED
-                } else {
-                    null to BoardingPointSource.UNKNOWN
-                }
-
-                results.add(
-                    KakaoTransitChoice(
-                        totalSeconds = info.getInt("totalTime"),
-                        transfers = info.optInt("transfers"),
-                        serviceName = serviceName,
-                        boardingStopName = stopName,
-                        boardingPoint = boardingPoint,
-                        boardingSource = boardingSource,
-                        firstTransitType = transitType
-                    )
-                )
-            }
-
-            results
+            selectTopTransitChoices(parseTransitChoices(json.optJSONArray("routes")))
         }
 }
+
+internal fun parseTransitChoices(routes: JSONArray?): List<KakaoTransitChoice> = buildList {
+    if (routes == null) return@buildList
+    routeLoop@ for (index in 0 until routes.length()) {
+        val route = routes.optJSONObject(index) ?: continue
+        val info = route.optJSONObject("properties") ?: continue
+        val duration = info.nonNegativeInt("totalTime")?.takeIf { it > 0 } ?: continue
+        val transferCount = info.nonNegativeInt("transfers")
+        if (info.has("transfers") && !info.isNull("transfers") && transferCount == null) continue
+        val steps = route.optJSONArray("steps") ?: continue
+        var boarding: JSONObject? = null
+        val walkingDurations = mutableListOf<Int?>()
+        for (stepIndex in 0 until steps.length()) {
+            // A malformed/unknown earlier leg could be the real first boarding.
+            // Do not silently skip it and label a later vehicle as the first one.
+            val step = steps.optJSONObject(stepIndex) ?: continue@routeLoop
+            val properties = step.optJSONObject("properties") ?: continue@routeLoop
+            when (properties.nonBlankString("type")) {
+                "BUS", "SUBWAY" -> if (boarding == null) boarding = step
+                "WALK" -> walkingDurations.add(properties.nonNegativeInt("totalTime"))
+                else -> continue@routeLoop
+            }
+        }
+        val firstBoarding = boarding ?: continue
+        val boardingInfo = firstBoarding.optJSONObject("properties") ?: continue
+        val vehicle = boardingInfo.optJSONArray("vehicles")?.optJSONObject(0)
+        val firstStop = boardingInfo.optJSONArray("stops")?.optJSONObject(0)
+        val stopPoint = firstStop?.coordinate()
+        val pathPoint = firstBoarding.optJSONObject("path")?.optJSONArray("points")
+            ?.optJSONArray(0)?.coordinate()
+        val point = stopPoint ?: pathPoint
+        add(KakaoTransitChoice(
+            totalSeconds = duration,
+            transfers = transferCount,
+            serviceName = vehicle?.nonBlankString("name").orEmpty(),
+            boardingStopName = firstStop?.nonBlankString("name").orEmpty(),
+            boardingPoint = point,
+            // Provider coordinates do not verify a platform/direction or official ID.
+            boardingSource = if (point == null) BoardingPointSource.UNKNOWN else BoardingPointSource.ESTIMATED,
+            firstTransitType = boardingInfo.nonBlankString("type").orEmpty(),
+            totalWalkingSeconds = sumKnownWalkingSeconds(walkingDurations),
+            boardingStopId = firstStop?.identifier("id"),
+            transitLineId = vehicle?.identifier("id"),
+            directionName = boardingInfo.nonBlankString("direction")
+        ))
+    }
+}
+
+private fun JSONObject.nonBlankString(key: String): String? =
+    (opt(key) as? String)?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun JSONObject.identifier(key: String): String? = when (val value = opt(key)) {
+    is String -> value.trim().takeIf(String::isNotEmpty)
+    is Number -> value.toString()
+    else -> null
+}
+
+private fun JSONObject.nonNegativeInt(key: String): Int? {
+    val number = when (val value = opt(key)) {
+        is Number -> value.toDouble()
+        is String -> value.toDoubleOrNull()
+        else -> null
+    } ?: return null
+    return number.takeIf { it.isFinite() && it >= 0 && it <= Int.MAX_VALUE && it % 1.0 == 0.0 }?.toInt()
+}
+
+private fun JSONObject.coordinate(): MapPoint? = coordinate(optDouble("x"), optDouble("y"))
+
+private fun JSONArray.coordinate(): MapPoint? =
+    if (length() < 2) null else coordinate(optDouble(0), optDouble(1))
+
+private fun coordinate(x: Double, y: Double): MapPoint? =
+    if (x.isFinite() && y.isFinite() && x in -180.0..180.0 && y in -90.0..90.0) MapPoint(x, y) else null
