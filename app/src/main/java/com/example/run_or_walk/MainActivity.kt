@@ -1318,7 +1318,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     if (mode == FeatureMode.STOP) TextButton(
                         onClick = { screen.detailsExpanded = !screen.detailsExpanded },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text(if (screen.detailsExpanded) "승차·실시간 연결 접기" else "승차 변경 · 실시간 연결")
+                        Text(if (screen.detailsExpanded) "연결 상태 닫기" else "승차·실시간 연결 상태")
                     }
                     if (mode == FeatureMode.STOP && screen.detailsExpanded) {
                         SelectionDetails(screen, configured, now,
@@ -1485,6 +1485,29 @@ private fun SelectionDetails(screen: JourneyScreenState, configured: Boolean, no
     onFindStations: () -> Unit, onChooseStation: (OfficialSubwayStation) -> Unit,
     onChooseArrival: (OfficialSubwayArrival) -> Unit, onRefresh: () -> Unit,
     onGyeonggiStationId: (String) -> Unit, onGyeonggiLookup: () -> Unit) {
+    // A route card already identifies the first boarding point. Only show automatic
+    // matching evidence here; never ask the rider to reselect it or guess a platform.
+    if (screen.selectedRoute != null) {
+        SectionCard(title = "자동 승차·실시간 연결 상태") {
+            Text("승차 장소 · " + (screen.boarding?.name ?: "경로 좌표 없음"),
+                style = MaterialTheme.typography.bodyMedium)
+            Text("탑승 노선 · " + screen.selectedRoute?.serviceName.orEmpty(),
+                style = MaterialTheme.typography.bodySmall)
+            Text(when {
+                screen.confirmedServiceIdentity != null ->
+                    "공식 정류소·노선·방향이 확인됐어요. 실시간 데이터의 유효성은 계속 확인해요."
+                screen.gyeonggiLoading || screen.liveLoading ->
+                    "공식 정류소와 열차·버스 방향을 자동 대조 중이에요."
+                else ->
+                    "공식 승차 방향이 아직 유일하게 확인되지 않아 시간에 민감한 이동 판단을 보류해요."
+            }, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = onRefresh, enabled = !screen.liveLoading && !screen.gyeonggiLoading) {
+                Text("실시간 도착정보 새로고침")
+            }
+            screen.liveError?.let { NoticeCard(it, isError = configured) }
+        }
+        return
+    }
     SectionCard(title = "승차 장소·차량 선택") {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(screen.boarding?.name ?: "승차 장소 확인 필요",
