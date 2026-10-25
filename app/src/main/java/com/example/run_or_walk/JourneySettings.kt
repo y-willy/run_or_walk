@@ -27,9 +27,9 @@ data class JourneySettings(
             .coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
     }
 
-    /** Keep the existing estimate for provider time; custom brisk walking never implies running. */
-    val fastTravelRatio: Double
-        get() = if (useProviderWalkingTime) 0.75 else maxOf(0.75, speedKmh / MAX_SPEED_KMH)
+    /** Explicit brisk speed, never inferred as a percentage of the provider's duration. */
+    val fastSpeedKmh: Double
+        get() = maxOf(6.0, speedKmh)
 
     companion object {
         const val MIN_SPEED_KMH = 2.0
