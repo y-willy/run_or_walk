@@ -146,7 +146,7 @@ export class GyeonggiBusCoordinator extends DurableObject<GyeonggiEnv> {
       let cursor = 0;
       for (const part of chunks) { all.set(part, cursor); cursor += part.byteLength; }
       let decoded: unknown;
-      try { decoded = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(all)); }
+      try { decoded = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(all)); }
       catch { return fail('GYEONGGI_INVALID_RESPONSE', 502, 10); }
       return ok(normalizeGyeonggiResponse(decoded, op, Date.now()));
     } catch (error) {
