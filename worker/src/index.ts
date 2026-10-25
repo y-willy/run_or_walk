@@ -1,12 +1,14 @@
 import { DurableObject } from 'cloudflare:workers';
 import { handleBusRequest, type BusEnv } from './bus';
+import { handleGyeonggiRequest, type GyeonggiEnv } from './gyeonggi-bus';
+export { GyeonggiBusCoordinator } from './gyeonggi-bus';
 export { SeoulBusCoordinator } from './bus';
 import {
   CACHE_TTL_MS, FAILURE_BACKOFF_MS, UPSTREAM_BUDGET, WINDOW_MS, normalizeStation,
   normalizeUpstream, refreshCachedPayload, SourcePayloadError,
 } from './model';
 
-export interface Env extends BusEnv {
+export interface Env extends BusEnv, GyeonggiEnv {
   SEOUL_SUBWAY_KEY: string;
   SUBWAY_COORDINATOR: DurableObjectNamespace<SubwayCoordinator>;
   IP_RATE_LIMITER: RateLimit;
@@ -39,6 +41,7 @@ export default {
       if (request.method !== 'GET') return respond(failure('METHOD_NOT_ALLOWED', 405), { Allow: 'GET' });
       if (url.pathname === '/health') return respond(json({ status: 'ok' }));
       if (url.pathname.startsWith('/bus/')) return await handleBusRequest(request, env);
+       if (url.pathname.startsWith('/gyeonggi/bus/')) return await handleGyeonggiRequest(request, env);
       if (url.pathname !== '/subway') return respond(failure('NOT_FOUND', 404));
       if (url.searchParams.getAll('station').length !== 1) return respond(failure('INVALID_STATION', 400));
       const station = normalizeStation(url.searchParams.get('station'));
