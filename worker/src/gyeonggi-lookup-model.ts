@@ -3,6 +3,7 @@ import { GyeonggiPayloadError } from './gyeonggi-bus-model';
 
 export type GyeonggiLookupOperation =
   | { kind: 'nearby'; x: number; y: number }
+  | { kind: 'search'; query: string }
   | { kind: 'via'; stationId: string };
 
 const validId = (s: string | null): s is string => s !== null && /^[1-9][0-9]{5,11}$/.test(s);
@@ -33,6 +34,11 @@ export function parseGyeonggiLookup(url: URL): GyeonggiLookupOperation | null {
       return { kind: 'nearby', x: lon, y: lat };
     }
   }
+  if (url.pathname === '/gyeonggi/bus/search' && names.length === 1 &&
+    names[0] === 'query') {
+    const query = p.get('query')?.normalize('NFC').trim().replace(/\s+/gu, ' ');
+    if (query && /^[\p{L}\p{N} ().·,\-]{1,40}$/u.test(query)) return { kind: 'search', query };
+  }
   const stationId = p.get('stationId');
   if (url.pathname === '/gyeonggi/bus/via' && names.length === 1 &&
     names[0] === 'stationId' && validId(stationId)) return { kind: 'via', stationId };
@@ -47,12 +53,14 @@ export function gyeonggiLookupSourceUrl(op: GyeonggiLookupOperation, keyInput: s
     }
   }
   if (!key || /[\u0000-\u0020\u007f]/.test(key)) throw new GyeonggiPayloadError('GYEONGGI_KEY_INVALID');
-  const suffix = op.kind === 'nearby' ? 'getBusStationAroundListv2' : 'getBusStationViaRouteListv2';
+  const suffix = op.kind === 'nearby' ? 'getBusStationAroundListv2' :
+    op.kind === 'search' ? 'getBusStationListv2' : 'getBusStationViaRouteListv2';
   const params = new URLSearchParams({ format: 'json', serviceKey: key });
   if (op.kind === 'nearby') {
     params.set('x', String(op.x));
     params.set('y', String(op.y));
-  } else params.set('stationId', op.stationId);
+  } else if (op.kind === 'search') params.set('keyword', op.query);
+  else params.set('stationId', op.stationId);
   return 'https://apis.data.go.kr/6410000/busstationservice/v2/' + suffix + '?' + params;
 }
 
@@ -62,7 +70,7 @@ export interface NearbyGyeonggiStop {
   mobileNo: string | null;
   x: number;
   y: number;
-  distanceMeters: number;
+  distanceMeters: number | null;
 }
 export interface GyeonggiViaRoute {
   routeId: string;
@@ -71,7 +79,7 @@ export interface GyeonggiViaRoute {
   staOrder: string;
 }
 export type GyeonggiLookupPayload =
-  | { provider: 'gyeonggi-gbis'; kind: 'nearby'; stops: NearbyGyeonggiStop[] }
+  | { provider: 'gyeonggi-gbis'; kind: 'nearby' | 'search'; stops: NearbyGyeonggiStop[] }
   | { provider: 'gyeonggi-gbis'; kind: 'via'; stationId: string; routes: GyeonggiViaRoute[] };
 
 export function normalizeGyeonggiLookup(input: unknown, op: GyeonggiLookupOperation): GyeonggiLookupPayload {
@@ -82,11 +90,11 @@ export function normalizeGyeonggiLookup(input: unknown, op: GyeonggiLookupOperat
   if (!header) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
   const code = text(header.resultCode);
   if (!['0', '00', '4'].includes(code ?? '')) throw new GyeonggiPayloadError('GYEONGGI_UPSTREAM_REJECTED');
-  const raw = code === '4' ? [] : op.kind === 'nearby' ? body?.busStationList : body?.busRouteList;
+  const raw = code === '4' ? [] : op.kind === 'via' ? body?.busRouteList : body?.busStationList;
   if (code !== '4' && !body) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
   const rows = raw == null || raw === '' ? [] : Array.isArray(raw) ? raw : [raw];
   if (rows.length > 100) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
-  if (op.kind === 'nearby') {
+  if (op.kind !== 'via') {
     const stops: NearbyGyeonggiStop[] = [];
     for (const item of rows) {
       const row = plain(item);
@@ -95,11 +103,11 @@ export function normalizeGyeonggiLookup(input: unknown, op: GyeonggiLookupOperat
       const x = number(row?.x), y = number(row?.y), dist = number(row?.distance);
       if (!validId(stationId) || !name || x === null || y === null ||
         x < 124 || x > 132 || y < 32 || y > 40 ||
-        dist === null || dist < 0 || dist > 500) continue;
+        (op.kind === 'nearby' && (dist === null || dist < 0 || dist > 500))) continue;
       stops.push({ stationId, name, mobileNo: text(row?.mobileNo),
-        x, y, distanceMeters: dist });
+        x, y, distanceMeters: op.kind === 'nearby' ? dist : null });
     }
-    return { provider: 'gyeonggi-gbis', kind: 'nearby', stops };
+    return { provider: 'gyeonggi-gbis', kind: op.kind, stops };
   }
   const routes: GyeonggiViaRoute[] = [];
   for (const item of rows) {
