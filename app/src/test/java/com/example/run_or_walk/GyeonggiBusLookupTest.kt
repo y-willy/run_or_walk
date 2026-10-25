@@ -22,6 +22,16 @@ class GyeonggiBusLookupTest {
         assertEquals("200000037", match?.routeId)
         assertEquals("19", match?.identity?.directionId)
     }
+    @Test fun matchedOfficialDestinationResolvesOppositeDirectionStops() {
+        val opposite = official.copy(stationId = "200000178")
+        val otherDirection = valid.copy(staOrder = "20", destination = "광교")
+        val rows = listOf(opposite to otherDirection, official to valid)
+        assertEquals(official.stationId,
+            resolveGyeonggiBusMatch(route().copy(directionName = "강남방면"), rows)?.stationId)
+        assertEquals(opposite.stationId,
+            resolveGyeonggiBusMatch(route().copy(directionName = "광교행"), rows)?.stationId)
+        assertNull(resolveGyeonggiBusMatch(route().copy(directionName = "판교방면"), rows))
+    }
     @Test fun sameNumberAtTwoOrdersNeverChoosesOneArbitrarily() {
         val alternate = valid.copy(staOrder = "20")
         assertNull(resolveGyeonggiBusMatch(route(),
