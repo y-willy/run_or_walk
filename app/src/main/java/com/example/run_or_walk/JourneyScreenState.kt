@@ -7,7 +7,7 @@ import androidx.compose.runtime.setValue
 import kotlin.math.ceil
 
 internal enum class FeatureMode { ROUTE, STOP }
-internal enum class SearchField { DESTINATION, STOP }
+internal enum class SearchField { DEPARTURE, DESTINATION, STOP }
 
 internal data class JourneyPlace(
     val id: String,
@@ -57,6 +57,7 @@ internal class JourneySearchState {
 /** One independent search/result state per tab; only the physical GPS position is shared. */
 internal class JourneyScreenState(val mode: FeatureMode,
     private val alertGate: AutomaticAlertGate = AutomaticAlertGate()) {
+    val departure = JourneySearchState()
     val destination = JourneySearchState()
     val stop = JourneySearchState()
     val scrollState = ScrollState(0)
@@ -133,8 +134,16 @@ internal class JourneyScreenState(val mode: FeatureMode,
         private set
 
     fun search(field: SearchField): JourneySearchState = when (field) {
+        SearchField.DEPARTURE -> departure
         SearchField.DESTINATION -> destination
         SearchField.STOP -> stop
+    }
+
+    /** Trip routing uses a chosen origin, never a position supplied by the GPS sensor. */
+    fun selectedTransitEndpoints(): Pair<MapPoint, MapPoint>? {
+        val origin = departure.selected?.point ?: return null
+        val destinationPoint = destination.selected?.point ?: return null
+        return origin to destinationPoint
     }
 
     fun editQuery(field: SearchField, value: String) {
@@ -173,12 +182,17 @@ internal class JourneyScreenState(val mode: FeatureMode,
 
     fun clearWalking() {
         invalidateRequests()
+        discardWalkingResults()
+        location = null
+    }
+
+    /** Discard an obsolete path without throwing away a successfully observed GPS fix. */
+    fun discardWalkingResults() {
         guidanceWalkingRoute = null
         walkRoute = null
         walkFetchedAtEpochMillis = null
         walkOrigin = null
         walkingPoints = emptyList()
-        location = null
     }
 
     fun clearOfficialSelection() {
