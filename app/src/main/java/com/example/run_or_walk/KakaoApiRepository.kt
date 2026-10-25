@@ -177,7 +177,9 @@ internal fun parseTransitChoices(routes: JSONArray?): List<KakaoTransitChoice> =
         val firstBoarding = boarding ?: continue
         val boardingInfo = firstBoarding.optJSONObject("properties") ?: continue
         val vehicle = boardingInfo.optJSONArray("vehicles")?.optJSONObject(0)
-        val firstStop = boardingInfo.optJSONArray("stops")?.optJSONObject(0)
+        val transitStops = boardingInfo.optJSONArray("stops")
+        val firstStop = transitStops?.optJSONObject(0)
+        val nextListedStop = transitStops?.optJSONObject(1)
         val stopPoint = firstStop?.coordinate()
         val pathPoint = firstBoarding.optJSONObject("path")?.optJSONArray("points")
             ?.optJSONArray(0)?.coordinate()
@@ -194,7 +196,8 @@ internal fun parseTransitChoices(routes: JSONArray?): List<KakaoTransitChoice> =
             totalWalkingSeconds = sumKnownWalkingSeconds(walkingDurations),
             boardingStopId = firstStop?.identifier("id"),
             transitLineId = vehicle?.identifier("id"),
-            directionName = boardingInfo.nonBlankString("direction")
+            directionName = boardingInfo.nonBlankString("direction"),
+            nextStopName = nextListedStop?.nonBlankString("name")
         ))
     }
 }
