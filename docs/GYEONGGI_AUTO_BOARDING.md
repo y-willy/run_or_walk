@@ -43,7 +43,7 @@ npx --no-install wrangler secret put GYEONGGI_STATION_KEY
 
 격리된 feature 브랜치 복제본에서 실행:
 - `npm run check`: 통과
-- `npm test`: **203개 통과**, 실패 없음
+- `npm test`: **206개 통과**, 실패 없음
 - `npm run build`: Wrangler **dry-run** 통과. 실제 배포 아님.
 - Android `:app:compileDebugKotlin`: **통과 확인 불가**. 이 환경은 Gradle 9.6 배포본 다운로드가 네트워크 제한으로 중단됐으며 Android SDK도 확보하지 못했습니다.
 
