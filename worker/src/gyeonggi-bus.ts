@@ -35,7 +35,7 @@ export async function handleGyeonggiRequest(request: Request, env: GyeonggiEnv):
   try {
     const op = parseGyeonggiOperation(new URL(request.url)) ?? parseGyeonggiLookup(new URL(request.url));
     if (!op) return respond(fail('GYEONGGI_INVALID_QUERY', 400));
-    const isLookup = op.kind === 'nearby' || op.kind === 'via';
+    const isLookup = op.kind === 'nearby' || op.kind === 'search' || op.kind === 'via';
     if (!(isLookup ? env.GYEONGGI_STATION_KEY : env.GYEONGGI_BUS_KEY) ||
         !env.GYEONGGI_BUS_COORDINATOR || !env.IP_RATE_LIMITER) {
       return respond(fail('GYEONGGI_NOT_CONFIGURED', 503));
@@ -52,6 +52,9 @@ export async function handleGyeonggiRequest(request: Request, env: GyeonggiEnv):
     if (op.kind === 'nearby') {
       path = '/gyeonggi/bus/nearby';
       params.set('x', String(op.x)); params.set('y', String(op.y));
+    } else if (op.kind === 'search') {
+      path = '/gyeonggi/bus/search';
+      params.set('query', op.query);
     } else if (op.kind === 'via') {
       path = '/gyeonggi/bus/via';
       params.set('stationId', op.stationId);
