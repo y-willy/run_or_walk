@@ -198,7 +198,7 @@ fun AutomaticGuidanceCard(
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("승차점까지 도보", style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(walkingSeconds?.let { durationText(it.toLong()) } ?: "계산 중",
+                        Text(walkingSeconds?.let { durationText(it.toLong()) } ?: "확인 필요",
                             style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                     }
                 }
