@@ -689,6 +689,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     findOfficialBusStops(target, nearby = true, automatic = true)
                     return@launch
                 }
+                // Retire in-flight GPS/walking results tied to Kakao's estimated stop.
+                target.invalidateRequests()
                 target.selectedGyeonggiMatch = match
                 target.gyeonggiStationId = match.stationId
                 target.confirmedServiceIdentity = match.identity
@@ -1284,6 +1286,27 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 if (screen.selectedRoute?.kakao?.firstTransitType == "BUS" &&
                     screen.gyeonggiMessage != null) {
                     NoticeCard(screen.gyeonggiMessage.orEmpty())
+                }
+                screen.selectedGyeonggiMatch?.let { match ->
+                    SectionCard("경기버스 " + match.routeName + " · 공식 도착정보") {
+                        val arrivals = screen.gyeonggiArrivals.filter {
+                            it.stationId == match.stationId && it.routeId == match.routeId &&
+                                it.staOrder == match.staOrder
+                        }.sortedBy { it.seconds ?: Int.MAX_VALUE }
+                        if (arrivals.isEmpty()) {
+                            Text(if (screen.gyeonggiLoading) "공식 도착정보 조회 중"
+                                else "확인된 도착 예정 차량이 없어요.",
+                                style = MaterialTheme.typography.bodySmall)
+                        } else arrivals.take(2).forEach { row ->
+                            val estimate = row.seconds?.let {
+                                if (it == 0) "즉시/전역 정보" else "약 " + ((it + 59) / 60) + "분"
+                            } ?: "시간 정보 없음"
+                            val trust = if (row.trust == ArrivalTrustState.VALID)
+                                "확인된 실시간" else "갱신·정확도 확인 필요"
+                            Text(estimate + " · " + trust,
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
                 JourneySettingsPanel(settings) { value ->
                     session.updateSettings(value)
