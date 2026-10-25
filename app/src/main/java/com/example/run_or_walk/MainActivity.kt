@@ -684,8 +684,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 val match = gyeonggiLookupRepository.match(selected.kakao)
                 if (!active()) return@launch
                 if (match == null) {
-                    target.gyeonggiMessage = "공식 경기버스 정류장·노선이 유일하게 일치하지 않아요. " +
-                        "승차점은 자동 설정됐지만 실시간 판단은 보류해요."
+                    target.gyeonggiMessage = "경기버스 공식 노선이 유일하게 일치하지 않아 서울 정류소 연동도 확인해요."
+                    target.gyeonggiLoading = false
+                    findOfficialBusStops(target, nearby = true, automatic = true)
                     return@launch
                 }
                 target.selectedGyeonggiMatch = match
@@ -706,6 +707,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     target.gyeonggiMessage = (error as? java.io.IOException)?.message
                         ?: "경기버스 공식 정류장·노선 자동 연결에 실패했어요."
                     target.liveError = target.gyeonggiMessage
+                    target.gyeonggiLoading = false
+                    findOfficialBusStops(target, nearby = true, automatic = true)
                 }
             } finally {
                 if (target.acceptsGyeonggiResponse(generation)) target.gyeonggiLoading = false
@@ -914,7 +917,6 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             "SUBWAY" -> findOfficialStations(target)
             "BUS" -> {
                 target.busStopQuery = boarding.name
-                findOfficialBusStops(target, nearby = true, automatic = true)
                 connectGyeonggiRoute(target, route)
             }
         }
@@ -1160,6 +1162,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 if (screen.selectedRoute != null || boarding != null || monitored) {
                     AutomaticGuidanceCard(assessment,
                         serviceLabel = if (isBus) screen.selectedBusRoute?.let { "${it.name} · ${it.direction}" }
+                            ?: screen.selectedGyeonggiMatch?.let { "${it.routeName} · ${it.destination}" }
                             ?: screen.selectedRoute?.serviceName.orEmpty()
                             else selectedArrival?.let { "${screen.selectedStation?.lineName.orEmpty()} · ${it.trainLabel} · ${it.directionLabel}" }
                             ?: screen.selectedRoute?.serviceName.orEmpty(),
