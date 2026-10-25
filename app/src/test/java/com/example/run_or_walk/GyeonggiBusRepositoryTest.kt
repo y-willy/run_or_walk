@@ -4,9 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.Instant
 
 class GyeonggiBusRepositoryTest {
-    private val now = 1_782_287_559_000L
+    private val now = Instant.parse("2026-06-22T07:25:59.000Z").toEpochMilli()
     // Synthetic Worker JSON, not a claim that a real approved key was called.
     private fun json(seconds: Int = 180, source: String = "2026-06-22T07:25:50.000Z"): String =
         """{"provider":"gyeonggi-gbis","stationId":"200000177",
@@ -18,12 +19,15 @@ class GyeonggiBusRepositoryTest {
     @Test fun acceptsOnlyMatchingOfficialStation() {
         val items = parseGyeonggiWorkerArrivals(json(), "200000177", now)
         assertEquals(1, items.size)
+        assertEquals(ArrivalTrustState.VALID, items[0].trust)
         assertEquals("19", items[0].staOrder)
         assertEquals("200000037", items[0].routeId)
     }
     @Test fun neverTrustsZeroSecondOrFutureClocks() {
         assertEquals(ArrivalTrustState.UNKNOWN,
             parseGyeonggiWorkerArrivals(json(seconds = 0), "200000177", now)[0].trust)
+        assertEquals(ArrivalTrustState.STALE,
+            parseGyeonggiWorkerArrivals(json(), "200000177", now + 61_000L)[0].trust)
         assertEquals(ArrivalTrustState.FUTURE_TIMESTAMP,
             parseGyeonggiWorkerArrivals(json(source = "2026-06-22T07:30:00.000Z"),
                 "200000177", now)[0].trust)
