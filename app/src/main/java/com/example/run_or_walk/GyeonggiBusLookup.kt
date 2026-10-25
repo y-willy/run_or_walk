@@ -156,6 +156,27 @@ internal class GyeonggiBusLookupRepository(
         }
     }
 
+    /** Official name search backs up a 500m GPS lookup with no matching stops. */
+    suspend fun searchByName(name: String): List<GyeonggiNearbyStop> {
+        val query = name.trim()
+        if (query.isBlank() || query.length > 40) return emptyList()
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+        val root = request("/gyeonggi/bus/search?query=$encoded")
+        if (root.optString("provider") != "gyeonggi-gbis" || root.optString("kind") != "search")
+            throw IOException("경기 정류소 이름 검색 응답을 확인할 수 없어요.")
+        val array = root.optJSONArray("stops") ?: throw IOException("경기 정류소 검색 배열이 없어요.")
+        return buildList {
+            for (index in 0 until array.length().coerceAtMost(100)) {
+                val row = array.optJSONObject(index) ?: continue
+                val id = row.optString("stationId")
+                val lon = row.optDouble("x"); val lat = row.optDouble("y")
+                if (id.matches(Regex("[1-9][0-9]{5,11}")) &&
+                    lon.isFinite() && lat.isFinite()) add(GyeonggiNearbyStop(
+                    id, row.optString("name"), MapPoint(lon, lat), Double.NaN))
+            }
+        }
+    }
+
     suspend fun via(stationId: String): List<GyeonggiStopRoute> {
         if (!stationId.matches(Regex("[1-9][0-9]{5,11}"))) throw IOException("경기 정류장 ID가 올바르지 않아요.")
         val root = request("/gyeonggi/bus/via?stationId=$stationId")
@@ -177,7 +198,10 @@ internal class GyeonggiBusLookupRepository(
 
     suspend fun match(choice: KakaoTransitChoice): GyeonggiOfficialMatch? {
         val point = choice.boardingPoint ?: return null
-        val candidates = gyeonggiStopCandidates(choice, nearby(point))
+        val nearbyMatches = gyeonggiStopCandidates(choice, nearby(point))
+        val candidates = nearbyMatches.ifEmpty {
+            gyeonggiStopCandidates(choice, searchByName(choice.boardingStopName))
+        }
         // Limit lookup fan-out and refuse ambiguous large candidate sets.
         if (candidates.isEmpty() || candidates.size > 3) return null
         val pairs = buildList {
