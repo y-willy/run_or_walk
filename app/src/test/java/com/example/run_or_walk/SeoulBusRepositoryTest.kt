@@ -219,6 +219,14 @@ class SeoulBusRepositoryTest {
         val setup = parseSeoulBusHttpFailure(503, """{"error":{"code":"SEOUL_BUS_NOT_CONFIGURED"}}""", null, source)
         assertEquals(SeoulBusFailure.SETUP_REQUIRED, setup.failure)
         assertTrue(setup.message.orEmpty().contains("SEOUL_BUS_KEY"))
+        val rejected = parseSeoulBusHttpFailure(502,
+            """{"error":{"code":"BUS_UPSTREAM_KEY_REJECTED"}}""", null, source)
+        assertEquals(SeoulBusFailure.ACCESS_DENIED, rejected.failure)
+        assertTrue(rejected.message.orEmpty().contains("401"))
+        val forbidden = parseSeoulBusHttpFailure(502,
+            """{"error":{"code":"BUS_UPSTREAM_ACCESS_FORBIDDEN"}}""", null, source)
+        assertEquals(SeoulBusFailure.ACCESS_DENIED, forbidden.failure)
+        assertTrue(forbidden.message.orEmpty().contains("403"))
         val unknown = parseSeoulBusHttpFailure(500, """{"error":{"code":"secret-value"}}""", null, source)
         assertNull(unknown.serverCode)
         assertFalse(unknown.message.orEmpty().contains("secret-value"))
