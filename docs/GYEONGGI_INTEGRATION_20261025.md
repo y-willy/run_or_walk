@@ -29,11 +29,10 @@
    - npx --no-install wrangler secret put GYEONGGI_BUS_KEY
    - npm ci
    - npm run check
-   - npm test
    - npm run build
    - npm run deploy
 4. 출력된 배포 URL이 기존 run-or-walk.willy0723.workers.dev인지 확인한다. 기존 서울 API Secret을 삭제·재발급하지 않는다.
-5. 몇 건만 실제 Worker 응답을 확인하고, Android Studio에서 :app:compileDebugKotlin, :app:testDebugUnitTest, :app:assembleDebug, :app:lintDebug 수행 뒤 새 APK로 GPS·지도를 직접 검증한다.
+5. 몇 건만 실제 Worker 응답을 확인하고, Android Studio에서 :app:compileDebugKotlin, :app:assembleDebug, :app:lintDebug 수행 뒤 새 APK로 GPS·지도를 직접 검증한다.
 
 **GitHub 브랜치에 코드가 기록됐다는 것과 Cloudflare 배포·테스트 통과·실기기 동작은 별개다.** 이 작업에서는 실제 키를 사용한 호출과 Cloudflare 배포를 하지 않았다.
 

@@ -352,20 +352,6 @@ internal class JourneyScreenState(val mode: FeatureMode,
         recenterRequest++
     }
 
-    /** Keep the chosen train when it disappears, but invalidate its cached live snapshot. */
-    fun applyArrivalOptions(options: List<OfficialSubwayArrival>): OfficialSubwayArrival? {
-        arrivalOptions = options
-        val previous = selectedArrival ?: return null
-        // Missing vehicle IDs and conflicting duplicate rows cannot establish the same train.
-        val matching = options.filter {
-            previous.trainId.isNotBlank() &&
-            it.identity == previous.identity && it.trainId == previous.trainId
-        }.distinct().singleOrNull()
-        arrivalRequestFailed = matching == null
-        if (matching != null) selectedArrival = matching
-        return matching
-    }
-
     /** One shared gate suppresses duplicate notifications when switching tabs. */
     fun claimAutomaticAlert(status: AutoGuidanceStatus, nowEpochMillis: Long): Boolean =
         alertGate.claim(alertsEnabled, activeArrivalIdentity, activeArrivalVehicleId,

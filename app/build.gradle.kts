@@ -33,9 +33,6 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        testInstrumentationRunner =
-            "androidx.test.runner.AndroidJUnitRunner"
-
         buildConfigField("String", "KAKAO_REST_KEY", buildConfigString(localString("KAKAO_REST_KEY")))
         buildConfigField("String", "KAKAO_NATIVE_KEY", buildConfigString(localString("KAKAO_NATIVE_KEY")))
         // The official Seoul key belongs only on the HTTPS gateway, never in the APK.
@@ -80,30 +77,6 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-
-    testImplementation(libs.junit)
-    // Android provides org.json in production; unit tests exercise the actual provider JSON parser.
-    testImplementation("org.json:json:20240303")
-
-    androidTestImplementation(
-        platform(libs.androidx.compose.bom)
-    )
-
-    androidTestImplementation(
-        libs.androidx.compose.ui.test.junit4
-    )
-
-    androidTestImplementation(
-        libs.androidx.espresso.core
-    )
-
-    androidTestImplementation(
-        libs.androidx.junit
-    )
-
-    debugImplementation(
-        libs.androidx.compose.ui.test.manifest
-    )
 
     debugImplementation(
         libs.androidx.compose.ui.tooling

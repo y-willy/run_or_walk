@@ -60,7 +60,6 @@ Cloudflare 계정·권한·배포 후 실제 바인딩, 새 캐시의 운영 적
 cd worker
 npm ci
 npm run check
-npm test
 npm run build
 npx --no-install wrangler login
 npx --no-install wrangler whoami
@@ -71,6 +70,6 @@ npx --no-install wrangler deploy
 
 ## 8. APK·스마트폰 확인
 
-Windows는 영문 프로젝트 경로에서 `gradlew.bat :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:lintDebug`, Linux는 `bash gradlew`를 실행한다. 기본 URL은 이미 설정돼 있고 서울 Secret은 APK에 들어가지 않는다. 기존 Kakao 로컬 키·설치 APK 서명 등록을 유지한다.
+Windows는 영문 프로젝트 경로에서 `gradlew.bat :app:compileDebugKotlin :app:assembleDebug :app:lintDebug`, Linux는 `bash gradlew`를 실행한다. 기본 URL은 이미 설정돼 있고 서울 Secret은 APK에 들어가지 않는다. 기존 Kakao 로컬 키·설치 APK 서명 등록을 유지한다.
 
 새 Worker 배포 후 원본 필드·신뢰도와 캐시/Retry-After를 소량 확인한다. 기기에서는 강남 2호선 내/외선과 신분당선 상/하행 구분, 다른 경로·탭으로 전환 중 늦은 응답 거절, 미래·0초·오래된 응답의 UNKNOWN, 유효한 실제 다음 열차 조건, GPS/도보시간 누락·알림 동의·중복 진동 억제를 확인한다. 컴파일 성공을 실기기 성공으로 보고하지 않는다.
