@@ -10,12 +10,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "SUBWAY_COORDINATOR", "class_name": "SubwayCoordinator" },
-      { "name": "SEOUL_BUS_COORDINATOR", "class_name": "SeoulBusCoordinator" }
+      { "name": "SEOUL_BUS_COORDINATOR", "class_name": "SeoulBusCoordinator" },
+      { "name": "GYEONGGI_BUS_COORDINATOR", "class_name": "GyeonggiBusCoordinator" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["SubwayCoordinator"] },
-    { "tag": "v2", "new_sqlite_classes": ["SeoulBusCoordinator"] }
+    { "tag": "v2", "new_sqlite_classes": ["SeoulBusCoordinator"] },
+    { "tag": "v3", "new_sqlite_classes": ["GyeonggiBusCoordinator"] }
   ],
   "ratelimits": [
     {
