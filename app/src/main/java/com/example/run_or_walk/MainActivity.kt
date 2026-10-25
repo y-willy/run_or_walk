@@ -257,6 +257,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             },
             onResult = { result ->
                 if (action == LocationAction.SET_DEPARTURE) {
+                    if (isMonitored(target)) JourneyMonitoringController.stop(context)
                     target.clearRoutesAndBoarding()
                     target.departure.apply {
                         query = "현재 위치"
@@ -322,6 +323,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             return
         }
         if (target.busy) return
+        if (isMonitored(target)) JourneyMonitoringController.stop(context)
         target.clearRoutesAndBoarding()
         target.centerOn(endpoints.first)
         runRequest(target, "선택한 출발지에서 목적지까지 경로를 찾고 있어요",
@@ -706,6 +708,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
 
     fun selectRoute(target: JourneyScreenState, route: JourneyTransitRoute) {
         if (target.busy) return
+        if (isMonitored(target)) JourneyMonitoringController.stop(context)
         target.clearWalking()
         target.clearOfficialSelection()
         target.selectedRoute = route
