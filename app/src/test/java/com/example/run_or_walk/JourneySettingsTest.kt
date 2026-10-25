@@ -9,7 +9,7 @@ class JourneySettingsTest {
         assertTrue(defaults.useProviderWalkingTime)
         assertEquals(450, defaults.walkingSeconds(300, 450))
         assertEquals(120, defaults.bufferSeconds)
-        assertEquals(0.75, defaults.fastTravelRatio, 0.0)
+        assertEquals(6.0, defaults.fastSpeedKmh, 0.0)
     }
 
     @Test fun customPaceUsesActualWalkingDistanceAndRoundsUpToAWholeSecond() {
@@ -18,9 +18,9 @@ class JourneySettingsTest {
         assertEquals(241, custom.walkingSeconds(301, 450))
         assertEquals(540, custom.copy(speedKmh = 2.0).walkingSeconds(300, 450))
         assertEquals(155, custom.copy(speedKmh = 7.0).walkingSeconds(300, 450))
-        assertEquals(0.75, custom.fastTravelRatio, 0.0)
-        assertEquals(6.0 / 7.0, custom.copy(speedKmh = 6.0).fastTravelRatio, 0.0)
-        assertEquals(1.0, custom.copy(speedKmh = 7.0).fastTravelRatio, 0.0)
+        assertEquals(6.0, custom.fastSpeedKmh, 0.0)
+        assertEquals(6.0, custom.copy(speedKmh = 6.0).fastSpeedKmh, 0.0)
+        assertEquals(7.0, custom.copy(speedKmh = 7.0).fastSpeedKmh, 0.0)
     }
 
     @Test fun absentRouteDistanceDoesNotTurnAnExistingWalkIntoZeroSeconds() {
@@ -73,15 +73,15 @@ class JourneySettingsTest {
             fetchedAtEpochMillis = now, validForMillis = 60_000L)
         fun calculate(settings: JourneySettings): AutoGuidanceAssessment = calculateAutoGuidance(
             AutoGuidanceInput(GuidanceLocation(point, 10.0, now), GuidanceBoarding(identity, point, true),
-                GuidanceWalkingRoute(point, point, identity, settings.walkingSeconds(300, 450), now, 120_000L),
+                GuidanceWalkingRoute(point, point, identity, settings.walkingSeconds(300, 450), now, 120_000L, 300),
                 arrival, true, bufferSeconds = settings.bufferSeconds), now,
-            AutoGuidancePolicy(fastTravelRatio = settings.fastTravelRatio))
+            AutoGuidancePolicy(fastSpeedKmh = settings.fastSpeedKmh))
         val fast = calculate(JourneySettings(false, 4.5, 120))
         val slow = calculate(JourneySettings(false, 2.0, 120))
         val extraBuffer = calculate(JourneySettings(false, 4.5, 300))
         assertEquals(AutoGuidanceStatus.WALK, fast.status)
-        assertEquals(AutoGuidanceStatus.NEXT_TRAIN, slow.status)
-        assertEquals(AutoGuidanceStatus.NEXT_TRAIN, extraBuffer.status)
+        assertEquals(AutoGuidanceStatus.FAST_WALK, slow.status)
+        assertEquals(AutoGuidanceStatus.NEXT_VEHICLE, extraBuffer.status)
         assertEquals(fast.firstArrivalAtEpochMillis, slow.firstArrivalAtEpochMillis)
         assertEquals(fast.firstArrivalAtEpochMillis, extraBuffer.firstArrivalAtEpochMillis)
     }

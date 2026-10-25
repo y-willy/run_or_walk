@@ -40,6 +40,38 @@ class JourneyScreenStateTest {
     }
 
     @Test
+    fun departureIsSeparateFromGpsAndInvalidatesOldRouteOnlyWhenChanged() {
+        val state = JourneyScreenState(FeatureMode.ROUTE)
+        state.departure.selected = place
+        state.destination.selected = place.copy(id = "destination", name = "강남")
+        val physicalGps = GuidanceLocation(MapPoint(127.0, 37.55), 12.0, 1_000L)
+        state.location = physicalGps
+        val pending = state.beginRequest("old route")
+        state.editQuery(SearchField.DEPARTURE, "수원역")
+        assertNull(state.departure.selected)
+        assertEquals("강남", state.destination.selected?.name)
+        assertFalse(state.acceptsResponse(pending))
+        assertNull(state.selectedTransitEndpoints())
+        state.departure.selected = place.copy(id = "new-origin", point = MapPoint(127.1, 37.1))
+        assertEquals(MapPoint(127.1, 37.1), state.selectedTransitEndpoints()?.first)
+        assertEquals(state.destination.selected?.point, state.selectedTransitEndpoints()?.second)
+        // Searching another place must never turn the old GPS point into a selected departure.
+        assertNull(state.location)
+    }
+
+    @Test
+    fun walkingFailureCanClearTheOldPolylineWithoutLosingCurrentGps() {
+        val state = JourneyScreenState(FeatureMode.ROUTE)
+        state.location = GuidanceLocation(point, 9.0, 1_000L)
+        state.walkRoute = WalkRoute(300, 240)
+        state.walkingPoints = listOf(point, point)
+        state.discardWalkingResults()
+        assertNull(state.walkRoute)
+        assertTrue(state.walkingPoints.isEmpty())
+        assertEquals(point, state.location?.point)
+    }
+
+    @Test
     fun editingDestinationInvalidatesRoutesBoardingLiveSelectionAndWalking() {
         val state = JourneyScreenState(FeatureMode.ROUTE)
         val route = JourneyTransitRoute("route-1", KakaoTransitChoice(600, 1, "1호선", "서울역", point))
@@ -220,7 +252,7 @@ class JourneyScreenStateTest {
         assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 91_000L))
         state.invalidateRequests() // Switching tabs or pausing must not reset consent/deduplication.
         assertFalse(state.claimAutomaticAlert(AutoGuidanceStatus.FAST_WALK, 121_000L))
-        assertTrue(state.claimAutomaticAlert(AutoGuidanceStatus.NEXT_TRAIN, 151_000L))
+        assertTrue(state.claimAutomaticAlert(AutoGuidanceStatus.NEXT_VEHICLE, 151_000L))
     }
 
     @Test

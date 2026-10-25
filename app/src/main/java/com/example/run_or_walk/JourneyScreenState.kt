@@ -7,7 +7,7 @@ import androidx.compose.runtime.setValue
 import kotlin.math.ceil
 
 internal enum class FeatureMode { ROUTE, STOP }
-internal enum class SearchField { DESTINATION, STOP }
+internal enum class SearchField { DEPARTURE, DESTINATION, STOP }
 
 internal data class JourneyPlace(
     val id: String,
@@ -57,6 +57,7 @@ internal class JourneySearchState {
 /** One independent search/result state per tab; only the physical GPS position is shared. */
 internal class JourneyScreenState(val mode: FeatureMode,
     private val alertGate: AutomaticAlertGate = AutomaticAlertGate()) {
+    val departure = JourneySearchState()
     val destination = JourneySearchState()
     val stop = JourneySearchState()
     val scrollState = ScrollState(0)
@@ -88,6 +89,27 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var selectedBusRoute by mutableStateOf<OfficialSeoulBusRoute?>(null)
     var busArrivalOptions by mutableStateOf<List<OfficialSeoulBusArrival>>(emptyList())
     var selectedBusArrival by mutableStateOf<OfficialSeoulBusArrival?>(null)
+    var selectedGyeonggiMatch by mutableStateOf<GyeonggiOfficialMatch?>(null)
+    var gyeonggiStationId by mutableStateOf("")
+    var gyeonggiArrivals by mutableStateOf<List<GyeonggiBusArrivalDisplay>>(emptyList())
+    var gyeonggiLoading by mutableStateOf(false)
+    var gyeonggiMessage by mutableStateOf<String?>(null)
+    var gyeonggiGeneration: Long = 0
+        private set
+    fun beginGyeonggiRequest(): Long {
+        gyeonggiGeneration++
+        gyeonggiLoading = true
+        return gyeonggiGeneration
+    }
+    fun acceptsGyeonggiResponse(generation: Long): Boolean = gyeonggiGeneration == generation
+    fun updateGyeonggiStationId(value: String) {
+        gyeonggiGeneration++
+        gyeonggiStationId = value
+        gyeonggiArrivals = emptyList()
+        gyeonggiMessage = null
+        gyeonggiLoading = false
+    }
+
     var confirmedServiceIdentity by mutableStateOf<OfficialBoardingIdentity?>(null)
     var liveRetryAtEpochMillis by mutableStateOf<Long?>(null)
     var arrivalRequestFailed by mutableStateOf(false)
@@ -101,6 +123,15 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var walkFetchedAtEpochMillis by mutableStateOf<Long?>(null)
     var walkOrigin by mutableStateOf<MapPoint?>(null)
     var walkingPoints by mutableStateOf<List<MapPoint>>(emptyList())
+    // A feeder alternative is display-only until its own realtime vehicle identity is verified.
+    var accessTransitRoutes by mutableStateOf<List<JourneyTransitRoute>>(emptyList())
+    var accessTransitMessage by mutableStateOf<String?>(null)
+    var accessTransitLoading by mutableStateOf(false)
+    var accessTransitOrigin: MapPoint? = null
+    var accessTransitAttemptAtMillis: Long? = null
+    var accessTransitGeneration: Long = 0
+        private set
+    fun beginAccessTransitRequest(): Long = ++accessTransitGeneration
     var mapCenter by mutableStateOf<MapPoint?>(null)
     var recenterRequest by mutableStateOf(0)
 
@@ -112,16 +143,46 @@ internal class JourneyScreenState(val mode: FeatureMode,
     val isBusJourney: Boolean get() = selectedRoute?.kakao?.firstTransitType == "BUS" ||
         boarding?.let { it.isBusStop && !it.isSubwayStation } == true
 
+    private val activeGyeonggiSnapshot: RealtimeArrivalSnapshot?
+        get() {
+            val match = selectedGyeonggiMatch ?: return null
+            if (selectedBusRoute != null) return null // Prefer a confirmed Seoul service.
+            val now = System.currentTimeMillis()
+            val rows = gyeonggiArrivals.filter { row ->
+                row.stationId == match.stationId && row.routeId == match.routeId &&
+                    row.staOrder == match.staOrder && row.trust == ArrivalTrustState.VALID &&
+                    row.seconds != null && row.seconds > 0 && row.observedAtMillis != null &&
+                    now - row.observedAtMillis in 0L..60_000L &&
+                    row.observedAtMillis + row.seconds * 1_000L > now
+            }.sortedBy { requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L }
+            val first = rows.firstOrNull() ?: return null
+            val observed = requireNotNull(first.observedAtMillis)
+            return RealtimeArrivalSnapshot(match.identity,
+                observed + requireNotNull(first.seconds) * 1_000L,
+                rows.drop(1).firstOrNull()?.let {
+                    requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L
+                }, observed, 60_000L)
+        }
     private val activeBusArrival: OfficialSeoulBusArrival?
         get() = selectedBusArrival?.takeIf {
             selectedBusStop?.stopId == it.identity.stopId && selectedBusRoute?.identity == it.identity
         }
     val activeArrivalIdentity: OfficialBoardingIdentity?
-        get() = if (isBusJourney) activeBusArrival?.identity else selectedArrival?.identity
+        get() = if (isBusJourney) activeBusArrival?.identity ?: activeGyeonggiSnapshot?.identity else selectedArrival?.identity
     val activeArrivalSnapshot: RealtimeArrivalSnapshot?
-        get() = if (isBusJourney) activeBusArrival?.snapshot else selectedArrival?.snapshot
+        get() = if (isBusJourney) activeBusArrival?.snapshot ?: activeGyeonggiSnapshot else selectedArrival?.snapshot
     val activeArrivalVehicleId: String?
-        get() = if (isBusJourney) activeBusArrival?.vehicleId else selectedArrival?.trainId
+        get() = if (isBusJourney) activeBusArrival?.vehicleId ?:
+            (activeGyeonggiSnapshot?.let { snapshot ->
+                gyeonggiArrivals.firstOrNull {
+                    it.trust == ArrivalTrustState.VALID &&
+                        it.stationId == snapshot.identity.stopId &&
+                        it.routeId == snapshot.identity.routeId &&
+                        it.staOrder == snapshot.identity.directionId &&
+                        it.observedAtMillis?.plus((it.seconds ?: 0) * 1_000L) ==
+                            snapshot.firstArrivalAtEpochMillis
+                }?.vehicleId
+            }) else selectedArrival?.trainId
 
     // Search, permission and live responses all carry generations. A new selection
     // invalidates even a response from an API that does not support cancellation.
@@ -133,8 +194,16 @@ internal class JourneyScreenState(val mode: FeatureMode,
         private set
 
     fun search(field: SearchField): JourneySearchState = when (field) {
+        SearchField.DEPARTURE -> departure
         SearchField.DESTINATION -> destination
         SearchField.STOP -> stop
+    }
+
+    /** Trip routing uses a chosen origin, never a position supplied by the GPS sensor. */
+    fun selectedTransitEndpoints(): Pair<MapPoint, MapPoint>? {
+        val origin = departure.selected?.point ?: return null
+        val destinationPoint = destination.selected?.point ?: return null
+        return origin to destinationPoint
     }
 
     fun editQuery(field: SearchField, value: String) {
@@ -166,6 +235,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
         revision++
         requestId++
         liveRequestId++
+        gyeonggiGeneration++
+        gyeonggiLoading = false
         loading = false
         waitingForPermission = false
         liveLoading = false
@@ -173,12 +244,27 @@ internal class JourneyScreenState(val mode: FeatureMode,
 
     fun clearWalking() {
         invalidateRequests()
+        discardWalkingResults()
+        clearAccessTransit()
+        location = null
+    }
+
+    fun clearAccessTransit() {
+        accessTransitGeneration++
+        accessTransitRoutes = emptyList()
+        accessTransitMessage = null
+        accessTransitLoading = false
+        accessTransitOrigin = null
+        accessTransitAttemptAtMillis = null
+    }
+
+    /** Discard an obsolete path without throwing away a successfully observed GPS fix. */
+    fun discardWalkingResults() {
         guidanceWalkingRoute = null
         walkRoute = null
         walkFetchedAtEpochMillis = null
         walkOrigin = null
         walkingPoints = emptyList()
-        location = null
     }
 
     fun clearOfficialSelection() {
@@ -198,6 +284,12 @@ internal class JourneyScreenState(val mode: FeatureMode,
         selectedBusRoute = null
         busArrivalOptions = emptyList()
         selectedBusArrival = null
+        gyeonggiGeneration++
+        selectedGyeonggiMatch = null
+        gyeonggiStationId = ""
+        gyeonggiArrivals = emptyList()
+        gyeonggiMessage = null
+        gyeonggiLoading = false
         arrivalRequestFailed = false
         liveError = null
         liveLoading = false

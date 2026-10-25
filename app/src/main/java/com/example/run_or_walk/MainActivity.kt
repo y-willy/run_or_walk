@@ -18,6 +18,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -51,13 +53,12 @@ import kotlin.math.sqrt
 // Preserved for the original manual calculator and its vibration patterns.
 enum class Urgency { NONE, LOW, MEDIUM, HIGH, MISSED }
 
-private enum class LocationAction { ROUTES, WALKING, RECENTER }
+private enum class LocationAction { WALKING, RECENTER, SET_DEPARTURE }
 private data class LocationRequest(
     val screen: JourneyScreenState, val revision: Long, val action: LocationAction)
 private data class LocationWorkResult(
     val location: GuidanceLocation,
-    val walk: KakaoWalkingRoute? = null,
-    val routes: List<KakaoTransitChoice>? = null)
+    val walk: KakaoWalkingRoute? = null)
 
 class MainActivity : ComponentActivity() {
     private lateinit var journeySession: JourneySessionViewModel
@@ -91,6 +92,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val kakaoRepository = remember { KakaoApiRepository(BuildConfig.KAKAO_REST_KEY) }
     val subwayRepository = remember { SeoulSubwayRepository(context) }
     val busRepository = remember { SeoulBusRepository() }
+    val gyeonggiRepository = remember { GyeonggiBusRepository() }
+    val gyeonggiLookupRepository = remember { GyeonggiBusLookupRepository() }
     val screens = session.screens
     val mode = session.mode
     val settings = session.settings
@@ -183,7 +186,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     }
 
     fun <T> runRequest(target: JourneyScreenState, message: String, failureMessage: String,
-        request: suspend () -> T, onResult: (T) -> Unit) {
+        request: suspend () -> T, onResult: (T) -> Unit,
+        onFailure: ((Exception) -> Unit)? = null) {
         if (target.busy) return
         keyboard?.hide()
         val generation = target.beginRequest(message)
@@ -200,6 +204,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 if (target.acceptsResponse(generation) && latestScreen === target) {
                     target.status = ""
                     target.error = friendlyFailure(error, failureMessage)
+                    onFailure?.invoke(error)
                 }
             } finally {
                 if (target.acceptsResponse(generation)) target.loading = false
@@ -209,25 +214,81 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
 
     fun storeWalking(target: JourneyScreenState, location: GuidanceLocation,
         boarding: JourneyPlace, identity: OfficialBoardingIdentity?, walk: KakaoWalkingRoute) {
+        // A complete walking polyline must actually connect the live GPS to this boarding place.
+        if (walk.points.size < 2 ||
+            distanceBetweenMeters(walk.points.first(), location.point) > 150.0 ||
+            distanceBetweenMeters(walk.points.last(), boarding.point) > 150.0) {
+            target.discardWalkingResults()
+            throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+        }
         target.walkRoute = WalkRoute(walk.distanceMeters, walk.durationSeconds)
         target.walkFetchedAtEpochMillis = System.currentTimeMillis()
         target.walkOrigin = location.point
         target.walkingPoints = walk.points
+        target.clearAccessTransit()
         target.guidanceWalkingRoute = identity?.let {
             GuidanceWalkingRoute(location.point, boarding.point, it, walk.durationSeconds,
-                System.currentTimeMillis(), 120_000L)
+                System.currentTimeMillis(), 120_000L, walk.distanceMeters)
+        }
+    }
+
+    fun startAccessTransitFallback(target: JourneyScreenState, location: GuidanceLocation) {
+        // A feeder trip's scheduled duration is not proof of a catchable realtime vehicle.
+        if (target.mode != FeatureMode.ROUTE || target.selectedRoute == null ||
+            location.accuracyMeters > 50.0 ||
+            System.currentTimeMillis() - location.observedAtEpochMillis !in 0L..30_000L) return
+        val departure = target.departure.selected ?: return
+        val now = System.currentTimeMillis()
+        val previous = target.accessTransitAttemptAtMillis
+        if (target.accessTransitLoading ||
+            (previous != null && now - previous in 0L..60_000L &&
+                target.accessTransitOrigin?.let {
+                    distanceBetweenMeters(it, location.point) <= 25.0
+                } == true)) return
+        target.accessTransitAttemptAtMillis = now
+        target.accessTransitOrigin = location.point
+        target.accessTransitLoading = true
+        target.accessTransitRoutes = emptyList()
+        target.accessTransitMessage = "도보 접근이 불가능해 현재 위치에서 출발지까지 대중교통 대안을 찾고 있어요."
+        val route = target.selectedRoute
+        val revision = target.revision
+        val requestId = target.requestId
+        val accessGeneration = target.beginAccessTransitRequest()
+        scope.launch {
+            fun active() = latestScreen === target && target.revision == revision &&
+                target.requestId == requestId && target.accessTransitGeneration == accessGeneration &&
+                target.selectedRoute == route && target.departure.selected == departure
+            try {
+                val alternatives = kakaoRepository.searchPublicTransit(location.point, departure.point)
+                if (active()) {
+                    target.accessTransitRoutes = alternatives.take(3).mapIndexed { index, choice ->
+                        JourneyTransitRoute("access-$index", choice)
+                    }
+                    target.accessTransitMessage = if (alternatives.isEmpty())
+                        "출발지까지 확인된 대중교통 대안이 없어요. 출발지를 바꿔 경로를 다시 검색해 주세요."
+                    else "출발지까지 대체 대중교통 경로예요. 환승·대기시간은 변동될 수 있으며 실제 차량은 별도 확인이 필요해요."
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (active()) {
+                    target.accessTransitRoutes = emptyList()
+                    target.accessTransitMessage = "출발지까지 대중교통 대안도 조회하지 못했어요. 잠시 뒤 다시 확인해 주세요."
+                }
+            } finally {
+                if (active()) target.accessTransitLoading = false
+            }
         }
     }
 
     fun performLocationAction(target: JourneyScreenState, action: LocationAction) {
-        val destination = target.destination.selected
         val boarding = target.boarding
         val identity = target.confirmedServiceIdentity
         val revision = target.revision
-        if (action == LocationAction.ROUTES && destination == null) return
         if (action == LocationAction.WALKING && boarding == null) return
+        if (action == LocationAction.WALKING) target.discardWalkingResults()
         runRequest(target,
-            if (action == LocationAction.ROUTES) "현재 위치에서 경로를 찾고 있어요" else "현재 위치와 도보 경로를 확인하고 있어요",
+            if (action == LocationAction.WALKING) "현재 위치와 도보 경로를 확인하고 있어요"
+                else "현재 위치를 확인하고 있어요",
             "위치·경로를 확인하지 못했어요",
             request = {
                 val location = getCurrentLocationSample(context)
@@ -237,29 +298,32 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 currentPoint = location.point
                 target.centerOn(location.point)
                 target.status = when (action) {
-                    LocationAction.ROUTES -> "현재 위치 확인 완료 · 대중교통 경로를 찾고 있어요"
                     LocationAction.WALKING -> "현재 위치 확인 완료 · 도보 경로를 찾고 있어요"
                     LocationAction.RECENTER -> "현재 위치를 갱신했어요."
+                    LocationAction.SET_DEPARTURE -> "현재 위치를 출발지로 설정하고 있어요."
                 }
                 when (action) {
-                    LocationAction.ROUTES -> LocationWorkResult(location,
-                        routes = kakaoRepository.searchPublicTransit(location.point, destination!!.point))
                     LocationAction.WALKING -> LocationWorkResult(location,
                         walk = kakaoRepository.searchWalk(location.point, boarding!!.point))
-                    LocationAction.RECENTER -> LocationWorkResult(location)
+                    LocationAction.RECENTER, LocationAction.SET_DEPARTURE -> LocationWorkResult(location)
                 }
             },
             onResult = { result ->
+                if (action == LocationAction.SET_DEPARTURE) {
+                    if (isMonitored(target)) JourneyMonitoringController.stop(context)
+                    target.clearRoutesAndBoarding()
+                    target.departure.apply {
+                        query = "현재 위치"
+                        selected = JourneyPlace(
+                            "gps-departure", "현재 위치", "GPS로 확인한 출발 위치", result.location.point)
+                        options = emptyList()
+                        searched = false
+                    }
+                    target.status = "현재 위치를 출발지로 설정했어요. 목적지를 선택한 뒤 경로를 찾아주세요."
+                }
                 target.location = result.location
                 currentPoint = result.location.point
                 target.centerOn(result.location.point)
-                result.routes?.let { routes ->
-                    target.routes = routes.take(3).mapIndexed { index, route ->
-                        JourneyTransitRoute("kakao-$index", route)
-                    }
-                    target.routeSearchCompleted = true
-                    target.status = "추정 소요시간 순 · 실시간 도착정보 연결 전이에요."
-                }
                 result.walk?.let { walk ->
                     storeWalking(target, result.location, boarding!!, identity, walk)
                     target.status = "도보 경로를 확인했어요."
@@ -270,6 +334,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     target.walkRoute = null
                     target.walkingPoints = emptyList()
                     target.status = "현재 위치를 갱신했어요."
+                }
+            },
+            onFailure = { error ->
+                // A real GPS fix may succeed while Kakao cannot produce a walking route.
+                if (action == LocationAction.WALKING && error is KakaoApiException) {
+                    target.location?.let { startAccessTransitFallback(target, it) }
                 }
             })
     }
@@ -306,6 +376,27 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         } else target.error = "진행 중인 위치 권한 요청을 완료해 주세요."
     }
 
+    fun findRoutes(target: JourneyScreenState) {
+        val endpoints = target.selectedTransitEndpoints() ?: run {
+            target.error = "출발지와 목적지를 모두 선택해 주세요."
+            return
+        }
+        if (target.busy) return
+        if (isMonitored(target)) JourneyMonitoringController.stop(context)
+        target.clearRoutesAndBoarding()
+        target.centerOn(endpoints.first)
+        runRequest(target, "선택한 출발지에서 목적지까지 경로를 찾고 있어요",
+            "대중교통 경로를 확인하지 못했어요",
+            request = { kakaoRepository.searchPublicTransit(endpoints.first, endpoints.second) },
+            onResult = { routes ->
+                target.routes = routes.take(3).mapIndexed { index, route ->
+                    JourneyTransitRoute("kakao-$index", route)
+                }
+                target.routeSearchCompleted = true
+                target.status = "경로를 선택하면 현재 GPS에서 첫 승차 지점까지 도보를 안내해요."
+            })
+    }
+
     fun selectOfficialBusRoute(target: JourneyScreenState, route: OfficialSeoulBusRoute) {
         val stop = target.selectedBusStop ?: return
         if (!route.supported || route.stopId != stop.stopId || route !in target.busRouteOptions) return
@@ -332,6 +423,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         target.busStopQuery = stop.name
         target.changingBoarding = false
         target.centerOn(point)
+        // The canonical GBIS/Seoul stop coordinate may differ from Kakao's estimated pin.
+        // Recalculate an actual GPS walking polyline for the newly confirmed official stop.
+        requestLocation(target, LocationAction.WALKING)
         val generation = target.beginLiveRequest()
         scope.launch {
             try {
@@ -413,12 +507,21 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 if (target.acceptsLiveResponse(generation) && latestScreen === target) {
                     target.stationOptions = stations
                     target.stationsSearched = true
-                    if (target.boardingConfirmed) {
+                    // A route already names its first subway boarding stop. Do not gate
+                    // official ID lookup behind a second manual place-selection action.
+                    val route = target.selectedRoute?.kakao
+                    if (target.boardingConfirmed || route?.firstTransitType == "SUBWAY") {
                         val matched = resolveOfficialBoardingStation(stations,
                             target.boarding?.name.orEmpty(), target.selectedRoute?.serviceName)
                         if (matched != null) {
                             target.selectedStation = matched
+                            target.boardingMatchedAutomatically = target.boardingMatchedAutomatically ||
+                                (route?.firstTransitType == "SUBWAY")
                             target.lastArrivalPollElapsedMillis = null
+                            target.liveError = null
+                            target.status = "첫 승차역과 호선을 공식 역 목록에 자동 연결했어요."
+                        } else if (route?.firstTransitType == "SUBWAY") {
+                            target.liveError = "해당 역의 호선을 자동으로 하나로 확정하지 못했어요. 경로를 다시 검색해 주세요."
                         }
                     }
                 }
@@ -452,12 +555,15 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             val walk = target.walkRoute
             val walkFresh = fetched != null && origin != null && walk != null &&
                 System.currentTimeMillis() - fetched in 0L..90_000L &&
-                distanceBetweenMeters(origin, location.point) <= 25.0
+                distanceBetweenMeters(origin, location.point) <= 25.0 &&
+                target.walkingPoints.size >= 2 &&
+                distanceBetweenMeters(target.walkingPoints.last(), boarding.point) <= 150.0
             if (walkFresh) {
                 // Rebind the same actual, fresh walking response after a direction choice.
                 target.guidanceWalkingRoute = identity?.let {
                     GuidanceWalkingRoute(requireNotNull(origin), boarding.point, it,
-                        requireNotNull(walk).durationSeconds, requireNotNull(fetched), 120_000L)
+                        requireNotNull(walk).durationSeconds, requireNotNull(fetched), 120_000L,
+                        requireNotNull(walk).distanceMeters)
                 }
             } else {
                 target.guidanceWalkingRoute = null
@@ -472,8 +578,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         } catch (error: Exception) {
             if (active()) {
                 // Preserve an acquired GPS fix even when only the route request failed.
-                target.guidanceWalkingRoute = null
+                target.discardWalkingResults()
                 target.error = friendlyFailure(error, "도보 경로를 다시 확인해 주세요")
+                if (error is KakaoApiException) {
+                    target.location?.let { startAccessTransitFallback(target, it) }
+                }
             }
         } finally {
             walkingRefreshes.remove(target)
@@ -523,9 +632,99 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         }
     }
 
+    suspend fun refreshGyeonggiLive(target: JourneyScreenState) {
+        val match = target.selectedGyeonggiMatch ?: return
+        if (target.gyeonggiLoading || latestScreen !== target || target.selectedBusRoute != null) return
+        val route = target.selectedRoute
+        val boarding = target.boarding
+        val revision = target.revision
+        val generation = target.beginGyeonggiRequest()
+        fun active() = target.acceptsGyeonggiResponse(generation) &&
+            target.revision == revision && latestScreen === target &&
+            target.selectedGyeonggiMatch == match && target.selectedRoute == route &&
+            target.boarding == boarding && target.selectedBusRoute == null
+        try {
+            val arrivals = gyeonggiRepository.arrivals(match.stationId)
+            if (active()) {
+                target.gyeonggiArrivals = arrivals
+                target.arrivalRequestFailed = false
+                target.gyeonggiMessage = when {
+                    arrivals.isEmpty() -> "경기버스 정류장 매칭 완료 · 현재 도착 예정 차량이 없어요."
+                    arrivals.none { it.routeId == match.routeId && it.staOrder == match.staOrder } ->
+                        "경기버스 정류장은 확인됐지만 해당 방향의 도착정보가 없어요."
+                    target.activeArrivalSnapshot == null -> "경기버스 도착정보 수신 · 시각·차량 식별정보 검증 중"
+                    else -> "경기버스 정류장·노선·방향과 최신 도착정보가 연결됐어요."
+                }
+                target.liveError = if (target.activeArrivalSnapshot == null) target.gyeonggiMessage else null
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            if (active()) {
+                target.arrivalRequestFailed = true
+                target.gyeonggiMessage = (error as? java.io.IOException)?.message
+                    ?: "경기버스 실시간 정보를 확인하지 못했어요."
+                target.liveError = target.gyeonggiMessage
+            }
+        } finally {
+            if (target.acceptsGyeonggiResponse(generation)) target.gyeonggiLoading = false
+        }
+    }
+
+    fun connectGyeonggiRoute(target: JourneyScreenState, selected: JourneyTransitRoute) {
+        val boarding = target.boarding ?: return
+        val revision = target.revision
+        val generation = target.beginGyeonggiRequest()
+        target.gyeonggiMessage = "경기버스 공식 정류장·노선을 자동 검색하고 있어요."
+        scope.launch {
+            fun active() = target.acceptsGyeonggiResponse(generation) &&
+                target.revision == revision && latestScreen === target &&
+                target.selectedRoute == selected && target.selectedBusRoute == null &&
+                target.boarding == boarding
+            try {
+                val match = gyeonggiLookupRepository.match(selected.kakao)
+                if (!active()) return@launch
+                if (match == null) {
+                    target.gyeonggiMessage = "경기버스 공식 노선이 유일하게 일치하지 않아 서울 정류소 연동도 확인해요."
+                    target.gyeonggiLoading = false
+                    findOfficialBusStops(target, nearby = true, automatic = true)
+                    return@launch
+                }
+                // Retire in-flight GPS/walking results tied to Kakao's estimated stop.
+                target.invalidateRequests()
+                target.selectedGyeonggiMatch = match
+                target.gyeonggiStationId = match.stationId
+                target.confirmedServiceIdentity = match.identity
+                // Recalculate walking access to the actual GBIS stop, never a guessed line.
+                target.boarding = boarding.copy(point = match.point,
+                    detail = "경기도 공식 정류장 " + match.stationId + " · " + match.routeName)
+                target.boardingSource = BoardingPointSource.VERIFIED
+                target.discardWalkingResults()
+                target.centerOn(match.point)
+                target.gyeonggiLoading = false
+                scope.launch { refreshWalkingSnapshot(target) }
+                refreshGyeonggiLive(target)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (active()) {
+                    target.gyeonggiMessage = (error as? java.io.IOException)?.message
+                        ?: "경기버스 공식 정류장·노선 자동 연결에 실패했어요."
+                    target.liveError = target.gyeonggiMessage
+                    target.gyeonggiLoading = false
+                    findOfficialBusStops(target, nearby = true, automatic = true)
+                }
+            } finally {
+                if (target.acceptsGyeonggiResponse(generation)) target.gyeonggiLoading = false
+            }
+        }
+    }
+
     suspend fun refreshLive(target: JourneyScreenState, force: Boolean = false) {
         if (isMonitored(target)) return
-        if (target.isBusJourney) { refreshBusLive(target, force); return }
+        if (target.isBusJourney) {
+            if (target.selectedBusRoute != null) refreshBusLive(target, force)
+            else if (target.selectedGyeonggiMatch != null) refreshGyeonggiLive(target)
+            return
+        }
         val station = target.selectedStation ?: return
         val boarding = target.boarding ?: return
         if (target.liveLoading || latestScreen !== target) return
@@ -559,6 +758,20 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             target.liveRetryAtEpochMillis = null
             val refreshed = chooseMatchingSubwayArrival(binding, arrivals, System.currentTimeMillis())
             if (binding == null) {
+                val auto = resolveAutomaticSubwayIdentity(target.selectedRoute?.kakao,
+                    arrivals, System.currentTimeMillis())
+                if (auto != null) {
+                    val first = chooseMatchingSubwayArrival(auto, arrivals, System.currentTimeMillis())
+                    if (first != null) {
+                        target.confirmedServiceIdentity = auto
+                        target.selectedArrival = first
+                        target.arrivalRequestFailed = false
+                        target.liveError = null
+                        target.detailsExpanded = false
+                        target.status = "승차역·호선·방향이 유일하게 일치해 실시간 차량을 연결했어요."
+                        return
+                    }
+                }
                 target.arrivalRequestFailed = false
                 target.liveError = if (arrivals.isEmpty()) "도착 예정 차량이 없어요."
                     else subwayArrivalDiagnosticSummary(arrivals, System.currentTimeMillis())
@@ -619,11 +832,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     }
 
     fun selectPlace(target: JourneyScreenState, field: SearchField, place: JourneyPlace) {
+        if (isMonitored(target)) JourneyMonitoringController.stop(context)
         target.clearRoutesAndBoarding()
         target.search(field).apply { query = place.name; selected = place; options = emptyList() }
         target.centerOn(place.point)
-        if (field == SearchField.DESTINATION) requestLocation(target, LocationAction.ROUTES)
-        else {
+        if (field == SearchField.STOP) {
             target.boarding = place
             target.boardingChosenByUser = true
             target.boardingSource = BoardingPointSource.VERIFIED
@@ -668,29 +881,84 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     target.changingBoarding = true
                     target.status = "승차 장소 후보에서 이용할 역을 선택해 주세요."
                 }
+            },
+            onFailure = {
+                target.detailsExpanded = true
+                target.changingBoarding = true
+                target.status = "승차 장소를 자동 연결하지 못했어요. 지도에서 장소를 다시 확인해 주세요."
             })
     }
 
     fun selectRoute(target: JourneyScreenState, route: JourneyTransitRoute) {
         if (target.busy) return
+        if (isMonitored(target)) JourneyMonitoringController.stop(context)
         target.clearWalking()
         target.clearOfficialSelection()
         target.selectedRoute = route
         target.boardingSource = route.kakao.boardingSource
         target.boardingChosenByUser = false
-        target.boardingMatchedAutomatically = false
         target.boardingCandidates = emptyList()
         target.candidatesSearched = false
-        target.boarding = route.kakao.boardingPoint?.let {
-            JourneyPlace("boarding-${route.id}", route.boardingName, route.serviceName, it)
-        }
+        // The selected route's first stop is the user's requested boarding point.
+        // It needs an independent official ID for reliable realtime guidance, but
+        // never needs a second Kakao-place selection just to show GPS and walking.
+        target.boarding = routeBoardingPlace(route)
+        target.boardingMatchedAutomatically = target.boarding != null
         target.stationQuery = officialStationSearchQuery(route.boardingName)
-        target.detailsExpanded = true
-        target.changingBoarding = true
+        target.detailsExpanded = false
+        target.changingBoarding = false
         target.error = null
-        target.boarding?.let { target.centerOn(it.point) }
-        // A unique, actual station search result can confirm the place without a second tap.
-        findBoardingPlaces(target, automatic = true)
+        val boarding = target.boarding
+        if (boarding == null) {
+            target.status = "선택한 경로에 첫 승차 정류장 좌표가 없어요. 다른 경로를 검색해 주세요."
+            return
+        }
+        target.status = "첫 승차 장소를 경로에서 자동 설정했어요. 도보와 실시간 도착정보를 연결하고 있어요."
+        target.centerOn(boarding.point)
+        when (route.kakao.firstTransitType) {
+            "SUBWAY" -> findOfficialStations(target)
+            "BUS" -> {
+                target.busStopQuery = boarding.name
+                connectGyeonggiRoute(target, route)
+            }
+        }
+        requestLocation(target, LocationAction.WALKING)
+    }
+
+    fun lookupGyeonggiArrivals(target: JourneyScreenState) {
+        val stationId = target.gyeonggiStationId.trim()
+        if (!stationId.matches(Regex("[1-9][0-9]{5,11}"))) {
+            target.gyeonggiMessage = "카카오 장소 ID나 5자리 정류장 번호가 아닌 경기버스 공식 stationId를 입력해 주세요."
+            return
+        }
+        val route = target.selectedRoute
+        val boarding = target.boarding
+        val revision = target.revision
+        val generation = target.beginGyeonggiRequest()
+        scope.launch {
+            fun active() = target.acceptsGyeonggiResponse(generation) &&
+                latestScreen === target && target.revision == revision &&
+                target.boarding == boarding && target.selectedRoute == route &&
+                target.gyeonggiStationId.trim() == stationId
+            try {
+                val arrivals = gyeonggiRepository.arrivals(stationId)
+                if (active()) {
+                    target.gyeonggiArrivals = arrivals
+                    target.gyeonggiMessage = if (arrivals.isEmpty())
+                        "이 공식 정류소의 실시간 도착정보가 없어요."
+                    else "경기버스 공식 도착정보를 조회했어요. 실제 승차 정류장과의 매칭이 확인되기 전에는 자동 뛰기·걷기 판단에 사용하지 않아요."
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (active()) {
+                    target.gyeonggiArrivals = emptyList()
+                    target.gyeonggiMessage = (error as? java.io.IOException)?.message
+                        ?: "경기버스 실시간 도착정보를 확인할 수 없어요."
+                }
+            } finally {
+                if (active()) target.gyeonggiLoading = false
+            }
+        }
     }
 
     LaunchedEffect(screen) {
@@ -706,9 +974,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         }
     }
     val selectedTrainKey = screen.activeArrivalIdentity to screen.activeArrivalVehicleId
-    LaunchedEffect(screen, screen.selectedStation, screen.selectedBusStop, screen.selectedBusRoute, screen.confirmedServiceIdentity, monitorKey) {
+    LaunchedEffect(screen, screen.selectedStation, screen.selectedBusStop, screen.selectedBusRoute,
+        screen.selectedGyeonggiMatch, screen.confirmedServiceIdentity, monitorKey) {
         if (screen.selectedStation != null && subwayRepository.isConfigured ||
-            screen.selectedBusRoute != null && busRepository.isConfigured) {
+            screen.selectedBusRoute != null && busRepository.isConfigured ||
+            screen.selectedGyeonggiMatch != null && gyeonggiRepository.isConfigured) {
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 while (isActive) { refreshLive(screen); delay(30_000L) }
             }
@@ -718,13 +988,17 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val selectedArrival = screen.selectedArrival
     val monitored = isMonitored(screen)
     val isBus = screen.isBusJourney
-    val configured = if (isBus) busRepository.isConfigured else subwayRepository.isConfigured
+    val configured = if (isBus) (busRepository.isConfigured || gyeonggiRepository.isConfigured)
+        else subwayRepository.isConfigured
     val activeSnapshot = if (monitored) monitoring.arrivals else screen.activeArrivalSnapshot
     val boarding = screen.boarding
     val identity = if (monitored) monitoring.request?.identity else screen.activeArrivalIdentity
     val officialConnectionConfirmed = if (isBus) {
         val route = screen.selectedBusRoute
-        route != null && screen.selectedBusStop?.stopId == route.stopId && route.identity == identity
+        (route != null && screen.selectedBusStop?.stopId == route.stopId && route.identity == identity) ||
+            (route == null && screen.selectedGyeonggiMatch?.let { gbis ->
+                gbis.identity == identity && boarding?.point == gbis.point
+            } == true)
     } else screen.selectedStation?.let {
         it.stopId == identity?.stopId && it.routeId == identity.routeId
     } == true
@@ -748,7 +1022,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         locationPermissionGranted = hasLocationPermission(context),
         arrivalRequestFailed = !monitored && screen.arrivalRequestFailed,
         bufferSeconds = settings.bufferSeconds), now,
-        AutoGuidancePolicy(fastTravelRatio = settings.fastTravelRatio))
+        AutoGuidancePolicy(fastSpeedKmh = settings.fastSpeedKmh))
     val validArrival = activeSnapshot?.takeIf {
         configured && (monitored || !screen.arrivalRequestFailed) && it.reliable &&
             it.trustState == ArrivalTrustState.VALID &&
@@ -764,23 +1038,29 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val arrivalDiagnostic = if (monitored) {
         monitoringMessage.takeIf { assessment.status == AutoGuidanceStatus.UNKNOWN }
     } else if (isBus) {
-        if (screen.busArrivalOptions.isNotEmpty() && validArrival == null) screen.liveError
+        if ((screen.busArrivalOptions.isNotEmpty() || screen.gyeonggiArrivals.isNotEmpty()) && validArrival == null) screen.liveError
             ?: "확인된 버스의 도착 상태를 갱신하고 있어요." else null
     } else screen.arrivalOptions.takeIf { it.isNotEmpty() }
         ?.let { subwayArrivalDiagnosticSummary(it, now) }
-    val officialStopSelected = if (isBus) screen.selectedBusStop != null else screen.selectedStation != null
+    val officialStopSelected = if (isBus) screen.selectedBusStop != null ||
+        screen.selectedGyeonggiMatch != null else screen.selectedStation != null
     val hasArrivalOptions = if (monitored) monitoring.arrivals != null else if (isBus)
-        screen.busArrivalOptions.isNotEmpty() else screen.arrivalOptions.isNotEmpty()
+        (screen.busArrivalOptions.isNotEmpty() || screen.gyeonggiArrivals.isNotEmpty())
+        else screen.arrivalOptions.isNotEmpty()
     val unknownMessage = when {
         monitored -> monitoringMessage
         screen.boarding == null && screen.selectedRoute == null ->
             "목적지나 이용할 정류장·역을 검색하면 현재 위치와 도착정보를 연결해요."
         !configured -> "실시간 정보 연결 필요"
         screen.busy -> screen.status
-        !screen.boardingConfirmed -> "승차 장소 후보가 여러 개이거나 정확히 일치하지 않아요. 아래 후보에서 이용할 장소를 선택해 주세요."
+        !screen.boardingConfirmed -> "경로의 첫 승차 지점 좌표를 확인할 수 없어요. 다른 경로로 다시 검색해 주세요."
         !officialStopSelected && screen.liveError != null -> screen.liveError.orEmpty()
-        !officialStopSelected -> if (isBus) "서울 공식 정류장을 선택해 주세요." else "공식 역·호선을 선택해 주세요."
-        isBus && screen.selectedBusRoute == null -> screen.liveError ?: "탑승할 버스 노선·방향을 선택해 주세요."
+        !officialStopSelected -> if (isBus)
+            "경로의 승차 장소는 자동 설정됐어요. 공식 버스 정류소 ID·노선을 연결해야 실시간 판단이 가능해요."
+            else "승차 장소는 자동 설정됐어요. 공식 역·호선 정보를 확인하고 있어요."
+        isBus && screen.selectedBusRoute == null && screen.selectedGyeonggiMatch == null ->
+            screen.gyeonggiMessage ?: screen.liveError ?:
+                "공식 버스 노선·방향 매칭 중이에요. 아직 도착시간을 확정하지 않았어요."
         screen.liveRetryAtEpochMillis?.let { it > now } == true ->
             (screen.liveError ?: "서버 안내 시각까지 기다려 주세요.") +
                 " · 재조회까지 ${((requireNotNull(screen.liveRetryAtEpochMillis) - now) / 1_000L).coerceAtLeast(1)}초"
@@ -794,9 +1074,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val unknownTitle = when {
         screen.boarding == null && screen.selectedRoute == null -> "이동 안내를 시작해 보세요"
         screen.busy || screen.liveLoading && !hasArrivalOptions -> "이동 정보를 확인하고 있어요"
-        !screen.boardingConfirmed -> "승차 장소를 확인해 주세요"
-        !officialStopSelected -> if (isBus) "이용할 정류장을 선택해 주세요" else "이용할 호선을 선택해 주세요"
-        isBus && screen.selectedBusRoute == null -> "탑승할 버스·방향을 선택해 주세요"
+        !screen.boardingConfirmed -> "승차 지점 좌표 확인 불가"
+        !officialStopSelected -> "실시간 연동 정보를 확인하고 있어요"
+        isBus && screen.selectedBusRoute == null && screen.selectedGyeonggiMatch == null -> "버스 실시간 연결 준비 중"
         screen.arrivalRequestFailed || arrivalDiagnostic != null -> "도착정보를 확인하고 있어요"
         activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요" else "탑승할 방향을 선택해 주세요"
         else -> "자동 판단을 준비하고 있어요"
@@ -807,7 +1087,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             playVibration(context, when (assessment.status) {
                 AutoGuidanceStatus.WALK -> Urgency.LOW
                 AutoGuidanceStatus.FAST_WALK -> Urgency.HIGH
-                AutoGuidanceStatus.NEXT_TRAIN -> Urgency.MEDIUM
+                AutoGuidanceStatus.NEXT_VEHICLE -> Urgency.MEDIUM
                 AutoGuidanceStatus.UNKNOWN -> Urgency.NONE
             })
         }
@@ -828,14 +1108,17 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     }
                 })
             }
-            // 2. One search input. A destination never requires a manually entered origin.
+            // 2. Explicit trip origin and destination, independent from the phone's live GPS.
+            SectionCard(title = if (mode == FeatureMode.ROUTE) "어디로 이동하시나요?" else "어느 정류장을 찾으세요?") {
             SearchContent(screen, onSearch = { searchPlaces(screen, it) },
-                onEdit = { field, value -> screen.editQuery(field, value) },
+                onEdit = { field, value ->
+                    if (isMonitored(screen)) JourneyMonitoringController.stop(context)
+                    screen.editQuery(field, value)
+                },
                 onChoose = { field, place -> selectPlace(screen, field, place) },
-                onRetryRoutes = {
-                    screen.clearRoutesAndBoarding()
-                    requestLocation(screen, LocationAction.ROUTES)
-                })
+                onUseCurrentLocation = { requestLocation(screen, LocationAction.SET_DEPARTURE) },
+                onFindRoutes = { findRoutes(screen) })
+            }
             // 3. Core results and optional selection details.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (screen.busy) LoadingStateCard(screen.status)
@@ -847,7 +1130,6 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     }) { Text("위치 권한 설정") }
                     TextButton(onClick = { requestLocation(screen,
                         if (screen.boarding != null) LocationAction.WALKING
-                        else if (screen.destination.selected != null) LocationAction.ROUTES
                         else LocationAction.RECENTER) }, enabled = !screen.busy) {
                         Text("현재 위치·경로 다시 확인")
                     }
@@ -855,41 +1137,65 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                     }) { Text("기기 위치 설정") }
                 }
-                AutomaticGuidanceCard(assessment,
-                    serviceLabel = if (isBus) screen.selectedBusRoute?.let { "${it.name} · ${it.direction}" }
-                        ?: screen.selectedRoute?.serviceName.orEmpty()
-                        else selectedArrival?.let { "${screen.selectedStation?.lineName.orEmpty()} · ${it.trainLabel} · ${it.directionLabel}" }
-                        ?: screen.selectedRoute?.serviceName.orEmpty(),
-                    boardingLabel = boarding?.name, unknownMessage = unknownMessage,
-                    unknownTitle = unknownTitle,
-                    vehicleLabel = if (isBus) "버스" else "열차",
-                    movementHint = if (isBus) "정류장 접근과 횡단보도 신호를 확인해 주세요." else "역 내부 이동과 신호 대기는 확인해 주세요.",
-                    arrivalInformation = if (hasArrivalOptions && validArrival == null)
-                        "서버 응답 수신 · 자동 판단 조건 확인 중" else null,
-                    nowEpochMillis = now,
-                    firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis,
-                    nextArrivalAtEpochMillis = validArrival?.nextArrivalAtEpochMillis,
-                    arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis,
-                    walkingSeconds = if (monitored) personalizedWalk?.durationSeconds?.takeIf {
-                        now - personalizedWalk.fetchedAtEpochMillis in 0L..120_000L &&
-                            displayedLocation?.let { fix ->
-                                now - fix.observedAtEpochMillis in 0L..30_000L && fix.accuracyMeters <= 50.0 &&
-                                    distanceBetweenMeters(fix.point, personalizedWalk.origin) <= 35.0
-                            } == true
+                if (screen.routes.isNotEmpty()) {
+                    Text("추천 경로 · 하나를 선택하세요", style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.semantics { heading() })
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        screen.routes.take(3).forEach { route ->
+                            key(route.id) {
+                                TransitRouteCard(route.durationMinutes, route.serviceName, route.boardingName,
+                                    route.detail, screen.selectedRoute?.id == route.id, enabled = !screen.busy,
+                                    guidanceLabel = when {
+                                        screen.selectedRoute?.id != route.id -> "예상 소요시간"
+                                        assessment.status != AutoGuidanceStatus.UNKNOWN -> "검증된 실시간 안내"
+                                        screen.activeArrivalSnapshot != null -> "도착정보 수신 · 신뢰도 확인 중"
+                                        else -> "승차점 자동 설정 · 실시간 정보 연결 중"
+                                    },
+                                    modifier = Modifier.width(260.dp),
+                                    onSelect = { selectRoute(screen, route) })
+                            }
+                        }
                     }
-                    else screen.walkRoute?.let { settings.walkingSeconds(it.distanceMeters, it.durationSeconds) }?.takeIf {
-                        screen.location?.let { fix ->
-                            now - fix.observedAtEpochMillis in 0L..30_000L && fix.accuracyMeters <= 50.0
-                        } == true && (screen.walkFetchedAtEpochMillis?.let { fetched ->
-                            now - fetched in 0L..120_000L && screen.walkOrigin?.let { origin ->
-                                screen.location?.let { distanceBetweenMeters(it.point, origin) <= 35.0 } == true
-                            } == true
-                        } ?: false)
-                    })
-                JourneySettingsPanel(settings) { value ->
-                    session.updateSettings(value)
-                    JourneyMonitoringController.updateSettings(context, value,
-                        monitoring.request?.vibrationEnabled ?: screen.alertsEnabled)
+                } else if (screen.routeSearchCompleted && !screen.busy) {
+                    EmptyStateCard("검색된 경로가 없어요", "목적지를 바꿔 검색해 주세요.")
+                }
+
+                if (screen.selectedRoute != null || boarding != null || monitored) {
+                    AutomaticGuidanceCard(assessment,
+                        serviceLabel = if (isBus) screen.selectedBusRoute?.let { "${it.name} · ${it.direction}" }
+                            ?: screen.selectedGyeonggiMatch?.let { "${it.routeName} · ${it.destination}" }
+                            ?: screen.selectedRoute?.serviceName.orEmpty()
+                            else selectedArrival?.let { "${screen.selectedStation?.lineName.orEmpty()} · ${it.trainLabel} · ${it.directionLabel}" }
+                            ?: screen.selectedRoute?.serviceName.orEmpty(),
+                        boardingLabel = boarding?.name, unknownMessage = unknownMessage,
+                        unknownTitle = unknownTitle,
+                        vehicleLabel = if (isBus) "버스" else "열차",
+                        movementHint = if (isBus) "정류장 접근과 횡단보도 신호를 확인해 주세요." else "역 내부 이동과 신호 대기는 확인해 주세요.",
+                        arrivalInformation = if (hasArrivalOptions && validArrival == null)
+                            "서버 응답 수신 · 자동 판단 조건 확인 중" else null,
+                        nowEpochMillis = now,
+                        firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis,
+                        nextArrivalAtEpochMillis = validArrival?.nextArrivalAtEpochMillis,
+                        arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis,
+                        walkingSeconds = if (monitored) personalizedWalk?.durationSeconds?.takeIf {
+                            now - personalizedWalk.fetchedAtEpochMillis in 0L..120_000L &&
+                                displayedLocation?.let { fix ->
+                                    now - fix.observedAtEpochMillis in 0L..30_000L && fix.accuracyMeters <= 50.0 &&
+                                        distanceBetweenMeters(fix.point, personalizedWalk.origin) <= 35.0
+                                } == true
+                        }
+                        else screen.walkRoute?.let { settings.walkingSeconds(it.distanceMeters, it.durationSeconds) }?.takeIf {
+                            screen.location?.let { fix ->
+                                now - fix.observedAtEpochMillis in 0L..30_000L && fix.accuracyMeters <= 50.0
+                            } == true && (screen.walkFetchedAtEpochMillis?.let { fetched ->
+                                now - fetched in 0L..120_000L && screen.walkOrigin?.let { origin ->
+                                    screen.location?.let { distanceBetweenMeters(it.point, origin) <= 35.0 } == true
+                                } == true
+                            } ?: false)
+                        })
+                } else if (screen.routes.isNotEmpty()) {
+                    NoticeCard("위에서 탈 경로를 하나 선택하면 이동 안내가 자동으로 나타나요.")
                 }
                 if (monitoring.running && boarding == null && screen.selectedRoute == null) {
                     SectionCard("이동 안내 실행 중", monitoring.request?.boardingName) {
@@ -901,29 +1207,120 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         }
                     }
                 }
-                if (screen.routes.isNotEmpty()) {
-                    Text("경로 · 추정 소요시간 순", style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.semantics { heading() })
-                    screen.routes.take(3).forEach { route ->
-                        key(route.id) {
-                            TransitRouteCard(route.durationMinutes, route.serviceName, route.boardingName,
-                                route.detail, screen.selectedRoute?.id == route.id, enabled = !screen.busy,
-                                guidanceLabel = if (screen.selectedRoute?.id == route.id &&
-                                    assessment.status != AutoGuidanceStatus.UNKNOWN) "실시간 도착정보 연결됨"
-                                    else "추정 · 실시간 미연결",
-                                onSelect = { selectRoute(screen, route) })
+                if (screen.accessTransitMessage != null) {
+                    SectionCard(title = "도보 경로 없음 · 출발지까지 대중교통 대안") {
+                        Text(screen.accessTransitMessage.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                        if (screen.accessTransitLoading) LoadingStateCard("대중교통 연결 경로 조회 중")
+                        screen.accessTransitRoutes.forEach { alternative ->
+                            key(alternative.id) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier.fillMaxWidth()) {
+                                    Text(alternative.serviceName.ifBlank { "대중교통" } + " · 약 " +
+                                        alternative.durationMinutes + "분 · " + alternative.boardingName,
+                                        style = MaterialTheme.typography.bodyMedium)
+                                    val margin = screen.departure.selected?.point?.let { origin ->
+                                        boarding?.point?.let { board ->
+                                            provisionalAccessSlackSeconds(origin, board,
+                                                alternative.kakao.totalSeconds,
+                                                validArrival?.firstArrivalAtEpochMillis,
+                                                now, settings.bufferSeconds)
+                                        }
+                                    }
+                                    Text(if (margin == null)
+                                        "실시간 환승 여유시간 확인 불가 · 대체 경로는 예상 소요시간이에요."
+                                    else if (margin >= 0)
+                                        "참고 예상 여유 약 " + (margin / 60) + "분 · 환승·승차 보장 아님"
+                                    else "참고 예상 여유 부족 약 " + ((-margin) / 60 + 1) + "분 · 재탐색 권장",
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
                         }
                     }
-                } else if (screen.routeSearchCompleted && !screen.busy) {
-                    EmptyStateCard("검색된 경로가 없어요", "목적지를 바꿔 검색해 주세요.")
+                }
+
+                // 4. One MapView at a stable call site. Collapsing only changes its height.
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("현재 위치 · 자동 승차 위치 · 도보 경로", style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f))
+                        TextButton(onClick = { mapExpanded = !mapExpanded }) {
+                            Text(if (mapExpanded) "지도 줄이기" else "지도 펼치기")
+                        }
+                    }
+                    KakaoMapPanel(lifecycleOwner = lifecycleOwner, center = screen.mapCenter,
+                        routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
+                        currentPoint = if (monitored) monitoring.location?.point else screen.location?.point ?: currentPoint,
+                        boardingPoint = boarding?.point, recenterRequest = screen.recenterRequest,
+                        onCurrentLocation = {
+                            if (monitored) {
+                                val fix = monitoring.location
+                                if (fix != null && now - fix.observedAtEpochMillis in 0L..30_000L) {
+                                    screen.centerOn(fix.point)
+                                } else {
+                                    monitorRecenterPending = true
+                                    JourneyMonitoringController.refresh(context)
+                                }
+                            } else requestLocation(screen,
+                                if (boarding != null) LocationAction.WALKING else LocationAction.RECENTER)
+                        },
+                        modifier = Modifier.fillMaxWidth().height(if (mapExpanded) 360.dp else 180.dp))
+                    if (screen.walkRoute != null && screen.walkingPoints.size < 2) NoticeCard(
+                        "도보 요약만 제공돼 지도 경로를 표시할 수 없어요.")
+                    Text("서울 지하철·버스 · 경기버스는 정류소 조회 API 승인·Worker 배포 후 자동 연동돼요.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://data.seoul.go.kr/dataList/OA-12764/A/1/datasetView.do")))
+                    }) { Text("역·도착정보: 서울특별시 TOPIS · 공공누리 1유형",
+                        style = MaterialTheme.typography.labelSmall) }
+                    if (isBus) TextButton(onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://www.data.go.kr/data/15000314/openapi.do")))
+                    }) { Text("버스 도착정보: 서울특별시 · 공공누리 1유형", style = MaterialTheme.typography.labelSmall) }
+                    if (screen.selectedRoute?.kakao?.firstTransitType == "BUS") TextButton(onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://www.data.go.kr/data/15080346/openapi.do")))
+                    }) { Text("경기버스 도착정보: 경기도 공공데이터", style = MaterialTheme.typography.labelSmall) }
+                }
+                if (screen.selectedRoute?.kakao?.firstTransitType == "BUS" &&
+                    screen.gyeonggiMessage != null) {
+                    NoticeCard(screen.gyeonggiMessage.orEmpty())
+                }
+                screen.selectedGyeonggiMatch?.let { match ->
+                    SectionCard("경기버스 " + match.routeName + " · 공식 도착정보") {
+                        val arrivals = screen.gyeonggiArrivals.filter {
+                            it.stationId == match.stationId && it.routeId == match.routeId &&
+                                it.staOrder == match.staOrder
+                        }.sortedBy { it.seconds ?: Int.MAX_VALUE }
+                        if (arrivals.isEmpty()) {
+                            Text(if (screen.gyeonggiLoading) "공식 도착정보 조회 중"
+                                else "확인된 도착 예정 차량이 없어요.",
+                                style = MaterialTheme.typography.bodySmall)
+                        } else arrivals.take(2).forEach { row ->
+                            val estimate = row.seconds?.let {
+                                if (it == 0) "즉시/전역 정보" else "약 " + ((it + 59) / 60) + "분"
+                            } ?: "시간 정보 없음"
+                            val trust = if (row.trust == ArrivalTrustState.VALID)
+                                "확인된 실시간" else "갱신·정확도 확인 필요"
+                            Text(estimate + " · " + trust,
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                JourneySettingsPanel(settings) { value ->
+                    session.updateSettings(value)
+                    JourneyMonitoringController.updateSettings(context, value,
+                        monitoring.request?.vibrationEnabled ?: screen.alertsEnabled)
                 }
 
                 if (boarding != null || screen.selectedRoute != null) {
-                    TextButton(onClick = { screen.detailsExpanded = !screen.detailsExpanded },
+                    if (mode == FeatureMode.STOP) TextButton(
+                        onClick = { screen.detailsExpanded = !screen.detailsExpanded },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                         Text(if (screen.detailsExpanded) "승차·실시간 연결 접기" else "승차 변경 · 실시간 연결")
                     }
-                    if (screen.detailsExpanded) {
+                    if (mode == FeatureMode.STOP && screen.detailsExpanded) {
                         SelectionDetails(screen, configured, now,
                             onBusQueryChange = { screen.editBusStopQuery(it) },
                             onSearchBusStops = { findOfficialBusStops(screen) },
@@ -951,7 +1348,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                             onRefresh = {
                                 if (monitored) JourneyMonitoringController.refresh(context)
                                 else scope.launch { refreshLive(screen, force = true) }
-                            })
+                            },
+                            onGyeonggiStationId = { screen.updateGyeonggiStationId(it) },
+                            onGyeonggiLookup = { lookupGyeonggiArrivals(screen) })
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -979,7 +1378,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                             Text(if (startingMonitoring) "이동 안내 시작 중" else if (monitoring.running)
                                 "이 선택으로 이동 안내 변경" else "화면 꺼짐 이동 안내 시작")
                         }
-                        if (!canMonitor) NoticeCard("공식 승차 장소와 노선·방향을 선택하면 이동 안내를 시작할 수 있어요.")
+                        if (!canMonitor) NoticeCard(if (screen.selectedGyeonggiMatch != null)
+                            "경기버스의 화면 꺼짐 안내는 아직 지원하지 않아요. 화면을 켠 상태에서 실시간 정보를 확인해 주세요."
+                            else "공식 승차 장소·노선·방향 및 검증된 도착정보가 필요해요.")
                         if (monitoring.running) TextButton(onClick = { JourneyMonitoringController.stop(context) }) {
                             Text("현재 이동 안내 종료")
                         }
@@ -994,47 +1395,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     }) { Text("앱 알림 설정") }
                 }
             }
-            // 4. One MapView at a stable call site. Collapsing only changes its height.
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("현재 위치와 도보 경로", style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f))
-                    TextButton(onClick = { mapExpanded = !mapExpanded }) {
-                        Text(if (mapExpanded) "지도 줄이기" else "지도 펼치기")
-                    }
-                }
-                KakaoMapPanel(lifecycleOwner = lifecycleOwner, center = screen.mapCenter,
-                    routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
-                    currentPoint = if (monitored) monitoring.location?.point else screen.location?.point ?: currentPoint,
-                    boardingPoint = boarding?.point, recenterRequest = screen.recenterRequest,
-                    onCurrentLocation = {
-                        if (monitored) {
-                            val fix = monitoring.location
-                            if (fix != null && now - fix.observedAtEpochMillis in 0L..30_000L) {
-                                screen.centerOn(fix.point)
-                            } else {
-                                monitorRecenterPending = true
-                                JourneyMonitoringController.refresh(context)
-                            }
-                        } else requestLocation(screen,
-                            if (boarding != null) LocationAction.WALKING else LocationAction.RECENTER)
-                    },
-                    modifier = Modifier.fillMaxWidth().height(if (mapExpanded) 360.dp else 180.dp))
-                if (screen.walkRoute != null && screen.walkingPoints.size < 2) NoticeCard(
-                    "도보 요약만 제공돼 지도 경로를 표시할 수 없어요.")
-                Text("서울 지하철·서울 소속 버스와 광역버스 지원 · 경기·인천 소속 버스는 별도 연동이 필요해요.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://data.seoul.go.kr/dataList/OA-12764/A/1/datasetView.do")))
-                }) { Text("역·도착정보: 서울특별시 TOPIS · 공공누리 1유형",
-                    style = MaterialTheme.typography.labelSmall) }
-                if (isBus) TextButton(onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://www.data.go.kr/data/15000314/openapi.do")))
-                }) { Text("버스 도착정보: 서울특별시 · 공공누리 1유형", style = MaterialTheme.typography.labelSmall) }
-            }
+
         }
     }
 }
@@ -1042,22 +1403,31 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
 @Composable
 private fun SearchContent(screen: JourneyScreenState,
     onSearch: (SearchField) -> Unit, onEdit: (SearchField, String) -> Unit,
-    onChoose: (SearchField, JourneyPlace) -> Unit, onRetryRoutes: () -> Unit) {
-    val field = if (screen.mode == FeatureMode.ROUTE) SearchField.DESTINATION else SearchField.STOP
-    val input = screen.search(field)
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        LocationSearchInput(
-            label = if (screen.mode == FeatureMode.ROUTE) "목적지" else "정류장·역 이름",
-            input = input, enabled = !screen.busy,
-            onChange = { onEdit(field, it) }, onSearch = { onSearch(field) },
-            onChoose = { onChoose(field, it) })
+    onChoose: (SearchField, JourneyPlace) -> Unit,
+    onUseCurrentLocation: () -> Unit, onFindRoutes: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (screen.mode == FeatureMode.ROUTE) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("현재 GPS 위치에서 출발", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                if (input.selected != null) TextButton(onClick = onRetryRoutes,
-                    enabled = !screen.busy) { Text("경로 다시 찾기") }
+            val departure = screen.departure
+            LocationSearchInput("출발지", departure, !screen.busy,
+                onChange = { onEdit(SearchField.DEPARTURE, it) },
+                onSearch = { onSearch(SearchField.DEPARTURE) },
+                onChoose = { onChoose(SearchField.DEPARTURE, it) })
+            TextButton(onClick = onUseCurrentLocation, enabled = !screen.busy) {
+                Text("현재 위치로 출발지 설정")
             }
+            val destination = screen.destination
+            LocationSearchInput("목적지", destination, !screen.busy,
+                onChange = { onEdit(SearchField.DESTINATION, it) },
+                onSearch = { onSearch(SearchField.DESTINATION) },
+                onChoose = { onChoose(SearchField.DESTINATION, it) })
+            Button(onClick = onFindRoutes,
+                enabled = !screen.busy && departure.selected != null && destination.selected != null,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("대중교통 경로 보기") }
+        } else {
+            LocationSearchInput("정류장·역 이름", screen.stop, !screen.busy,
+                onChange = { onEdit(SearchField.STOP, it) },
+                onSearch = { onSearch(SearchField.STOP) },
+                onChoose = { onChoose(SearchField.STOP, it) })
         }
     }
 }
@@ -1075,6 +1445,11 @@ private fun LocationSearchInput(label: String, input: JourneySearchState, enable
                 modifier = Modifier.heightIn(min = 48.dp)) { Text("검색") } },
             modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium)
         PlacePages(input.options, enabled, onChoose)
+        input.selected?.let { selected ->
+            Text("✓ 선택됨 · " + selected.name,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary)
+        }
         if (input.searched && input.options.isEmpty() && input.selected == null && enabled) {
             EmptyStateCard("검색 결과가 없어요", "정확한 장소명으로 다시 검색해 주세요.")
         }
@@ -1108,7 +1483,8 @@ private fun SelectionDetails(screen: JourneyScreenState, configured: Boolean, no
     onChangeBoarding: () -> Unit, onFindBoarding: () -> Unit,
     onChooseBoarding: (JourneyPlace) -> Unit, onStationQuery: (String) -> Unit,
     onFindStations: () -> Unit, onChooseStation: (OfficialSubwayStation) -> Unit,
-    onChooseArrival: (OfficialSubwayArrival) -> Unit, onRefresh: () -> Unit) {
+    onChooseArrival: (OfficialSubwayArrival) -> Unit, onRefresh: () -> Unit,
+    onGyeonggiStationId: (String) -> Unit, onGyeonggiLookup: () -> Unit) {
     SectionCard(title = "승차 장소·차량 선택") {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(screen.boarding?.name ?: "승차 장소 확인 필요",
@@ -1185,8 +1561,50 @@ private fun SelectionDetails(screen: JourneyScreenState, configured: Boolean, no
                 }
             }
         }
+        if (screen.selectedRoute?.kakao?.firstTransitType == "BUS") {
+            GyeonggiManualArrivalPanel(screen, onGyeonggiStationId, onGyeonggiLookup)
+        }
         if (screen.liveLoading) LoadingStateCard("승차 장소·실시간 정보를 확인하고 있어요")
         screen.liveError?.let { NoticeCard(it, isError = configured) }
+    }
+}
+
+
+/**
+ * Manual official-ID lookup is deliberately separate from automatic guidance.
+ * A live GBIS response alone cannot prove that a Kakao map pin is the same stop.
+ */
+@Composable
+private fun GyeonggiManualArrivalPanel(
+    screen: JourneyScreenState, onIdChange: (String) -> Unit, onLookup: () -> Unit
+) {
+    HorizontalDivider()
+    Text("경기도 버스 도착정보 (공식 정류소 ID 확인 필요)",
+        style = MaterialTheme.typography.titleSmall)
+    Text("경기버스의 stationId는 카카오 장소 ID·정류장 표지 번호와 다릅니다. " +
+        "별도 정류소 조회 API를 승인받으면 자동 연결할 수 있어요.",
+        style = MaterialTheme.typography.bodySmall)
+    OutlinedTextField(screen.gyeonggiStationId, onValueChange = onIdChange,
+        label = { Text("경기버스 공식 stationId") }, singleLine = true,
+        modifier = Modifier.fillMaxWidth())
+    OutlinedButton(onClick = onLookup,
+        enabled = !screen.gyeonggiLoading && screen.gyeonggiStationId.matches(Regex("[1-9][0-9]{5,11}"))) {
+        Text("해당 경기 정류소 도착정보 조회")
+    }
+    if (screen.gyeonggiLoading) LoadingStateCard("경기버스 도착정보 확인 중")
+    screen.gyeonggiMessage?.let { NoticeCard(it) }
+    val expectedRouteName = screen.selectedRoute?.serviceName.orEmpty().trim()
+    screen.gyeonggiArrivals.sortedByDescending { row ->
+        expectedRouteName.isNotBlank() && row.routeName.trim() == expectedRouteName
+    }.take(8).forEach { row ->
+        val minutes = row.seconds?.let { "약 " + ((it + 59) / 60) + "분" } ?: "예정시각 없음"
+        Text(row.routeName + " · " + row.destination + " · " + minutes +
+            " · " + when (row.trust) {
+                ArrivalTrustState.VALID -> "최근 정보"
+                ArrivalTrustState.STALE -> "오래된 정보"
+                ArrivalTrustState.FUTURE_TIMESTAMP -> "시간 불일치"
+                else -> "확인 필요"
+            }, style = MaterialTheme.typography.bodySmall)
     }
 }
 

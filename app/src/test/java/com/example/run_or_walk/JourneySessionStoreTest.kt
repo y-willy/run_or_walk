@@ -19,6 +19,8 @@ class JourneySessionStoreTest {
 
     private fun selectedScreens(): Map<FeatureMode, JourneyScreenState> = restoreJourneyScreens(null).apply {
         getValue(FeatureMode.ROUTE).apply {
+            departure.query = "서울역"
+            departure.selected = subwayPlace
             destination.query = this@JourneySessionStoreTest.destination.name
             destination.selected = this@JourneySessionStoreTest.destination
             selectedRoute = JourneyTransitRoute("kakao-2", KakaoTransitChoice(1_200, 1,
@@ -54,6 +56,8 @@ class JourneySessionStoreTest {
         val restored = restoreJourneyScreens(snapshot)
         assertEquals(FeatureMode.STOP, snapshot.mode)
         val route = restored.getValue(FeatureMode.ROUTE)
+        assertEquals(subwayPlace, route.departure.selected)
+        assertEquals("서울역", route.departure.query)
         assertEquals(destination, route.destination.selected)
         assertEquals(destination.name, route.destination.query)
         assertEquals("kakao-2", route.selectedRoute?.id)

@@ -64,6 +64,34 @@ internal fun resolveBoardingPlace(
     return (explicit.ifEmpty { matching }).singleOrNull()
 }
 
+/**
+ * Automatically bind an actual subway service only if Kakao explicitly names its
+ * direction/destination and current trustworthy official rows agree on ONE full identity.
+ * A station name, circle-line name or first returned train is never enough.
+ */
+internal fun resolveAutomaticSubwayIdentity(
+    route: KakaoTransitChoice?,
+    arrivals: List<OfficialSubwayArrival>,
+    nowMillis: Long
+): OfficialBoardingIdentity? {
+    if (route?.firstTransitType != "SUBWAY") return null
+    val supplied = compact(route.directionName.orEmpty())
+    if (supplied.isBlank()) return null
+    val matches = arrivals.filter { arrival ->
+        val snapshot = arrival.snapshot
+        if (!arrival.identity.isComplete || arrival.trainId.isBlank() ||
+            !snapshot.reliable || snapshot.trustState != ArrivalTrustState.VALID ||
+            nowMillis - snapshot.fetchedAtEpochMillis !in 0L..minOf(snapshot.validForMillis, 60_000L) ||
+            snapshot.firstArrivalAtEpochMillis <= nowMillis) return@filter false
+        val direction = compact(arrival.identity.directionId)
+        val destination = compact(arrival.directionLabel.substringAfter('·', "")
+            .substringBefore('-').trim())
+        val announced = compact(arrival.trainLabel.substringAfterLast('·', "").trim())
+        supplied == direction || supplied == destination || supplied == announced
+    }
+    return matches.map(OfficialSubwayArrival::identity).distinct().singleOrNull()
+}
+
 private data class StationNameParts(val full: String, val base: String)
 
 private fun stationNameParts(value: String): StationNameParts {

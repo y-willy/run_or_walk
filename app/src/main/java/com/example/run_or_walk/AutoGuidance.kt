@@ -6,7 +6,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-enum class AutoGuidanceStatus { WALK, FAST_WALK, NEXT_TRAIN, UNKNOWN }
+enum class AutoGuidanceStatus { WALK, FAST_WALK, NEXT_VEHICLE, UNKNOWN }
 
 /** Source-data trust, distinct from transport success and boarding identity matching. */
 enum class ArrivalTrustState { VALID, STALE, FUTURE_TIMESTAMP, INVALID_ETA, UNKNOWN }
@@ -52,7 +52,9 @@ data class GuidanceWalkingRoute(
     val boardingIdentity: OfficialBoardingIdentity,
     val durationSeconds: Int,
     val fetchedAtEpochMillis: Long,
-    val validForMillis: Long
+    val validForMillis: Long,
+    /** Distance from actual provider walking geometry. */
+    val distanceMeters: Int? = null
 )
 
 /** Absolute arrival instants normalized by the official adapter; next arrival may be absent.
@@ -83,7 +85,7 @@ data class AutoGuidanceInput(
 
 /** Conservative defaults; the adapter must use a shorter validity when its provider requires it. */
 data class AutoGuidancePolicy(
-    val fastTravelRatio: Double = 0.75,
+    val fastSpeedKmh: Double = 6.0,
     val maxLocationAccuracyMeters: Double = 50.0,
     val maxLocationAgeMillis: Long = 30_000L,
     val maxWalkingAgeMillis: Long = 120_000L,
@@ -98,11 +100,11 @@ data class AutoGuidanceAssessment(
     val firstArrivalAtEpochMillis: Long? = null,
     val nextArrivalAtEpochMillis: Long? = null,
     val walkingSeconds: Int? = null,
-    /** A fast-walking estimate, calculated as ceil(walkingSeconds * fastTravelRatio). */
+    /** Fast estimate using real route length and a declared brisk walking speed. */
     val fastTravelSeconds: Int? = null,
     val bufferSeconds: Int = 120,
     val arrivalFetchedAtEpochMillis: Long? = null,
-    val fastTravelRatio: Double = 0.75
+    val fastSpeedKmh: Double = 6.0
 )
 
 /** Pure calculation with an injected wall clock. All timestamps are epoch milliseconds;
@@ -118,7 +120,7 @@ fun calculateAutoGuidance(
         status = AutoGuidanceStatus.UNKNOWN,
         unknownReason = reason,
         bufferSeconds = input.bufferSeconds,
-        fastTravelRatio = policy.fastTravelRatio
+        fastSpeedKmh = policy.fastSpeedKmh
     )
 
     if (nowEpochMillis < 0L || input.bufferSeconds < 0 || !policy.isValid()) {
@@ -190,7 +192,13 @@ fun calculateAutoGuidance(
         return unknown(AutoGuidanceUnknownReason.WALKING_MISMATCH)
     }
 
-    val fastSeconds = ceil(walking.durationSeconds * policy.fastTravelRatio).toInt()
+    val distance = walking.distanceMeters
+        ?: return unknown(AutoGuidanceUnknownReason.WALKING_UNAVAILABLE)
+    if (distance < 0) return unknown(AutoGuidanceUnknownReason.INVALID_INPUT)
+    val estimate = ceil(distance.toDouble() * 3.6 / policy.fastSpeedKmh)
+        .coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
+    // Provider time may already reflect a faster pace.
+    val fastSeconds = minOf(walking.durationSeconds, estimate)
     val remainingMillis = arrivals.firstArrivalAtEpochMillis - nowEpochMillis
     val walkingWithBufferMillis = (walking.durationSeconds.toLong() + input.bufferSeconds) * 1_000L
     val fastWithBufferMillis = (fastSeconds.toLong() + input.bufferSeconds) * 1_000L
@@ -200,7 +208,7 @@ fun calculateAutoGuidance(
         arrivals.nextArrivalAtEpochMillis == null ->
             return unknown(AutoGuidanceUnknownReason.NEXT_ARRIVAL_UNAVAILABLE)
         arrivals.nextArrivalAtEpochMillis - nowEpochMillis >= walkingWithBufferMillis ->
-            AutoGuidanceStatus.NEXT_TRAIN
+            AutoGuidanceStatus.NEXT_VEHICLE
         else -> return unknown(AutoGuidanceUnknownReason.NO_CATCHABLE_TRAIN)
     }
     return AutoGuidanceAssessment(
@@ -211,12 +219,12 @@ fun calculateAutoGuidance(
         fastTravelSeconds = fastSeconds,
         bufferSeconds = input.bufferSeconds,
         arrivalFetchedAtEpochMillis = arrivals.fetchedAtEpochMillis,
-        fastTravelRatio = policy.fastTravelRatio
+        fastSpeedKmh = policy.fastSpeedKmh
     )
 }
 
 private fun AutoGuidancePolicy.isValid() =
-    fastTravelRatio.isFinite() && fastTravelRatio > 0.0 && fastTravelRatio <= 1.0 &&
+    fastSpeedKmh.isFinite() && fastSpeedKmh in 3.0..12.0 &&
         maxLocationAccuracyMeters.isFinite() && maxLocationAccuracyMeters >= 0.0 &&
         maxLocationAgeMillis > 0L && maxWalkingAgeMillis > 0L && maxArrivalAgeMillis > 0L &&
         maxWalkingOriginDistanceMeters.isFinite() && maxWalkingOriginDistanceMeters >= 0.0 &&

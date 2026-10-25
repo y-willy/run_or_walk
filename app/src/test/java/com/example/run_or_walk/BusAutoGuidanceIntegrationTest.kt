@@ -18,7 +18,8 @@ class BusAutoGuidanceIntegrationTest {
         val selected = chooseMatchingBusArrival(route.identity, arrivals, now)
         return calculateAutoGuidance(AutoGuidanceInput(
             GuidanceLocation(point, 10.0, now), GuidanceBoarding(route.identity, point, true),
-            GuidanceWalkingRoute(point, point, walkIdentity, walkingSeconds, now, 120_000L),
+            GuidanceWalkingRoute(point, point, walkIdentity, walkingSeconds, now, 120_000L,
+                (walkingSeconds * 1.25).toInt()),
             selected?.snapshot, locationPermissionGranted = true), now)
     }
 
@@ -28,7 +29,7 @@ class BusAutoGuidanceIntegrationTest {
         assertEquals(AutoGuidanceStatus.WALK, assessment(arrivals, 100).status)
         assertEquals(AutoGuidanceStatus.FAST_WALK, assessment(arrivals, 200).status)
         val next = assessment(arrivals, 300)
-        assertEquals(AutoGuidanceStatus.NEXT_TRAIN, next.status)
+        assertEquals(AutoGuidanceStatus.NEXT_VEHICLE, next.status)
         assertEquals(Instant.parse("2026-10-25T08:10:00Z").toEpochMilli(), next.nextArrivalAtEpochMillis)
     }
 

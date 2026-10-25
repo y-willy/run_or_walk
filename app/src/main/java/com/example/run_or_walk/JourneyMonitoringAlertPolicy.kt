@@ -37,7 +37,7 @@ internal fun monitoringAlertLifetimeMillis(
     now: Long
 ): Long {
     val target = if (alert.kind == JourneyMonitoringAlertKind.GUIDANCE_CHANGED &&
-        alert.status == AutoGuidanceStatus.NEXT_TRAIN) arrivals.nextArrivalAtEpochMillis
+        alert.status == AutoGuidanceStatus.NEXT_VEHICLE) arrivals.nextArrivalAtEpochMillis
         ?: arrivals.firstArrivalAtEpochMillis else arrivals.firstArrivalAtEpochMillis
     val sourceRemaining = minOf(arrivals.validForMillis, 60_000L) - (now - arrivals.fetchedAtEpochMillis)
     return minOf(sourceRemaining, target - now).coerceIn(0L, 60_000L)

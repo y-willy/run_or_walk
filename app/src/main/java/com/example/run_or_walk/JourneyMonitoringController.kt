@@ -103,7 +103,7 @@ internal fun monitoringStateWithSettings(
     val assessment = calculateAutoGuidance(AutoGuidanceInput(state.location,
         GuidanceBoarding(request.identity, request.boardingPoint, true), walking, state.arrivals,
         locationPermissionGranted, bufferSeconds = request.settings.bufferSeconds), nowEpochMillis,
-        AutoGuidancePolicy(fastTravelRatio = request.settings.fastTravelRatio))
+        AutoGuidancePolicy(fastSpeedKmh = request.settings.fastSpeedKmh))
     val message = if (assessment.status == AutoGuidanceStatus.UNKNOWN) {
         if (state.assessment?.status == AutoGuidanceStatus.UNKNOWN) state.message
         else "최신 위치·도보·도착정보가 확인될 때까지 판단을 보류해요."

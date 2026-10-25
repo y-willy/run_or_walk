@@ -16,11 +16,12 @@ class AutoGuidanceTest {
         arrivalAfterMillis: Long = 420_000L,
         nextAfterMillis: Long? = null,
         walkingSeconds: Int = 300,
-        bufferSeconds: Int = 120
+        bufferSeconds: Int = 120,
+        walkingDistanceMeters: Int = (walkingSeconds * 1.25).toInt()
     ) = AutoGuidanceInput(
         location = GuidanceLocation(point, 10.0, now),
         boarding = GuidanceBoarding(identity, boardingPoint, confirmed = true),
-        walkingRoute = GuidanceWalkingRoute(point, boardingPoint, identity, walkingSeconds, now, 120_000L),
+        walkingRoute = GuidanceWalkingRoute(point, boardingPoint, identity, walkingSeconds, now, 120_000L, walkingDistanceMeters),
         arrivals = RealtimeArrivalSnapshot(
             identity, now + arrivalAfterMillis, nextAfterMillis?.let { now + it }, now, 60_000L
         ),
@@ -43,7 +44,7 @@ class AutoGuidanceTest {
             420_000L to AutoGuidanceStatus.WALK,
             419_999L to AutoGuidanceStatus.FAST_WALK,
             345_000L to AutoGuidanceStatus.FAST_WALK,
-            344_999L to AutoGuidanceStatus.NEXT_TRAIN
+            344_999L to AutoGuidanceStatus.NEXT_VEHICLE
         )
         for ((arrival, expected) in cases) {
             assertEquals(expected, calculateAutoGuidance(input(
@@ -57,10 +58,16 @@ class AutoGuidanceTest {
 
         assertEquals(301, result.walkingSeconds)
         assertEquals(226, result.fastTravelSeconds)
-        assertEquals(0.75, result.fastTravelRatio, 0.0)
+        assertEquals(6.0, result.fastSpeedKmh, 0.0)
         assertEquals(AutoGuidanceStatus.FAST_WALK, result.status)
-        val slower = calculateAutoGuidance(input(), now, AutoGuidancePolicy(fastTravelRatio = 1.0))
+        val slower = calculateAutoGuidance(input(), now, AutoGuidancePolicy(fastSpeedKmh = 4.5))
         assertEquals(300, slower.fastTravelSeconds)
+    }
+
+    @Test
+    fun missingRealWalkingDistanceNeverCreatesAFastWalkDecision() {
+        val missing = input().copy(walkingRoute = input().walkingRoute?.copy(distanceMeters = null))
+        assertUnknown(missing, AutoGuidanceUnknownReason.WALKING_UNAVAILABLE)
     }
 
     @Test
@@ -73,14 +80,14 @@ class AutoGuidanceTest {
     fun suppliedNextArrivalIsPreservedExactly() {
         val result = calculateAutoGuidance(input(120_000L, nextAfterMillis = 720_123L), now)
 
-        assertEquals(AutoGuidanceStatus.NEXT_TRAIN, result.status)
+        assertEquals(AutoGuidanceStatus.NEXT_VEHICLE, result.status)
         assertEquals(now + 720_123L, result.nextArrivalAtEpochMillis)
         assertEquals(now, result.arrivalFetchedAtEpochMillis)
     }
 
     @Test
     fun nextTrainMustBeCatchableAtNormalWalkingSpeedIncludingBuffer() {
-        assertEquals(AutoGuidanceStatus.NEXT_TRAIN,
+        assertEquals(AutoGuidanceStatus.NEXT_VEHICLE,
             calculateAutoGuidance(input(120_000L, nextAfterMillis = 420_000L), now).status)
         assertUnknown(input(120_000L, nextAfterMillis = 419_999L),
             AutoGuidanceUnknownReason.NO_CATCHABLE_TRAIN)
@@ -287,9 +294,9 @@ class AutoGuidanceTest {
     fun invalidDurationsAndPolicyReturnUnknownWithoutThrowing() {
         assertUnknown(input(walkingSeconds = -1), AutoGuidanceUnknownReason.INVALID_INPUT)
         assertUnknown(input(bufferSeconds = -1), AutoGuidanceUnknownReason.INVALID_INPUT)
-        for (ratio in listOf(0.0, -0.75, 1.01, Double.NaN)) {
+        for (speed in listOf(0.0, -0.75, 12.01, Double.NaN)) {
             assertEquals(AutoGuidanceStatus.UNKNOWN,
-                calculateAutoGuidance(input(), now, AutoGuidancePolicy(fastTravelRatio = ratio)).status)
+                calculateAutoGuidance(input(), now, AutoGuidancePolicy(fastSpeedKmh = speed)).status)
         }
     }
 
@@ -319,10 +326,10 @@ class AutoGuidanceTest {
         assertFalse(tooSoon.shouldVibrate)
         val repeated = decideAutoGuidanceVibration(tooSoon.state, true, identity, AutoGuidanceStatus.FAST_WALK, now + 30_000L)
         assertFalse(repeated.shouldVibrate)
-        val next = decideAutoGuidanceVibration(repeated.state, true, identity, AutoGuidanceStatus.NEXT_TRAIN, now + 30_000L)
+        val next = decideAutoGuidanceVibration(repeated.state, true, identity, AutoGuidanceStatus.NEXT_VEHICLE, now + 30_000L)
         assertTrue(next.shouldVibrate)
         val newSelection = decideAutoGuidanceVibration(next.state, true, identity.copy(directionId = "하행"),
-            AutoGuidanceStatus.NEXT_TRAIN, now + 60_000L)
+            AutoGuidanceStatus.NEXT_VEHICLE, now + 60_000L)
         assertTrue(newSelection.shouldVibrate)
     }
 
@@ -334,6 +341,16 @@ class AutoGuidanceTest {
         assertFalse(unknown.shouldVibrate)
         assertFalse(recovered.shouldVibrate)
         assertEquals(first.state, recovered.state)
+    }
+
+    @Test
+    fun equalProviderWalkingTimesButDifferentRealDistancesProduceDifferentFastEstimates() {
+        val nearby = calculateAutoGuidance(input(walkingDistanceMeters = 200), now)
+        val farther = calculateAutoGuidance(input(walkingDistanceMeters = 375), now)
+        assertEquals(120, nearby.fastTravelSeconds)
+        assertEquals(225, farther.fastTravelSeconds)
+        assertEquals(300, nearby.walkingSeconds)
+        assertEquals(300, farther.walkingSeconds)
     }
 
     @Test

@@ -27,7 +27,9 @@ internal data class JourneySelectionSnapshot(
     val busRoute: OfficialSeoulBusRoute?,
     val confirmedIdentity: OfficialBoardingIdentity?,
     val alertsEnabled: Boolean,
-    val detailsExpanded: Boolean
+    val detailsExpanded: Boolean,
+    val departureQuery: String = "",
+    val departure: JourneyPlace? = null
 )
 
 internal fun captureJourneySession(
@@ -40,7 +42,7 @@ internal fun captureJourneySession(
         state.boardingSource, state.boardingChosenByUser, state.boardingMatchedAutomatically,
         state.stationQuery, state.selectedStation, state.busStopQuery, state.selectedBusStop,
         state.selectedBusRoute, state.confirmedServiceIdentity, state.alertsEnabled,
-        state.detailsExpanded)
+        state.detailsExpanded, state.departure.query, state.departure.selected)
 })
 
 /** Use fresh screen instances: dynamic data and in-flight generations always start empty. */
@@ -49,6 +51,8 @@ internal fun restoreJourneyScreens(snapshot: JourneySessionSnapshot?): Map<Featu
     return FeatureMode.entries.associateWith { mode ->
         JourneyScreenState(mode, gate).apply {
             snapshot?.screens?.singleOrNull { it.mode == mode }?.let { saved ->
+                departure.query = saved.departureQuery
+                departure.selected = saved.departure
                 destination.query = saved.destinationQuery
                 destination.selected = saved.destination
                 stop.query = saved.stopQuery
@@ -85,7 +89,7 @@ internal fun restoreJourneyScreens(snapshot: JourneySessionSnapshot?): Map<Featu
                 }
                 alertsEnabled = saved.alertsEnabled
                 detailsExpanded = saved.detailsExpanded
-                mapCenter = saved.boarding?.point ?: saved.destination?.point
+                mapCenter = saved.boarding?.point ?: saved.departure?.point ?: saved.destination?.point
                 if (saved.boarding != null) status = "이전 선택을 복원했어요. 위치와 도착정보를 다시 확인해요."
             }
         }
@@ -114,6 +118,7 @@ internal fun encodeJourneySession(snapshot: JourneySessionSnapshot): String = JS
     .put("version", SESSION_VERSION).put("mode", snapshot.mode.name)
     .put("screens", org.json.JSONArray(snapshot.screens.map { saved ->
         JSONObject().put("mode", saved.mode.name)
+            .put("departureQuery", saved.departureQuery).putOptional("departure", saved.departure?.toJson())
             .put("destinationQuery", saved.destinationQuery).putOptional("destination", saved.destination?.toJson())
             .put("stopQuery", saved.stopQuery).putOptional("stop", saved.stop?.toJson())
             .putOptional("selectedRoute", saved.selectedRoute?.toJson())
@@ -147,7 +152,8 @@ internal fun decodeJourneySession(text: String?): JourneySessionSnapshot? {
                 row.query("stationQuery"), row.optJSONObject("station")?.station(),
                 row.query("busStopQuery"), row.optJSONObject("busStop")?.busStop(),
                 row.optJSONObject("busRoute")?.busRoute(), row.optJSONObject("confirmedIdentity")?.identity(),
-                row.flag("alertsEnabled"), row.flag("detailsExpanded"))
+                row.flag("alertsEnabled"), row.flag("detailsExpanded"),
+                row.query("departureQuery"), row.place("departure"))
         }
         if (screens.map { it.mode }.distinct().size != screens.size) return null
         JourneySessionSnapshot(mode, screens)
