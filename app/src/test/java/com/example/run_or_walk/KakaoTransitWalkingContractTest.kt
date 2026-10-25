@@ -27,6 +27,20 @@ class KakaoTransitWalkingContractTest {
     }
 
     @Test
+    fun carriesSecondListedStopAsAnUnverifiedDirectionHint() {
+        val routes = JSONObject(
+            """{"routes":[{"properties":{"totalTime":720},"steps":[
+                {"properties":{"type":"SUBWAY","vehicles":[{"name":"2호선"}],
+                    "stops":[
+                        {"name":"강남역","x":127.0276,"y":37.4979},
+                        {"name":"역삼역","x":127.0365,"y":37.5006}
+                    ]}}
+            ]}]}"""
+        ).getJSONArray("routes")
+        assertEquals("역삼역", parseTransitChoices(routes).single().nextStopName)
+    }
+
+    @Test
     fun olderWalkFormatRemainsSupported() {
         val routes = JSONObject(
             """{"routes":[{"properties":{"totalTime":720},"steps":[
