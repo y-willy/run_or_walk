@@ -648,18 +648,21 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             if (active()) {
                 target.gyeonggiArrivals = arrivals
                 target.arrivalRequestFailed = false
+                val nowMillis = System.currentTimeMillis()
+                val usable = target.usableGyeonggiArrivals(nowMillis)
                 target.gyeonggiMessage = when {
+                    usable.isNotEmpty() -> null // The live cards calculate remaining time each second.
                     arrivals.isEmpty() -> "경기버스 정류장 매칭 완료 · 현재 도착 예정 차량이 없어요."
                     arrivals.none { it.routeId == match.routeId && it.staOrder == match.staOrder } ->
                         "경기버스 정류장은 확인됐지만 해당 방향의 도착정보가 없어요."
-                    target.activeArrivalSnapshot == null -> "경기버스 도착정보 수신 · 시각·차량 식별정보 검증 중"
-                    else -> "경기버스 정류장·노선·방향과 최신 도착정보가 연결됐어요."
+                    else -> "경기버스 공식 도착정보에 운행 종료·시간 경과·유효하지 않은 ETA가 있어 다음 조회를 기다려요."
                 }
-                target.liveError = if (target.activeArrivalSnapshot == null) target.gyeonggiMessage else null
+                target.liveError = if (usable.isEmpty()) target.gyeonggiMessage else null
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             if (active()) {
+                target.gyeonggiArrivals = emptyList()
                 target.arrivalRequestFailed = true
                 target.gyeonggiMessage = (error as? java.io.IOException)?.message
                     ?: "경기버스 실시간 정보를 확인하지 못했어요."
@@ -1149,7 +1152,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                                     guidanceLabel = when {
                                         screen.selectedRoute?.id != route.id -> "예상 소요시간"
                                         assessment.status != AutoGuidanceStatus.UNKNOWN -> "검증된 실시간 안내"
-                                        screen.activeArrivalSnapshot != null -> "도착정보 수신 · 신뢰도 확인 중"
+                                        screen.activeArrivalSnapshot != null -> "공식 실시간 도착예정 수신"
                                         else -> "승차점 자동 설정 · 실시간 정보 연결 중"
                                     },
                                     modifier = Modifier.width(260.dp),
@@ -1173,7 +1176,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         vehicleLabel = if (isBus) "버스" else "열차",
                         movementHint = if (isBus) "정류장 접근과 횡단보도 신호를 확인해 주세요." else "역 내부 이동과 신호 대기는 확인해 주세요.",
                         arrivalInformation = if (hasArrivalOptions && validArrival == null)
-                            "서버 응답 수신 · 자동 판단 조건 확인 중" else null,
+                            (screen.liveError ?: "사용 가능한 도착 예정시간이 없어요") else null,
                         nowEpochMillis = now,
                         firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis,
                         nextArrivalAtEpochMillis = validArrival?.nextArrivalAtEpochMillis,
@@ -1289,21 +1292,15 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 }
                 screen.selectedGyeonggiMatch?.let { match ->
                     SectionCard("경기버스 " + match.routeName + " · 공식 도착정보") {
-                        val arrivals = screen.gyeonggiArrivals.filter {
-                            it.stationId == match.stationId && it.routeId == match.routeId &&
-                                it.staOrder == match.staOrder
-                        }.sortedBy { it.seconds ?: Int.MAX_VALUE }
+                        val arrivals = screen.usableGyeonggiArrivals(now)
                         if (arrivals.isEmpty()) {
                             Text(if (screen.gyeonggiLoading) "공식 도착정보 조회 중"
-                                else "확인된 도착 예정 차량이 없어요.",
+                                else "현재 사용 가능한 도착 예정시간이 없어요.",
                                 style = MaterialTheme.typography.bodySmall)
                         } else arrivals.take(2).forEach { row ->
-                            val estimate = row.seconds?.let {
-                                if (it == 0) "즉시/전역 정보" else "약 " + ((it + 59) / 60) + "분"
-                            } ?: "시간 정보 없음"
-                            val trust = if (row.trust == ArrivalTrustState.VALID)
-                                "확인된 실시간" else "갱신·정확도 확인 필요"
-                            Text(estimate + " · " + trust,
+                            val remaining = (requireNotNull(row.observedAtMillis) +
+                                requireNotNull(row.seconds) * 1_000L - now + 59_999L) / 60_000L
+                            Text("약 ${remaining.coerceAtLeast(1)}분 · 경기버스 공식 도착예정",
                                 style = MaterialTheme.typography.bodyMedium)
                         }
                     }
@@ -1594,17 +1591,19 @@ private fun GyeonggiManualArrivalPanel(
     if (screen.gyeonggiLoading) LoadingStateCard("경기버스 도착정보 확인 중")
     screen.gyeonggiMessage?.let { NoticeCard(it) }
     val expectedRouteName = screen.selectedRoute?.serviceName.orEmpty().trim()
-    screen.gyeonggiArrivals.sortedByDescending { row ->
+    val now = System.currentTimeMillis()
+    screen.gyeonggiArrivals.filter { row ->
+        row.trust == ArrivalTrustState.VALID && row.observedAtMillis != null &&
+            row.seconds != null && row.seconds > 0 &&
+            now - row.observedAtMillis in 0L..60_000L &&
+            row.observedAtMillis + row.seconds * 1_000L > now
+    }.sortedByDescending { row ->
         expectedRouteName.isNotBlank() && row.routeName.trim() == expectedRouteName
     }.take(8).forEach { row ->
-        val minutes = row.seconds?.let { "약 " + ((it + 59) / 60) + "분" } ?: "예정시각 없음"
-        Text(row.routeName + " · " + row.destination + " · " + minutes +
-            " · " + when (row.trust) {
-                ArrivalTrustState.VALID -> "최근 정보"
-                ArrivalTrustState.STALE -> "오래된 정보"
-                ArrivalTrustState.FUTURE_TIMESTAMP -> "시간 불일치"
-                else -> "확인 필요"
-            }, style = MaterialTheme.typography.bodySmall)
+        val remaining = (requireNotNull(row.observedAtMillis) +
+            requireNotNull(row.seconds) * 1_000L - now + 59_999L) / 60_000L
+        Text(row.routeName + " · " + row.destination + " · 약 " + remaining.coerceAtLeast(1) +
+            "분 · 공식 도착예정", style = MaterialTheme.typography.bodySmall)
     }
 }
 
