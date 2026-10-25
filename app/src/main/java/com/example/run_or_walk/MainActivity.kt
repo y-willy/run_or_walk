@@ -684,7 +684,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 val match = gyeonggiLookupRepository.match(selected.kakao)
                 if (!active()) return@launch
                 if (match == null) {
-                    target.gyeonggiMessage = "경기버스 공식 노선이 유일하게 일치하지 않아 서울 정류소 연동도 확인해요."
+                    target.gyeonggiMessage = "경기버스의 실제 정류장·노선·방향이 아직 하나로 확인되지 않았어요. 서울 공식 노선도 교차 확인해요."
                     target.gyeonggiLoading = false
                     findOfficialBusStops(target, nearby = true, automatic = true)
                     return@launch
@@ -1068,7 +1068,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         arrivalDiagnostic != null -> arrivalDiagnostic
         screen.liveLoading && !hasArrivalOptions -> "선택한 승차 장소의 도착정보를 받고 있어요."
         !hasArrivalOptions && screen.liveError != null -> screen.liveError.orEmpty()
-        activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요." else "탑승할 노선·방향을 확인해 주세요."
+        activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요." else "선택한 경로의 열차 방향을 공식 도착정보와 자동 대조 중이에요."
         else -> unknownReasonText(assessment.unknownReason)
     }
     val unknownTitle = when {
@@ -1078,7 +1078,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         !officialStopSelected -> "실시간 연동 정보를 확인하고 있어요"
         isBus && screen.selectedBusRoute == null && screen.selectedGyeonggiMatch == null -> "버스 실시간 연결 준비 중"
         screen.arrivalRequestFailed || arrivalDiagnostic != null -> "도착정보를 확인하고 있어요"
-        activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요" else "탑승할 방향을 선택해 주세요"
+        activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요" else "열차 도착정보 자동 연결 중"
         else -> "자동 판단을 준비하고 있어요"
     }
     LaunchedEffect(screen, assessment.status, selectedTrainKey, screen.alertsEnabled) {
