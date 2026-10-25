@@ -35,9 +35,14 @@ internal fun gyeonggiStopCandidates(choice: KakaoTransitChoice, stops: List<Gyeo
     val expected = normalizedGyeonggiName(choice.boardingStopName)
     if (choice.firstTransitType != "BUS" || expected.isEmpty()) return emptyList()
     return stops.distinctBy { it.stationId }.filter {
-        normalizedGyeonggiName(it.name) == expected &&
-            it.point.x.isFinite() && it.point.y.isFinite() &&
-            gbisDistanceMeters(boardingPoint, it.point) <= 100.0
+        val name = normalizedGyeonggiName(it.name)
+        val meters = gbisDistanceMeters(boardingPoint, it.point)
+        val exact = name == expected
+        // Provider names may append an exit/landmark. Proximity alone is never enough.
+        val recognizable = name.length >= 3 && expected.length >= 3 &&
+            (name.contains(expected) || expected.contains(name))
+        it.point.x.isFinite() && it.point.y.isFinite() &&
+            ((exact && meters <= 100.0) || (recognizable && meters <= 35.0))
     }.sortedBy { gbisDistanceMeters(boardingPoint, it.point) }
 }
 
