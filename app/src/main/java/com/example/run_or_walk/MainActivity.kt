@@ -18,6 +18,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -51,13 +53,12 @@ import kotlin.math.sqrt
 // Preserved for the original manual calculator and its vibration patterns.
 enum class Urgency { NONE, LOW, MEDIUM, HIGH, MISSED }
 
-private enum class LocationAction { ROUTES, WALKING, RECENTER }
+private enum class LocationAction { WALKING, RECENTER, SET_DEPARTURE }
 private data class LocationRequest(
     val screen: JourneyScreenState, val revision: Long, val action: LocationAction)
 private data class LocationWorkResult(
     val location: GuidanceLocation,
-    val walk: KakaoWalkingRoute? = null,
-    val routes: List<KakaoTransitChoice>? = null)
+    val walk: KakaoWalkingRoute? = null)
 
 class MainActivity : ComponentActivity() {
     private lateinit var journeySession: JourneySessionViewModel
@@ -209,25 +210,32 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
 
     fun storeWalking(target: JourneyScreenState, location: GuidanceLocation,
         boarding: JourneyPlace, identity: OfficialBoardingIdentity?, walk: KakaoWalkingRoute) {
+        // A complete walking polyline must actually connect the live GPS to this boarding place.
+        if (walk.points.size < 2 ||
+            distanceBetweenMeters(walk.points.first(), location.point) > 150.0 ||
+            distanceBetweenMeters(walk.points.last(), boarding.point) > 150.0) {
+            target.discardWalkingResults()
+            throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+        }
         target.walkRoute = WalkRoute(walk.distanceMeters, walk.durationSeconds)
         target.walkFetchedAtEpochMillis = System.currentTimeMillis()
         target.walkOrigin = location.point
         target.walkingPoints = walk.points
         target.guidanceWalkingRoute = identity?.let {
             GuidanceWalkingRoute(location.point, boarding.point, it, walk.durationSeconds,
-                System.currentTimeMillis(), 120_000L)
+                System.currentTimeMillis(), 120_000L, walk.distanceMeters)
         }
     }
 
     fun performLocationAction(target: JourneyScreenState, action: LocationAction) {
-        val destination = target.destination.selected
         val boarding = target.boarding
         val identity = target.confirmedServiceIdentity
         val revision = target.revision
-        if (action == LocationAction.ROUTES && destination == null) return
         if (action == LocationAction.WALKING && boarding == null) return
+        if (action == LocationAction.WALKING) target.discardWalkingResults()
         runRequest(target,
-            if (action == LocationAction.ROUTES) "현재 위치에서 경로를 찾고 있어요" else "현재 위치와 도보 경로를 확인하고 있어요",
+            if (action == LocationAction.WALKING) "현재 위치와 도보 경로를 확인하고 있어요"
+                else "현재 위치를 확인하고 있어요",
             "위치·경로를 확인하지 못했어요",
             request = {
                 val location = getCurrentLocationSample(context)
@@ -237,29 +245,31 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 currentPoint = location.point
                 target.centerOn(location.point)
                 target.status = when (action) {
-                    LocationAction.ROUTES -> "현재 위치 확인 완료 · 대중교통 경로를 찾고 있어요"
                     LocationAction.WALKING -> "현재 위치 확인 완료 · 도보 경로를 찾고 있어요"
                     LocationAction.RECENTER -> "현재 위치를 갱신했어요."
+                    LocationAction.SET_DEPARTURE -> "현재 위치를 출발지로 설정하고 있어요."
                 }
                 when (action) {
-                    LocationAction.ROUTES -> LocationWorkResult(location,
-                        routes = kakaoRepository.searchPublicTransit(location.point, destination!!.point))
                     LocationAction.WALKING -> LocationWorkResult(location,
                         walk = kakaoRepository.searchWalk(location.point, boarding!!.point))
-                    LocationAction.RECENTER -> LocationWorkResult(location)
+                    LocationAction.RECENTER, LocationAction.SET_DEPARTURE -> LocationWorkResult(location)
                 }
             },
             onResult = { result ->
+                if (action == LocationAction.SET_DEPARTURE) {
+                    target.clearRoutesAndBoarding()
+                    target.departure.apply {
+                        query = "현재 위치"
+                        selected = JourneyPlace(
+                            "gps-departure", "현재 위치", "GPS로 확인한 출발 위치", result.location.point)
+                        options = emptyList()
+                        searched = false
+                    }
+                    target.status = "현재 위치를 출발지로 설정했어요. 목적지를 선택한 뒤 경로를 찾아주세요."
+                }
                 target.location = result.location
                 currentPoint = result.location.point
                 target.centerOn(result.location.point)
-                result.routes?.let { routes ->
-                    target.routes = routes.take(3).mapIndexed { index, route ->
-                        JourneyTransitRoute("kakao-$index", route)
-                    }
-                    target.routeSearchCompleted = true
-                    target.status = "추정 소요시간 순 · 실시간 도착정보 연결 전이에요."
-                }
                 result.walk?.let { walk ->
                     storeWalking(target, result.location, boarding!!, identity, walk)
                     target.status = "도보 경로를 확인했어요."
@@ -304,6 +314,26 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION))
         } else target.error = "진행 중인 위치 권한 요청을 완료해 주세요."
+    }
+
+    fun findRoutes(target: JourneyScreenState) {
+        val endpoints = target.selectedTransitEndpoints() ?: run {
+            target.error = "출발지와 목적지를 모두 선택해 주세요."
+            return
+        }
+        if (target.busy) return
+        target.clearRoutesAndBoarding()
+        target.centerOn(endpoints.first)
+        runRequest(target, "선택한 출발지에서 목적지까지 경로를 찾고 있어요",
+            "대중교통 경로를 확인하지 못했어요",
+            request = { kakaoRepository.searchPublicTransit(endpoints.first, endpoints.second) },
+            onResult = { routes ->
+                target.routes = routes.take(3).mapIndexed { index, route ->
+                    JourneyTransitRoute("kakao-$index", route)
+                }
+                target.routeSearchCompleted = true
+                target.status = "경로를 선택하면 현재 GPS에서 첫 승차 지점까지 도보를 안내해요."
+            })
     }
 
     fun selectOfficialBusRoute(target: JourneyScreenState, route: OfficialSeoulBusRoute) {
@@ -452,12 +482,15 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             val walk = target.walkRoute
             val walkFresh = fetched != null && origin != null && walk != null &&
                 System.currentTimeMillis() - fetched in 0L..90_000L &&
-                distanceBetweenMeters(origin, location.point) <= 25.0
+                distanceBetweenMeters(origin, location.point) <= 25.0 &&
+                target.walkingPoints.size >= 2 &&
+                distanceBetweenMeters(target.walkingPoints.last(), boarding.point) <= 150.0
             if (walkFresh) {
                 // Rebind the same actual, fresh walking response after a direction choice.
                 target.guidanceWalkingRoute = identity?.let {
                     GuidanceWalkingRoute(requireNotNull(origin), boarding.point, it,
-                        requireNotNull(walk).durationSeconds, requireNotNull(fetched), 120_000L)
+                        requireNotNull(walk).durationSeconds, requireNotNull(fetched), 120_000L,
+                        requireNotNull(walk).distanceMeters)
                 }
             } else {
                 target.guidanceWalkingRoute = null
@@ -472,7 +505,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         } catch (error: Exception) {
             if (active()) {
                 // Preserve an acquired GPS fix even when only the route request failed.
-                target.guidanceWalkingRoute = null
+                target.discardWalkingResults()
                 target.error = friendlyFailure(error, "도보 경로를 다시 확인해 주세요")
             }
         } finally {
@@ -619,11 +652,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     }
 
     fun selectPlace(target: JourneyScreenState, field: SearchField, place: JourneyPlace) {
+        if (isMonitored(target)) JourneyMonitoringController.stop(context)
         target.clearRoutesAndBoarding()
         target.search(field).apply { query = place.name; selected = place; options = emptyList() }
         target.centerOn(place.point)
-        if (field == SearchField.DESTINATION) requestLocation(target, LocationAction.ROUTES)
-        else {
+        if (field == SearchField.STOP) {
             target.boarding = place
             target.boardingChosenByUser = true
             target.boardingSource = BoardingPointSource.VERIFIED
@@ -748,7 +781,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         locationPermissionGranted = hasLocationPermission(context),
         arrivalRequestFailed = !monitored && screen.arrivalRequestFailed,
         bufferSeconds = settings.bufferSeconds), now,
-        AutoGuidancePolicy(fastTravelRatio = settings.fastTravelRatio))
+        AutoGuidancePolicy(fastSpeedKmh = settings.fastSpeedKmh))
     val validArrival = activeSnapshot?.takeIf {
         configured && (monitored || !screen.arrivalRequestFailed) && it.reliable &&
             it.trustState == ArrivalTrustState.VALID &&
@@ -807,7 +840,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             playVibration(context, when (assessment.status) {
                 AutoGuidanceStatus.WALK -> Urgency.LOW
                 AutoGuidanceStatus.FAST_WALK -> Urgency.HIGH
-                AutoGuidanceStatus.NEXT_TRAIN -> Urgency.MEDIUM
+                AutoGuidanceStatus.NEXT_VEHICLE -> Urgency.MEDIUM
                 AutoGuidanceStatus.UNKNOWN -> Urgency.NONE
             })
         }
@@ -828,14 +861,15 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     }
                 })
             }
-            // 2. One search input. A destination never requires a manually entered origin.
+            // 2. Explicit trip origin and destination, independent from the phone's live GPS.
             SearchContent(screen, onSearch = { searchPlaces(screen, it) },
-                onEdit = { field, value -> screen.editQuery(field, value) },
+                onEdit = { field, value ->
+                    if (isMonitored(screen)) JourneyMonitoringController.stop(context)
+                    screen.editQuery(field, value)
+                },
                 onChoose = { field, place -> selectPlace(screen, field, place) },
-                onRetryRoutes = {
-                    screen.clearRoutesAndBoarding()
-                    requestLocation(screen, LocationAction.ROUTES)
-                })
+                onUseCurrentLocation = { requestLocation(screen, LocationAction.SET_DEPARTURE) },
+                onFindRoutes = { findRoutes(screen) })
             // 3. Core results and optional selection details.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (screen.busy) LoadingStateCard(screen.status)
@@ -847,7 +881,6 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     }) { Text("위치 권한 설정") }
                     TextButton(onClick = { requestLocation(screen,
                         if (screen.boarding != null) LocationAction.WALKING
-                        else if (screen.destination.selected != null) LocationAction.ROUTES
                         else LocationAction.RECENTER) }, enabled = !screen.busy) {
                         Text("현재 위치·경로 다시 확인")
                     }
@@ -904,14 +937,18 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 if (screen.routes.isNotEmpty()) {
                     Text("경로 · 추정 소요시간 순", style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.semantics { heading() })
-                    screen.routes.take(3).forEach { route ->
-                        key(route.id) {
-                            TransitRouteCard(route.durationMinutes, route.serviceName, route.boardingName,
-                                route.detail, screen.selectedRoute?.id == route.id, enabled = !screen.busy,
-                                guidanceLabel = if (screen.selectedRoute?.id == route.id &&
-                                    assessment.status != AutoGuidanceStatus.UNKNOWN) "실시간 도착정보 연결됨"
-                                    else "추정 · 실시간 미연결",
-                                onSelect = { selectRoute(screen, route) })
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        screen.routes.take(3).forEach { route ->
+                            key(route.id) {
+                                TransitRouteCard(route.durationMinutes, route.serviceName, route.boardingName,
+                                    route.detail, screen.selectedRoute?.id == route.id, enabled = !screen.busy,
+                                    guidanceLabel = if (screen.selectedRoute?.id == route.id &&
+                                        assessment.status != AutoGuidanceStatus.UNKNOWN) "실시간 도착정보 연결됨"
+                                        else "추정 · 실시간 미연결",
+                                    modifier = Modifier.width(260.dp),
+                                    onSelect = { selectRoute(screen, route) })
+                            }
                         }
                     }
                 } else if (screen.routeSearchCompleted && !screen.busy) {
@@ -1042,22 +1079,31 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
 @Composable
 private fun SearchContent(screen: JourneyScreenState,
     onSearch: (SearchField) -> Unit, onEdit: (SearchField, String) -> Unit,
-    onChoose: (SearchField, JourneyPlace) -> Unit, onRetryRoutes: () -> Unit) {
-    val field = if (screen.mode == FeatureMode.ROUTE) SearchField.DESTINATION else SearchField.STOP
-    val input = screen.search(field)
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        LocationSearchInput(
-            label = if (screen.mode == FeatureMode.ROUTE) "목적지" else "정류장·역 이름",
-            input = input, enabled = !screen.busy,
-            onChange = { onEdit(field, it) }, onSearch = { onSearch(field) },
-            onChoose = { onChoose(field, it) })
+    onChoose: (SearchField, JourneyPlace) -> Unit,
+    onUseCurrentLocation: () -> Unit, onFindRoutes: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (screen.mode == FeatureMode.ROUTE) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("현재 GPS 위치에서 출발", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                if (input.selected != null) TextButton(onClick = onRetryRoutes,
-                    enabled = !screen.busy) { Text("경로 다시 찾기") }
+            val departure = screen.departure
+            LocationSearchInput("출발지", departure, !screen.busy,
+                onChange = { onEdit(SearchField.DEPARTURE, it) },
+                onSearch = { onSearch(SearchField.DEPARTURE) },
+                onChoose = { onChoose(SearchField.DEPARTURE, it) })
+            TextButton(onClick = onUseCurrentLocation, enabled = !screen.busy) {
+                Text("현재 위치로 출발지 설정")
             }
+            val destination = screen.destination
+            LocationSearchInput("목적지", destination, !screen.busy,
+                onChange = { onEdit(SearchField.DESTINATION, it) },
+                onSearch = { onSearch(SearchField.DESTINATION) },
+                onChoose = { onChoose(SearchField.DESTINATION, it) })
+            Button(onClick = onFindRoutes,
+                enabled = !screen.busy && departure.selected != null && destination.selected != null,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("경로 찾기") }
+        } else {
+            LocationSearchInput("정류장·역 이름", screen.stop, !screen.busy,
+                onChange = { onEdit(SearchField.STOP, it) },
+                onSearch = { onSearch(SearchField.STOP) },
+                onChoose = { onChoose(SearchField.STOP, it) })
         }
     }
 }
