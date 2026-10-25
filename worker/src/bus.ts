@@ -145,7 +145,8 @@ export class SeoulBusCoordinator extends DurableObject<BusEnv> {
         redirect: 'manual', signal: controller.signal, headers: { Accept: 'application/json' },
       });
       if (upstream.status >= 300 && upstream.status < 400) return fail('BUS_UPSTREAM_REDIRECT', 502, 10);
-      if (upstream.status === 401 || upstream.status === 403) return fail('BUS_UPSTREAM_AUTHENTICATION', 502, 10);
+      if (upstream.status === 401) return fail('BUS_UPSTREAM_KEY_REJECTED', 502, 10);
+      if (upstream.status === 403) return fail('BUS_UPSTREAM_ACCESS_FORBIDDEN', 502, 10);
       if (upstream.status === 429) return fail('BUS_UPSTREAM_RATE_LIMITED', 429,
         upstreamRetrySeconds(upstream.headers.get('Retry-After')));
       if (!upstream.ok) return fail('BUS_UPSTREAM_UNAVAILABLE', 502, 10);
