@@ -1,0 +1,69 @@
+package com.example.run_or_walk
+
+import org.json.JSONObject
+import kotlin.math.ceil
+
+/** User choices change walking estimates, never the provider's vehicle arrival time. */
+data class JourneySettings(
+    val useProviderWalkingTime: Boolean = true,
+    val speedKmh: Double = 4.5,
+    val bufferSeconds: Int = 120
+) {
+    init {
+        require(speedKmh.isFinite() && speedKmh in MIN_SPEED_KMH..MAX_SPEED_KMH &&
+            speedKmh * 2.0 % 1.0 == 0.0) { "Walking speed must be a supported half-km/h value" }
+        require(bufferSeconds in MIN_BUFFER_SECONDS..MAX_BUFFER_SECONDS && bufferSeconds % 30 == 0) {
+            "Safety buffer must be a supported 30-second value"
+        }
+    }
+
+    /** Custom time uses the actual walking-route distance; crossings remain part of the buffer.
+     * A missing/zero distance never erases a nonzero provider walking duration.
+     */
+    fun walkingSeconds(distanceMeters: Int, providerDurationSeconds: Int): Int {
+        require(distanceMeters >= 0 && providerDurationSeconds >= 0) { "Walking route values must not be negative" }
+        if (useProviderWalkingTime || distanceMeters == 0) return providerDurationSeconds
+        return ceil(distanceMeters.toDouble() * 3.6 / speedKmh)
+            .coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
+    }
+
+    /** Keep the existing estimate for provider time; custom brisk walking never implies running. */
+    val fastTravelRatio: Double
+        get() = if (useProviderWalkingTime) 0.75 else maxOf(0.75, speedKmh / MAX_SPEED_KMH)
+
+    companion object {
+        const val MIN_SPEED_KMH = 2.0
+        const val MAX_SPEED_KMH = 7.0
+        const val MIN_BUFFER_SECONDS = 30
+        const val MAX_BUFFER_SECONDS = 600
+    }
+}
+
+/** Small, versioned private preference payload. It contains no key, position or live ETA. */
+internal object JourneySettingsCodec {
+    private const val VERSION = 1
+    fun encode(settings: JourneySettings): String = JSONObject()
+        .put("version", VERSION)
+        .put("useProviderWalkingTime", settings.useProviderWalkingTime)
+        .put("speedKmh", settings.speedKmh)
+        .put("bufferSeconds", settings.bufferSeconds)
+        .toString()
+
+    fun decode(payload: String?): JourneySettings {
+        val defaults = JourneySettings()
+        if (payload.isNullOrBlank() || payload.length > 4_096) return defaults
+        val root = runCatching { JSONObject(payload) }.getOrNull() ?: return defaults
+        if (root.opt("version") != VERSION) return defaults
+        val mode = root.opt("useProviderWalkingTime") as? Boolean ?: defaults.useProviderWalkingTime
+        val speed = (root.opt("speedKmh") as? Number)?.toDouble()?.takeIf {
+            it.isFinite() && it in JourneySettings.MIN_SPEED_KMH..JourneySettings.MAX_SPEED_KMH &&
+                it * 2.0 % 1.0 == 0.0
+        } ?: defaults.speedKmh
+        val buffer = (root.opt("bufferSeconds") as? Number)?.toDouble()?.takeIf {
+            it.isFinite() && it % 1.0 == 0.0 &&
+                it in JourneySettings.MIN_BUFFER_SECONDS.toDouble()..JourneySettings.MAX_BUFFER_SECONDS.toDouble() &&
+                it % 30.0 == 0.0
+        }?.toInt() ?: defaults.bufferSeconds
+        return JourneySettings(mode, speed, buffer)
+    }
+}

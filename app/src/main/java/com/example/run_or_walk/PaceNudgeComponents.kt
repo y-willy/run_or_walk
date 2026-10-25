@@ -180,7 +180,7 @@ fun AutomaticGuidanceCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (assessment.status != AutoGuidanceStatus.UNKNOWN) {
-                Text("안전 여유 ${assessment.bufferSeconds / 60}분 포함 · $movementHint",
+                Text("안전 여유 ${settingsBufferLabel(assessment.bufferSeconds)} 포함 · $movementHint",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

@@ -35,6 +35,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.withResumed
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.run_or_walk.ui.theme.RUN_or_WALKTheme
 import kotlinx.coroutines.CancellationException
@@ -58,34 +60,42 @@ private data class LocationWorkResult(
     val routes: List<KakaoTransitChoice>? = null)
 
 class MainActivity : ComponentActivity() {
+    private lateinit var journeySession: JourneySessionViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.Theme_RUN_or_WALK)
         super.onCreate(savedInstanceState)
+        journeySession = ViewModelProvider(this)[JourneySessionViewModel::class.java]
         val activityLifecycleOwner: LifecycleOwner = this
         val showLaunchArtwork = savedInstanceState == null
         setContent {
             RUN_or_WALKTheme {
                 BrandLaunchGate(showOnLaunch = showLaunchArtwork) {
-                    PaceNudgeScreen(lifecycleOwner = activityLifecycleOwner)
+                    PaceNudgeScreen(lifecycleOwner = activityLifecycleOwner, session = journeySession)
                 }
             }
         }
     }
+
+    override fun onStop() {
+        if (::journeySession.isInitialized) journeySession.flush()
+        super.onStop()
+    }
 }
 
 @Composable
-fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
+internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySessionViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val kakaoRepository = remember { KakaoApiRepository(BuildConfig.KAKAO_REST_KEY) }
     val subwayRepository = remember { SeoulSubwayRepository(context) }
     val busRepository = remember { SeoulBusRepository() }
-    val screens = remember {
-        val alerts = AutomaticAlertGate()
-        FeatureMode.entries.associateWith { JourneyScreenState(it, alerts) }
-    }
-    var mode by rememberSaveable { mutableStateOf(FeatureMode.ROUTE) }
+    val screens = session.screens
+    val mode = session.mode
+    val settings = session.settings
+    val monitoring by JourneyMonitoringController.state.collectAsState()
+    val latestMonitoring by rememberUpdatedState(monitoring)
     val screen = screens.getValue(mode)
     val latestScreen by rememberUpdatedState(screen)
     var currentPoint by remember { mutableStateOf<MapPoint?>(null) }
@@ -93,6 +103,84 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
     var mapExpanded by rememberSaveable { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val vibrationSupported = remember(context) { supportsVibration(context) }
+    var pendingMonitoring by remember { mutableStateOf<Triple<JourneyScreenState, Long, JourneyMonitoringRequest>?>(null) }
+    var startingMonitoring by remember { mutableStateOf(false) }
+    var monitorRecenterPending by remember { mutableStateOf(false) }
+    val monitorKey = monitoring.request?.takeIf { monitoring.running }?.let { it.identity to it.boardingPoint }
+    fun isMonitored(target: JourneyScreenState): Boolean = latestMonitoring.running &&
+        latestMonitoring.request?.matches(target.confirmedServiceIdentity, target.boarding?.point) == true
+
+    LaunchedEffect(screen, monitorKey, monitoring.location) {
+        if (!monitoring.running) monitorRecenterPending = false
+        val fix = monitoring.location
+        if (monitorRecenterPending && isMonitored(screen) && fix != null &&
+            System.currentTimeMillis() - fix.observedAtEpochMillis in 0L..30_000L) {
+            screen.centerOn(fix.point)
+            monitorRecenterPending = false
+        }
+    }
+
+    fun monitoringRequest(target: JourneyScreenState): JourneyMonitoringRequest? {
+        val boarding = target.boarding ?: return null
+        val identity = target.confirmedServiceIdentity ?: return null
+        if (!target.boardingConfirmed) return null
+        return JourneyMonitoringRequest(boarding.name, boarding.point, identity,
+            subwayStation = target.selectedStation.takeUnless { target.isBusJourney },
+            busStop = target.selectedBusStop.takeIf { target.isBusJourney },
+            busRoute = target.selectedBusRoute.takeIf { target.isBusJourney },
+            settings = session.settings, vibrationEnabled = target.alertsEnabled).takeIf { it.isValid() }
+    }
+
+    fun startMonitoring(target: JourneyScreenState, request: JourneyMonitoringRequest, revision: Long) {
+        if (startingMonitoring) return
+        startingMonitoring = true
+        scope.launch {
+            try {
+                lifecycleOwner.lifecycle.withResumed {
+                    if (latestScreen === target && target.revision == revision &&
+                        monitoringRequest(target)?.isSameJourney(request) == true) {
+                        target.invalidateRequests()
+                        if (!JourneyMonitoringController.start(context, request.copy(
+                            settings = session.settings, vibrationEnabled = target.alertsEnabled))) {
+                            target.error = JourneyMonitoringController.state.value.message
+                        }
+                    }
+                }
+                delay(1_500L)
+            } finally { startingMonitoring = false }
+        }
+    }
+
+    val monitoringPermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()) {
+        val pending = pendingMonitoring
+        pendingMonitoring = null
+        if (pending != null && latestScreen === pending.first && pending.first.revision == pending.second) {
+            if (!hasLocationPermission(context)) pending.first.error = "화면 꺼짐 안내에는 위치 권한이 필요해요."
+            else if (!JourneyMonitoringController.notificationsAllowed(context)) {
+                pending.first.error = "화면 꺼짐 도착 알림을 받으려면 앱 알림을 허용해 주세요."
+            } else startMonitoring(pending.first, pending.third, pending.second)
+        }
+    }
+
+    fun requestMonitoring(target: JourneyScreenState) {
+        val request = monitoringRequest(target) ?: return
+        if (startingMonitoring || pendingMonitoring != null || pendingLocation != null) return
+        val permissions = buildList {
+            if (!hasLocationPermission(context)) {
+                add(Manifest.permission.ACCESS_FINE_LOCATION)
+                add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+            if (Build.VERSION.SDK_INT >= 33 && !JourneyMonitoringController.notificationsAllowed(context)) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        if (permissions.isEmpty()) startMonitoring(target, request, target.revision)
+        else {
+            pendingMonitoring = Triple(target, target.revision, request)
+            monitoringPermissions.launch(permissions.toTypedArray())
+        }
+    }
 
     fun <T> runRequest(target: JourneyScreenState, message: String, failureMessage: String,
         request: suspend () -> T, onResult: (T) -> Unit) {
@@ -347,7 +435,7 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
     val walkingRefreshes = remember { mutableSetOf<JourneyScreenState>() }
     suspend fun refreshWalkingSnapshot(target: JourneyScreenState) {
         val boarding = target.boarding ?: return
-        if (target.busy || latestScreen !== target || !walkingRefreshes.add(target)) return
+        if (target.busy || latestScreen !== target || isMonitored(target) || !walkingRefreshes.add(target)) return
         val revision = target.revision
         val requestId = target.requestId
         val identity = target.confirmedServiceIdentity
@@ -436,6 +524,7 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
     }
 
     suspend fun refreshLive(target: JourneyScreenState, force: Boolean = false) {
+        if (isMonitored(target)) return
         if (target.isBusJourney) { refreshBusLive(target, force); return }
         val station = target.selectedStation ?: return
         val boarding = target.boarding ?: return
@@ -609,7 +698,7 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
             while (isActive) { now = System.currentTimeMillis(); delay(1_000L) }
         }
     }
-    LaunchedEffect(screen, screen.boarding, screen.confirmedServiceIdentity) {
+    LaunchedEffect(screen, screen.boarding, screen.confirmedServiceIdentity, monitorKey) {
         if (screen.boarding != null) {
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 while (isActive) { refreshWalkingSnapshot(screen); delay(20_000L) }
@@ -617,7 +706,7 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
         }
     }
     val selectedTrainKey = screen.activeArrivalIdentity to screen.activeArrivalVehicleId
-    LaunchedEffect(screen, screen.selectedStation, screen.selectedBusStop, screen.selectedBusRoute, screen.confirmedServiceIdentity) {
+    LaunchedEffect(screen, screen.selectedStation, screen.selectedBusStop, screen.selectedBusRoute, screen.confirmedServiceIdentity, monitorKey) {
         if (screen.selectedStation != null && subwayRepository.isConfigured ||
             screen.selectedBusRoute != null && busRepository.isConfigured) {
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -627,12 +716,12 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
     }
 
     val selectedArrival = screen.selectedArrival
-    val selectedBusArrival = screen.selectedBusArrival
+    val monitored = isMonitored(screen)
     val isBus = screen.isBusJourney
     val configured = if (isBus) busRepository.isConfigured else subwayRepository.isConfigured
-    val activeSnapshot = screen.activeArrivalSnapshot
+    val activeSnapshot = if (monitored) monitoring.arrivals else screen.activeArrivalSnapshot
     val boarding = screen.boarding
-    val identity = screen.activeArrivalIdentity
+    val identity = if (monitored) monitoring.request?.identity else screen.activeArrivalIdentity
     val officialConnectionConfirmed = if (isBus) {
         val route = screen.selectedBusRoute
         route != null && screen.selectedBusStop?.stopId == route.stopId && route.identity == identity
@@ -641,26 +730,49 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
     } == true
     val guidanceBoarding = if (identity != null && boarding != null) GuidanceBoarding(
         identity, boarding.point, screen.boardingConfirmed && officialConnectionConfirmed) else null
+    val displayedLocation = if (monitored) monitoring.location else screen.location
+    val personalizedWalk = if (monitored) monitoring.walkingRoute?.let { walking ->
+        val distance = monitoring.walkingDistanceMeters
+        val providerSeconds = monitoring.providerWalkingSeconds
+        if (distance != null && providerSeconds != null) walking.copy(durationSeconds =
+            settings.walkingSeconds(distance, providerSeconds)) else walking
+    } else screen.guidanceWalkingRoute?.let { walking ->
+        screen.walkRoute?.let { raw -> walking.copy(durationSeconds =
+            settings.walkingSeconds(raw.distanceMeters, raw.durationSeconds)) }
+    }
+    // Recheck source age each second even when the foreground service is between polls.
     val assessment = calculateAutoGuidance(AutoGuidanceInput(
-        location = screen.location, boarding = guidanceBoarding,
-        walkingRoute = screen.guidanceWalkingRoute,
+        location = displayedLocation, boarding = guidanceBoarding,
+        walkingRoute = personalizedWalk,
         arrivals = activeSnapshot.takeIf { configured },
         locationPermissionGranted = hasLocationPermission(context),
-        arrivalRequestFailed = screen.arrivalRequestFailed), now)
+        arrivalRequestFailed = !monitored && screen.arrivalRequestFailed,
+        bufferSeconds = settings.bufferSeconds), now,
+        AutoGuidancePolicy(fastTravelRatio = settings.fastTravelRatio))
     val validArrival = activeSnapshot?.takeIf {
-        configured && !screen.arrivalRequestFailed && it.reliable &&
+        configured && (monitored || !screen.arrivalRequestFailed) && it.reliable &&
             it.trustState == ArrivalTrustState.VALID &&
             now - it.fetchedAtEpochMillis in 0L..minOf(it.validForMillis, 60_000L) &&
             it.firstArrivalAtEpochMillis > now
     }
-    val arrivalDiagnostic = if (isBus) {
+    val monitoringMessage = when {
+        assessment.status != AutoGuidanceStatus.UNKNOWN -> monitoringAssessmentMessage(assessment.status, isBus)
+        monitoring.assessment?.status == AutoGuidanceStatus.UNKNOWN -> monitoring.message
+            .ifBlank { unknownReasonText(assessment.unknownReason) }
+        else -> unknownReasonText(assessment.unknownReason)
+    }
+    val arrivalDiagnostic = if (monitored) {
+        monitoringMessage.takeIf { assessment.status == AutoGuidanceStatus.UNKNOWN }
+    } else if (isBus) {
         if (screen.busArrivalOptions.isNotEmpty() && validArrival == null) screen.liveError
             ?: "확인된 버스의 도착 상태를 갱신하고 있어요." else null
     } else screen.arrivalOptions.takeIf { it.isNotEmpty() }
         ?.let { subwayArrivalDiagnosticSummary(it, now) }
     val officialStopSelected = if (isBus) screen.selectedBusStop != null else screen.selectedStation != null
-    val hasArrivalOptions = if (isBus) screen.busArrivalOptions.isNotEmpty() else screen.arrivalOptions.isNotEmpty()
+    val hasArrivalOptions = if (monitored) monitoring.arrivals != null else if (isBus)
+        screen.busArrivalOptions.isNotEmpty() else screen.arrivalOptions.isNotEmpty()
     val unknownMessage = when {
+        monitored -> monitoringMessage
         screen.boarding == null && screen.selectedRoute == null ->
             "목적지나 이용할 정류장·역을 검색하면 현재 위치와 도착정보를 연결해요."
         !configured -> "실시간 정보 연결 필요"
@@ -691,7 +803,7 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
     }
     LaunchedEffect(screen, assessment.status, selectedTrainKey, screen.alertsEnabled) {
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
-            screen.claimAutomaticAlert(assessment.status, now) && vibrationSupported) {
+            screen.claimAutomaticAlert(assessment.status, now) && !monitored && vibrationSupported) {
             playVibration(context, when (assessment.status) {
                 AutoGuidanceStatus.WALK -> Urgency.LOW
                 AutoGuidanceStatus.FAST_WALK -> Urgency.HIGH
@@ -712,7 +824,7 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
                     keyboard?.hide()
                     if (mode != FeatureMode.entries[index]) {
                         screen.invalidateRequests()
-                        mode = FeatureMode.entries[index]
+                        session.mode = FeatureMode.entries[index]
                     }
                 })
             }
@@ -758,7 +870,14 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
                     firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis,
                     nextArrivalAtEpochMillis = validArrival?.nextArrivalAtEpochMillis,
                     arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis,
-                    walkingSeconds = screen.walkRoute?.durationSeconds?.takeIf {
+                    walkingSeconds = if (monitored) personalizedWalk?.durationSeconds?.takeIf {
+                        now - personalizedWalk.fetchedAtEpochMillis in 0L..120_000L &&
+                            displayedLocation?.let { fix ->
+                                now - fix.observedAtEpochMillis in 0L..30_000L && fix.accuracyMeters <= 50.0 &&
+                                    distanceBetweenMeters(fix.point, personalizedWalk.origin) <= 35.0
+                            } == true
+                    }
+                    else screen.walkRoute?.let { settings.walkingSeconds(it.distanceMeters, it.durationSeconds) }?.takeIf {
                         screen.location?.let { fix ->
                             now - fix.observedAtEpochMillis in 0L..30_000L && fix.accuracyMeters <= 50.0
                         } == true && (screen.walkFetchedAtEpochMillis?.let { fetched ->
@@ -767,6 +886,21 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
                             } == true
                         } ?: false)
                     })
+                JourneySettingsPanel(settings) { value ->
+                    session.updateSettings(value)
+                    JourneyMonitoringController.updateSettings(context, value,
+                        monitoring.request?.vibrationEnabled ?: screen.alertsEnabled)
+                }
+                if (monitoring.running && boarding == null && screen.selectedRoute == null) {
+                    SectionCard("이동 안내 실행 중", monitoring.request?.boardingName) {
+                        Text("다른 장소를 검색하는 동안에도 기존 이동 안내가 계속돼요.",
+                            style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = { JourneyMonitoringController.stop(context) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Text("현재 이동 안내 종료")
+                        }
+                    }
+                }
                 if (screen.routes.isNotEmpty()) {
                     Text("경로 · 추정 소요시간 순", style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.semantics { heading() })
@@ -814,16 +948,50 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
                                 screen.liveError = null
                                 scope.launch { refreshWalkingSnapshot(screen) }
                             },
-                            onRefresh = { scope.launch { refreshLive(screen, force = true) } })
+                            onRefresh = {
+                                if (monitored) JourneyMonitoringController.refresh(context)
+                                else scope.launch { refreshLive(screen, force = true) }
+                            })
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("자동 진동 알림", style = MaterialTheme.typography.bodyMedium,
+                        Text("진동 알림", style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f))
                         Switch(checked = screen.alertsEnabled,
-                            onCheckedChange = { screen.alertsEnabled = it }, enabled = vibrationSupported,
-                            modifier = Modifier.semantics { contentDescription = "자동 진동 알림" })
+                            onCheckedChange = {
+                                screen.alertsEnabled = it
+                                if (monitored) JourneyMonitoringController.updateSettings(context, settings, it)
+                            }, enabled = vibrationSupported,
+                            modifier = Modifier.semantics { contentDescription = "진동 알림" })
                     }
+                    val canMonitor = monitoringRequest(screen) != null
+                    if (monitored) {
+                        NoticeCard("화면이 꺼져도 이동 안내 중 · $monitoringMessage")
+                        OutlinedButton(onClick = { JourneyMonitoringController.stop(context) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("이동 안내 종료") }
+                    } else {
+                        if (monitoring.running) NoticeCard(
+                            "다른 승차 장소를 안내 중이에요: ${monitoring.request?.boardingName.orEmpty()}")
+                        Button(onClick = { requestMonitoring(screen) },
+                            enabled = canMonitor && !screen.busy && pendingLocation == null &&
+                                pendingMonitoring == null && !startingMonitoring,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Text(if (startingMonitoring) "이동 안내 시작 중" else if (monitoring.running)
+                                "이 선택으로 이동 안내 변경" else "화면 꺼짐 이동 안내 시작")
+                        }
+                        if (!canMonitor) NoticeCard("공식 승차 장소와 노선·방향을 선택하면 이동 안내를 시작할 수 있어요.")
+                        if (monitoring.running) TextButton(onClick = { JourneyMonitoringController.stop(context) }) {
+                            Text("현재 이동 안내 종료")
+                        }
+                    }
+                    Text("최대 60분 동안 안내하며 알림창에서 종료할 수 있어요. 절전 상태에서는 갱신이 지연될 수 있어요.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (monitoring.message.isNotBlank() && !monitoring.running) NoticeCard(monitoring.message)
+                    if (!JourneyMonitoringController.notificationsAllowed(context)) TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+                    }) { Text("앱 알림 설정") }
                 }
             }
             // 4. One MapView at a stable call site. Collapsing only changes its height.
@@ -836,10 +1004,21 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
                     }
                 }
                 KakaoMapPanel(lifecycleOwner = lifecycleOwner, center = screen.mapCenter,
-                    routePoints = screen.walkingPoints, currentPoint = currentPoint,
+                    routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
+                    currentPoint = if (monitored) monitoring.location?.point else screen.location?.point ?: currentPoint,
                     boardingPoint = boarding?.point, recenterRequest = screen.recenterRequest,
-                    onCurrentLocation = { requestLocation(screen,
-                        if (boarding != null) LocationAction.WALKING else LocationAction.RECENTER) },
+                    onCurrentLocation = {
+                        if (monitored) {
+                            val fix = monitoring.location
+                            if (fix != null && now - fix.observedAtEpochMillis in 0L..30_000L) {
+                                screen.centerOn(fix.point)
+                            } else {
+                                monitorRecenterPending = true
+                                JourneyMonitoringController.refresh(context)
+                            }
+                        } else requestLocation(screen,
+                            if (boarding != null) LocationAction.WALKING else LocationAction.RECENTER)
+                    },
                     modifier = Modifier.fillMaxWidth().height(if (mapExpanded) 360.dp else 180.dp))
                 if (screen.walkRoute != null && screen.walkingPoints.size < 2) NoticeCard(
                     "도보 요약만 제공돼 지도 경로를 표시할 수 없어요.")
