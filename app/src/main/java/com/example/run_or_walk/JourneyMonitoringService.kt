@@ -160,12 +160,18 @@ class JourneyMonitoringService : Service() {
                     monitoringDistance(old.origin, location.point) > 25.0) {
                     cachedWalk = null
                     val route = kakao.searchWalk(location.point, request.boardingPoint)
+                    if (route.points.size < 2 ||
+                        monitoringDistance(route.points.first(), location.point) > 150.0 ||
+                        monitoringDistance(route.points.last(), request.boardingPoint) > 150.0) {
+                        throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+                    }
                     cachedWalk = MonitoringWalk(location.point, route, System.currentTimeMillis())
                 }
                 val activeSettings = currentRequest?.settings ?: request.settings
                 walking = cachedWalk?.let {
                     GuidanceWalkingRoute(it.origin, request.boardingPoint, request.identity,
-                        activeSettings.walkingSeconds(it.route.distanceMeters, it.route.durationSeconds), it.fetchedAt, 120_000L)
+                        activeSettings.walkingSeconds(it.route.distanceMeters, it.route.durationSeconds),
+                        it.fetchedAt, 120_000L, it.route.distanceMeters)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
@@ -183,7 +189,7 @@ class JourneyMonitoringService : Service() {
             val assessment = calculateAutoGuidance(AutoGuidanceInput(location,
                 GuidanceBoarding(request.identity, request.boardingPoint, true), walking, arrivals,
                 hasLocationPermission(this), failure, active.settings.bufferSeconds), checkedAt,
-                AutoGuidancePolicy(fastTravelRatio = active.settings.fastTravelRatio))
+                AutoGuidancePolicy(fastSpeedKmh = active.settings.fastSpeedKmh))
             val summary = if (assessment.status == AutoGuidanceStatus.UNKNOWN)
                 message ?: "최신 위치·도보·도착정보가 확인될 때까지 판단을 보류해요."
                 else monitoringAssessmentMessage(assessment.status, request.isBus)
@@ -320,7 +326,7 @@ class JourneyMonitoringService : Service() {
 internal fun monitoringAssessmentMessage(status: AutoGuidanceStatus, isBus: Boolean): String = when (status) {
     AutoGuidanceStatus.WALK -> "걸어가세요. 안전 여유시간을 포함해 확인했어요."
     AutoGuidanceStatus.FAST_WALK -> "빠른 걸음으로 이동하세요. 신호와 안전한 보행을 우선하세요."
-    AutoGuidanceStatus.NEXT_TRAIN -> "확인된 다음 ${if (isBus) "버스" else "열차"}를 이용하세요."
+    AutoGuidanceStatus.NEXT_VEHICLE -> "확인된 다음 ${if (isBus) "버스" else "열차"}를 이용하세요."
     AutoGuidanceStatus.UNKNOWN -> "최신 정보를 확인하고 있어요."
 }
 private fun clockTime(epochMillis: Long): String = DateTimeFormatter.ofPattern("HH:mm:ss")
