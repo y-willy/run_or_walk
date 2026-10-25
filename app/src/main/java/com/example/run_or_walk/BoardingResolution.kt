@@ -75,19 +75,28 @@ internal fun resolveAutomaticSubwayIdentity(
     nowMillis: Long
 ): OfficialBoardingIdentity? {
     if (route?.firstTransitType != "SUBWAY") return null
-    val supplied = compact(route.directionName.orEmpty())
-    if (supplied.isBlank()) return null
+    val supplied = directionHint(route.directionName.orEmpty())
+    val nextStop = directionHint(route.nextStopName.orEmpty())
+    // Missing both route hints never licenses the first API row as the correct platform.
+    if (supplied.isBlank() && nextStop.isBlank()) return null
     val matches = arrivals.filter { arrival ->
         val snapshot = arrival.snapshot
         if (!arrival.identity.isComplete || arrival.trainId.isBlank() ||
             !snapshot.reliable || snapshot.trustState != ArrivalTrustState.VALID ||
             nowMillis - snapshot.fetchedAtEpochMillis !in 0L..minOf(snapshot.validForMillis, 60_000L) ||
             snapshot.firstArrivalAtEpochMillis <= nowMillis) return@filter false
-        val direction = compact(arrival.identity.directionId)
-        val destination = compact(arrival.directionLabel.substringAfter('·', "")
-            .substringBefore('-').trim())
-        val announced = compact(arrival.trainLabel.substringAfterLast('·', "").trim())
-        supplied == direction || supplied == destination || supplied == announced
+        val officialService = arrival.directionLabel.substringAfter('·', "")
+        val direction = directionHint(arrival.identity.directionId)
+        val destination = directionHint(officialService.substringBefore('-'))
+        val officialNext = directionHint(officialService.substringAfter('-', ""))
+        val announced = directionHint(arrival.trainLabel.substringAfterLast('·', ""))
+        val directionMatches = supplied.isBlank() || supplied in setOf(
+            direction, destination, officialNext, announced, directionHint(officialService))
+        // A second listed Kakao stop is useful only when it is the officially announced
+        // next stop. A later alighting stop must not be mistaken for that next stop.
+        val nextMatches = nextStop.isBlank() ||
+            (officialNext.isNotBlank() && nextStop == officialNext)
+        directionMatches && nextMatches
     }
     return matches.map(OfficialSubwayArrival::identity).distinct().singleOrNull()
 }
@@ -115,6 +124,11 @@ private fun stationNamesMatch(first: StationNameParts, second: StationNameParts)
 
 private fun compact(value: String): String = value.trim().replace(Regex("\\s+"), "")
     .replace('·', ' ').replace(" ", "")
+
+/** Normalize printed "역", "행" and "방면" suffixes without fuzzy place matching. */
+private fun directionHint(value: String): String =
+    compact(value).removeSuffix("방향").removeSuffix("방면")
+        .removeSuffix("행").removeSuffix("역")
 
 private fun recognizedLines(value: String): Set<String> {
     val text = compact(value)
