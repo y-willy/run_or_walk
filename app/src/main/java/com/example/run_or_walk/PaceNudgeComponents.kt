@@ -87,7 +87,7 @@ fun SectionCard(title: String, subtitle: String? = null, content: @Composable Co
 fun PlaceOptionCard(title: String, detail: String, selected: Boolean = false,
     enabled: Boolean = true, onClick: () -> Unit) {
     Surface(onClick = onClick, enabled = enabled,
-        modifier = modifier.defaultMinSize(minHeight = 48.dp),
+        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp),
         shape = RoundedCornerShape(12.dp),
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer
             else MaterialTheme.colorScheme.surface,
@@ -110,7 +110,7 @@ fun TransitRouteCard(durationMinutes: Int, serviceName: String, boardingName: St
     guidanceLabel: String = "추정 · 실시간 미연결",
     modifier: Modifier = Modifier.fillMaxWidth(), onSelect: () -> Unit) {
     Surface(onClick = onSelect, enabled = enabled,
-        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp),
+        modifier = modifier.defaultMinSize(minHeight = 48.dp),
         shape = RoundedCornerShape(14.dp),
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .5f)
             else MaterialTheme.colorScheme.surface,
