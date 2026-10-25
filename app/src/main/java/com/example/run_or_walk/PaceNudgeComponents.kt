@@ -87,7 +87,7 @@ fun SectionCard(title: String, subtitle: String? = null, content: @Composable Co
 fun PlaceOptionCard(title: String, detail: String, selected: Boolean = false,
     enabled: Boolean = true, onClick: () -> Unit) {
     Surface(onClick = onClick, enabled = enabled,
-        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp),
+        modifier = modifier.defaultMinSize(minHeight = 48.dp),
         shape = RoundedCornerShape(12.dp),
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer
             else MaterialTheme.colorScheme.surface,
@@ -107,7 +107,8 @@ fun PlaceOptionCard(title: String, detail: String, selected: Boolean = false,
 @Composable
 fun TransitRouteCard(durationMinutes: Int, serviceName: String, boardingName: String,
     detail: String, selected: Boolean, enabled: Boolean = true,
-    guidanceLabel: String = "추정 · 실시간 미연결", onSelect: () -> Unit) {
+    guidanceLabel: String = "추정 · 실시간 미연결",
+    modifier: Modifier = Modifier.fillMaxWidth(), onSelect: () -> Unit) {
     Surface(onClick = onSelect, enabled = enabled,
         modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp),
         shape = RoundedCornerShape(14.dp),
@@ -149,7 +150,7 @@ fun AutomaticGuidanceCard(
     val (symbol, title, tint) = when (assessment.status) {
         AutoGuidanceStatus.WALK -> Triple("✓", "걸어가세요", if (dark) Color(0xFF86EFAC) else Color(0xFF23734C))
         AutoGuidanceStatus.FAST_WALK -> Triple("»", "빠른 걸음으로 이동하세요", if (dark) Color(0xFFFDBA74) else Color(0xFF9C5800))
-        AutoGuidanceStatus.NEXT_TRAIN -> Triple("→", "확인된 다음 ${vehicleLabel}를 이용하세요", MaterialTheme.colorScheme.error)
+        AutoGuidanceStatus.NEXT_VEHICLE -> Triple("→", "확인된 다음 ${vehicleLabel}를 이용하세요", MaterialTheme.colorScheme.error)
         AutoGuidanceStatus.UNKNOWN -> Triple("", unknownTitle, MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Surface(modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -186,7 +187,7 @@ fun AutomaticGuidanceCard(
             }
             if (assessment.status == AutoGuidanceStatus.FAST_WALK) {
                 Text("빠른 걸음 ${durationText((assessment.fastTravelSeconds ?: 0).toLong())} · 추정 " +
-                    "(도보시간의 ${(assessment.fastTravelRatio * 100).toInt()}%). 신호와 안전한 보행을 우선하세요.",
+                    "(실제 도보 거리 ÷ ${assessment.fastSpeedKmh}km/h). 신호와 안전한 보행을 우선하세요.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
