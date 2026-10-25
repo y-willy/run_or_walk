@@ -506,12 +506,21 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 if (target.acceptsLiveResponse(generation) && latestScreen === target) {
                     target.stationOptions = stations
                     target.stationsSearched = true
-                    if (target.boardingConfirmed) {
+                    // A route already names its first subway boarding stop. Do not gate
+                    // official ID lookup behind a second manual place-selection action.
+                    val route = target.selectedRoute?.kakao
+                    if (target.boardingConfirmed || route?.firstTransitType == "SUBWAY") {
                         val matched = resolveOfficialBoardingStation(stations,
                             target.boarding?.name.orEmpty(), target.selectedRoute?.serviceName)
                         if (matched != null) {
                             target.selectedStation = matched
+                            target.boardingMatchedAutomatically = target.boardingMatchedAutomatically ||
+                                (route?.firstTransitType == "SUBWAY")
                             target.lastArrivalPollElapsedMillis = null
+                            target.liveError = null
+                            target.status = "첫 승차역과 호선을 공식 역 목록에 자동 연결했어요."
+                        } else if (route?.firstTransitType == "SUBWAY") {
+                            target.liveError = "해당 역의 호선을 자동으로 하나로 확정하지 못했어요. 경로를 다시 검색해 주세요."
                         }
                     }
                 }
@@ -797,20 +806,32 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         target.selectedRoute = route
         target.boardingSource = route.kakao.boardingSource
         target.boardingChosenByUser = false
-        target.boardingMatchedAutomatically = false
         target.boardingCandidates = emptyList()
         target.candidatesSearched = false
-        target.boarding = route.kakao.boardingPoint?.let {
-            JourneyPlace("boarding-${route.id}", route.boardingName, route.serviceName, it)
-        }
+        // The selected route's first stop is the user's requested boarding point.
+        // It needs an independent official ID for reliable realtime guidance, but
+        // never needs a second Kakao-place selection just to show GPS and walking.
+        target.boarding = routeBoardingPlace(route)
+        target.boardingMatchedAutomatically = target.boarding != null
         target.stationQuery = officialStationSearchQuery(route.boardingName)
         target.detailsExpanded = false
         target.changingBoarding = false
         target.error = null
-        target.status = "선택한 경로의 첫 승차 위치와 실시간 차량을 자동 확인하고 있어요."
-        target.boarding?.let { target.centerOn(it.point) }
-        // A unique, actual station search result can confirm the place without a second tap.
-        findBoardingPlaces(target, automatic = true)
+        val boarding = target.boarding
+        if (boarding == null) {
+            target.status = "선택한 경로에 첫 승차 정류장 좌표가 없어요. 다른 경로를 검색해 주세요."
+            return
+        }
+        target.status = "첫 승차 장소를 경로에서 자동 설정했어요. 도보와 실시간 도착정보를 연결하고 있어요."
+        target.centerOn(boarding.point)
+        when (route.kakao.firstTransitType) {
+            "SUBWAY" -> findOfficialStations(target)
+            "BUS" -> {
+                target.busStopQuery = boarding.name
+                findOfficialBusStops(target, nearby = true, automatic = true)
+            }
+        }
+        requestLocation(target, LocationAction.WALKING)
     }
 
     fun lookupGyeonggiArrivals(target: JourneyScreenState) {
@@ -933,10 +954,13 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             "목적지나 이용할 정류장·역을 검색하면 현재 위치와 도착정보를 연결해요."
         !configured -> "실시간 정보 연결 필요"
         screen.busy -> screen.status
-        !screen.boardingConfirmed -> "승차 장소 후보가 여러 개이거나 정확히 일치하지 않아요. 아래 후보에서 이용할 장소를 선택해 주세요."
+        !screen.boardingConfirmed -> "경로의 첫 승차 지점 좌표를 확인할 수 없어요. 다른 경로로 다시 검색해 주세요."
         !officialStopSelected && screen.liveError != null -> screen.liveError.orEmpty()
-        !officialStopSelected -> if (isBus) "서울 공식 정류장을 선택해 주세요." else "공식 역·호선을 선택해 주세요."
-        isBus && screen.selectedBusRoute == null -> screen.liveError ?: "탑승할 버스 노선·방향을 선택해 주세요."
+        !officialStopSelected -> if (isBus)
+            "경로의 승차 장소는 자동 설정됐어요. 공식 버스 정류소 ID·노선을 연결해야 실시간 판단이 가능해요."
+            else "승차 장소는 자동 설정됐어요. 공식 역·호선 정보를 확인하고 있어요."
+        isBus && screen.selectedBusRoute == null ->
+            screen.liveError ?: "공식 버스 노선·방향 매칭 중이에요. 아직 도착시간을 확정하지 않았어요."
         screen.liveRetryAtEpochMillis?.let { it > now } == true ->
             (screen.liveError ?: "서버 안내 시각까지 기다려 주세요.") +
                 " · 재조회까지 ${((requireNotNull(screen.liveRetryAtEpochMillis) - now) / 1_000L).coerceAtLeast(1)}초"
@@ -950,9 +974,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val unknownTitle = when {
         screen.boarding == null && screen.selectedRoute == null -> "이동 안내를 시작해 보세요"
         screen.busy || screen.liveLoading && !hasArrivalOptions -> "이동 정보를 확인하고 있어요"
-        !screen.boardingConfirmed -> "승차 장소를 확인해 주세요"
-        !officialStopSelected -> if (isBus) "이용할 정류장을 선택해 주세요" else "이용할 호선을 선택해 주세요"
-        isBus && screen.selectedBusRoute == null -> "탑승할 버스·방향을 선택해 주세요"
+        !screen.boardingConfirmed -> "승차 지점 좌표 확인 불가"
+        !officialStopSelected -> "실시간 연동 정보를 확인하고 있어요"
+        isBus && screen.selectedBusRoute == null -> "버스 실시간 연결 준비 중"
         screen.arrivalRequestFailed || arrivalDiagnostic != null -> "도착정보를 확인하고 있어요"
         activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요" else "탑승할 방향을 선택해 주세요"
         else -> "자동 판단을 준비하고 있어요"
@@ -1022,9 +1046,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                             key(route.id) {
                                 TransitRouteCard(route.durationMinutes, route.serviceName, route.boardingName,
                                     route.detail, screen.selectedRoute?.id == route.id, enabled = !screen.busy,
-                                    guidanceLabel = if (screen.selectedRoute?.id == route.id &&
-                                        assessment.status != AutoGuidanceStatus.UNKNOWN) "실시간 도착정보 연결됨"
-                                        else "추정 · 실시간 미연결",
+                                    guidanceLabel = when {
+                                        screen.selectedRoute?.id != route.id -> "예상 소요시간"
+                                        assessment.status != AutoGuidanceStatus.UNKNOWN -> "검증된 실시간 안내"
+                                        screen.activeArrivalSnapshot != null -> "도착정보 수신 · 신뢰도 확인 중"
+                                        else -> "승차점 자동 설정 · 실시간 정보 연결 중"
+                                    },
                                     modifier = Modifier.width(260.dp),
                                     onSelect = { selectRoute(screen, route) })
                             }
