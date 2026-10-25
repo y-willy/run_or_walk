@@ -40,6 +40,13 @@ class SeoulSubwayRepositoryTest {
         assertFalse(parseSeoulSubwayArrivals(body(row()), station, source - 1).single().snapshot.reliable)
     }
 
+    @Test fun zeroEtaIsReportedAsUnavailableInsteadOfMistakenForSourceAge() {
+        val zero = parseSeoulSubwayArrivals(
+            body(row().put("barvlDt", "0")), station, source + 40_000)
+        assertTrue(zero.single().issues.contains(SubwayArrivalIssue.ETA_UNAVAILABLE))
+        assertTrue(subwayArrivalDiagnosticSummary(zero, source + 40_000).orEmpty().contains("0초"))
+    }
+
     @Test fun nextArrivalMustActuallyExistAndExpireWithItsOwnSource() {
         val next = row().put("btrainNo", "4303").put("barvlDt", "400")
             .put("recptnDt", "2026-10-25 06:09:30")
