@@ -1,0 +1,68 @@
+{
+  "provider": "seoul-bus",
+  "fetchedAt": "2026-10-25T08:00:05.000Z",
+  "stopId": "100000001",
+  "routeId": "100100001",
+  "stopOrder": "12",
+  "sourceGeneratedAt": "2026-10-25T08:00:00.000Z",
+  "arrivals": [
+    {
+      "stopId": "100000001",
+      "routeId": "100100001",
+      "stopOrder": "12",
+      "direction": "서울역 방면",
+      "routeName": "100",
+      "routeType": "3",
+      "vehicleId": "100001001",
+      "arrivalSeconds": 300,
+      "observedAt": "2026-10-25T08:00:00.000Z",
+      "message": "5분 후",
+      "full": false,
+      "last": false,
+      "trustState": "VALID",
+      "issues": [],
+      "raw": {
+        "mkTm": "2026-10-25 17:00:00.0",
+        "dir": "서울역 방면",
+        "stNm": "종로2가",
+        "arsId": "01001",
+        "deTourAt": "00",
+        "exps": "300",
+        "vehId": "100001001",
+        "arrmsg": "5분 후",
+        "full": "0",
+        "isArrive": "0",
+        "isLast": "0"
+      }
+    },
+    {
+      "stopId": "100000001",
+      "routeId": "100100001",
+      "stopOrder": "12",
+      "direction": "서울역 방면",
+      "routeName": "100",
+      "routeType": "3",
+      "vehicleId": "100001002",
+      "arrivalSeconds": 600,
+      "observedAt": "2026-10-25T08:00:00.000Z",
+      "message": "10분 후",
+      "full": false,
+      "last": true,
+      "trustState": "VALID",
+      "issues": [],
+      "raw": {
+        "mkTm": "2026-10-25 17:00:00.0",
+        "dir": "서울역 방면",
+        "stNm": "종로2가",
+        "arsId": "01001",
+        "deTourAt": "00",
+        "exps": "600",
+        "vehId": "100001002",
+        "arrmsg": "10분 후",
+        "full": "0",
+        "isArrive": "0",
+        "isLast": "1"
+      }
+    }
+  ]
+}

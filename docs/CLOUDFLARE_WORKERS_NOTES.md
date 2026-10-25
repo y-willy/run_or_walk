@@ -2,13 +2,15 @@
 
 확인일: 2026-10-25 (한국 시각). 대상은 기존 `run-or-walk.willy0723.workers.dev`의 `/health`, `/subway?station=강남`이다. 이 문서는 준비한 소스의 운영 조건이며 **실제 Cloudflare 배포·계정 설정 검증 완료를 뜻하지 않는다.** 기존 `SEOUL_SUBWAY_KEY`는 Cloudflare Worker Secret을 그대로 사용한다. 키 재입력·재발급은 필요하지 않다.
 
+서울 버스·서울 소속 광역버스 어댑터는 [별도 연동 안내](SEOUL_BUS_INTEGRATION.md)를 참고한다. `SEOUL_BUS_KEY` Secret과 `SEOUL_BUS_COORDINATOR` 바인딩·`v2` migration이 추가됐으며 아래 지하철 장부·`v1`은 유지한다. 버스는 정류소정보·도착정보에 독립 예산을 사용하고 새 24시간 초기 대기를 추가하지 않는다.
+
 ## 캐시와 원본 호출 예산
 
 - 모든 역 요청은 `SUBWAY_COORDINATOR` 바인딩의 `SubwayCoordinator` 클래스에서 `idFromName("global-v1")`로 같은 SQLite Durable Object에 전달한다. 정규화한 역별로 30초 캐시를 저장하고, 같은 역의 진행 중 조회를 합친다. 캐시 응답의 `fetchedAt`은 원본을 실제 조회한 시각을 보존한다. 만료된 캐시를 새 조회 결과로 반환하지 않는다.
 - 원본 오류는 별도 SQLite 테이블에서 역별 10초 backoff한다. 그 안의 반복 요청은 같은 오류와 남은 Retry-After를 반환하며 원본 시도를 추가하지 않는다. 오류를 성공한 도착정보로 저장하지 않는다.
 - 원본 조회 전 SQLite에서 최근 24시간 시도 기록을 정리하고 900건 예산을 확인·예약한다. 예약을 디스크에 동기화한 후 원본을 호출한다. 캐시 적중·동일 조회 합류는 새 예산을 사용하지 않는다. 실패한 원본 시도도 예산에서 빼지 않으며 자동 재시도로 추가 호출하지 않는다.
 - SQL 예약은 `storage.transactionSync()`로 묶는다. 콜백은 동기 함수여야 하며, 예외 시 롤백한다. SQL의 `BEGIN TRANSACTION`을 직접 실행하지 않는다. 저장 실패 시 원본 호출 없이 실패한다. 예약 직후 프로세스가 종료되면 실제 호출 없이 예산 한 건이 남을 수 있다. 외부 HTTP 요청과 SQLite를 하나의 트랜잭션으로 묶을 수 없으므로 과소 집계를 막는 보수적인 처리다. [공식 SQLite Storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transactionsync)
-- 이 상한은 **같은 Object를 거치는 이 Worker의 요청**에 적용된다. 같은 키를 쓰는 다른 서비스와 이전 Worker 호출은 새 장부에 없다. 따라서 새 장부는 첫 Object 생성(통상 첫 `/subway` 요청)부터 24시간 동안 원본 호출을 보류하고 BUDGET_WARMUP/Retry-After를 반환한다. 배포만 하고 조회하지 않으면 대기 시계가 시작되지 않는다. `BUDGET_BOOTSTRAP_HOLD_SECONDS=0`은 최근 24시간 원본 호출이 **확인된 0건**이고 다른 키 사용자가 없을 때만 검토할 수 있다. 과거 사용량이 단순히 알려져 있다는 이유로 생략할 수 없다. 기본 배포 설정에는 이 변수를 넣지 않는다. 기존 대기 시각은 영속돼 나중에 변수를 바꿔도 단축되지 않는다.
+- 이 상한은 **같은 Object를 거치는 이 Worker의 요청**에 적용된다. 같은 키를 쓰는 다른 서비스와 이전 직접 호출은 새 장부에 없으므로 전체 계정의 원본 사용량까지 보장하지 않는다. 실제 사용을 막던 **초기 24시간 대기 정책은 제거했다.** 최초 요청부터 30초 캐시·동시 요청 병합·최근 24시간 900회 상한을 적용한다. 업그레이드는 `ledger_metadata.upstream_not_before`에 남은 이전 대기만 0으로 바꾸며 `upstream_attempts`, 캐시, 클래스·네임스페이스는 유지한다. `BUDGET_BOOTSTRAP_HOLD_SECONDS`는 더 이상 사용하지 않으며 추가 설정 없이 기존 대기가 해제된다. 새 소스는 `BUDGET_WARMUP`을 반환하지 않는다. 실제 900회 상한이나 제공기관 한도에 도달했을 때만 재시도 대기가 필요하다.
 - 재배포 때 클래스·네임스페이스·`global-v1`을 유지한다. 이름 변경, namespace 삭제, 저장소 초기화, 과거 시점 복원은 예산 기록을 잃거나 되돌릴 수 있으므로 운영 중 호출 예산을 초기화하는 방법으로 사용하지 않는다.
 
 ### Cache API를 전제로 삼지 않는 이유

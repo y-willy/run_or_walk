@@ -484,11 +484,15 @@ internal fun parseWorkerHttpFailure(status: Int, body: String?, retryAfter: Stri
     }?.let(::validRetry)
     val bodyRetry = error?.opt("retryAfterSeconds")?.toString()?.toLongOrNull()?.takeIf { it in 1L..172_800L }
         ?.let { now + it * 1_000L }
-    val retryAt = listOfNotNull(headerRetry, bodyRetry).maxOrNull()
+    val serverRetryAt = listOfNotNull(headerRetry, bodyRetry).maxOrNull()
         ?: if (status == 429) now + 30_000L else null
+    // Legacy Workers can advertise a 24-hour bootstrap hold. Recheck their state
+    // after an upgrade without shortening actual upstream/IP quota restrictions.
+    val retryAt = if (code == "BUDGET_WARMUP") minOf(serverRetryAt ?: now + 30_000L,
+        now + 30_000L) else serverRetryAt
     val (kind, message) = when {
         code == "BUDGET_WARMUP" -> SeoulSubwayFailure.SERVER_WARMUP to
-            "중계 서버의 최초 요청량 보호 대기 중이에요. 서버 안내 시각 이후 자동으로 다시 확인해요."
+            "서버 초기 대기 중이에요. 30초마다 상태를 다시 확인해요."
         code in setOf("SERVICE_NOT_CONFIGURED", "SERVER_NOT_CONFIGURED") -> SeoulSubwayFailure.SETUP_REQUIRED to
             "중계 서버 설정이 완료되지 않았어요. 서버의 비밀키·바인딩 설정 확인이 필요해요."
         status == 401 || status == 403 -> SeoulSubwayFailure.GATEWAY_ACCESS_DENIED to

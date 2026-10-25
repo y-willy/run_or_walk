@@ -48,7 +48,12 @@ suspend fun getCurrentLocationSample(context: Context): GuidanceLocation {
                 cached.observedAtEpochMillis > requireNotNull(rejectedSample).observedAtEpochMillis)) {
             rejectedSample = cached
         }
-        return cached?.takeIf { locationSampleFailure(it, System.currentTimeMillis()) == null }
+        // Refresh every 20 seconds without repeatedly accepting a 20-second-old fix:
+        // the guidance policy expires it at 30 seconds, before the following poll.
+        return cached?.takeIf {
+            val now = System.currentTimeMillis()
+            locationSampleFailure(it, now) == null && now - it.observedAtEpochMillis <= 10_000L
+        }
     }
 
     freshCachedSample()?.let { return it }
@@ -60,7 +65,7 @@ suspend fun getCurrentLocationSample(context: Context): GuidanceLocation {
                 continuation.invokeOnCancellation { token.cancel() }
                 val request = CurrentLocationRequest.Builder()
                     .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
-                    .setMaxUpdateAgeMillis(30_000L)
+                    .setMaxUpdateAgeMillis(10_000L)
                     .setDurationMillis(12_000L)
                     .build()
                 try {

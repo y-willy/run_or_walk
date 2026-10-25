@@ -141,13 +141,15 @@ fun AutomaticGuidanceCard(
     arrivalFetchedAtEpochMillis: Long?,
     walkingSeconds: Int?,
     unknownTitle: String = "자동 판단을 준비하고 있어요",
-    arrivalInformation: String? = null
+    arrivalInformation: String? = null,
+    vehicleLabel: String = "열차",
+    movementHint: String = "역 내부 이동과 신호 대기는 확인해 주세요."
 ) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < .5f
     val (symbol, title, tint) = when (assessment.status) {
         AutoGuidanceStatus.WALK -> Triple("✓", "걸어가세요", if (dark) Color(0xFF86EFAC) else Color(0xFF23734C))
         AutoGuidanceStatus.FAST_WALK -> Triple("»", "빠른 걸음으로 이동하세요", if (dark) Color(0xFFFDBA74) else Color(0xFF9C5800))
-        AutoGuidanceStatus.NEXT_TRAIN -> Triple("→", "확인된 다음 열차를 이용하세요", MaterialTheme.colorScheme.error)
+        AutoGuidanceStatus.NEXT_TRAIN -> Triple("→", "확인된 다음 ${vehicleLabel}를 이용하세요", MaterialTheme.colorScheme.error)
         AutoGuidanceStatus.UNKNOWN -> Triple("", unknownTitle, MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Surface(modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -178,7 +180,7 @@ fun AutomaticGuidanceCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (assessment.status != AutoGuidanceStatus.UNKNOWN) {
-                Text("안전 여유 ${assessment.bufferSeconds / 60}분 포함 · 역 내부 이동과 신호 대기는 확인해 주세요.",
+                Text("안전 여유 ${assessment.bufferSeconds / 60}분 포함 · $movementHint",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

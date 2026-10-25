@@ -7,7 +7,7 @@ export default defineConfig({
     miniflare: {
       bindings: {
         SEOUL_SUBWAY_KEY: 'test-only-never-a-real-key',
-        BUDGET_BOOTSTRAP_HOLD_SECONDS: '0',
+        SEOUL_BUS_KEY: 'test-only-never-a-real-bus-key',
       },
     },
   })],

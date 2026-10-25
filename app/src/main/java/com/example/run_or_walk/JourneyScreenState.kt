@@ -80,6 +80,14 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var selectedStation by mutableStateOf<OfficialSubwayStation?>(null)
     var arrivalOptions by mutableStateOf<List<OfficialSubwayArrival>>(emptyList())
     var selectedArrival by mutableStateOf<OfficialSubwayArrival?>(null)
+    var busStopQuery by mutableStateOf("")
+    var busStopOptions by mutableStateOf<List<OfficialSeoulBusStop>>(emptyList())
+    var busStopsSearched by mutableStateOf(false)
+    var selectedBusStop by mutableStateOf<OfficialSeoulBusStop?>(null)
+    var busRouteOptions by mutableStateOf<List<OfficialSeoulBusRoute>>(emptyList())
+    var selectedBusRoute by mutableStateOf<OfficialSeoulBusRoute?>(null)
+    var busArrivalOptions by mutableStateOf<List<OfficialSeoulBusArrival>>(emptyList())
+    var selectedBusArrival by mutableStateOf<OfficialSeoulBusArrival?>(null)
     var confirmedServiceIdentity by mutableStateOf<OfficialBoardingIdentity?>(null)
     var liveRetryAtEpochMillis by mutableStateOf<Long?>(null)
     var arrivalRequestFailed by mutableStateOf(false)
@@ -101,6 +109,19 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var status by mutableStateOf("")
     var error by mutableStateOf<String?>(null)
     val busy: Boolean get() = loading || waitingForPermission
+    val isBusJourney: Boolean get() = selectedRoute?.kakao?.firstTransitType == "BUS" ||
+        boarding?.let { it.isBusStop && !it.isSubwayStation } == true
+
+    private val activeBusArrival: OfficialSeoulBusArrival?
+        get() = selectedBusArrival?.takeIf {
+            selectedBusStop?.stopId == it.identity.stopId && selectedBusRoute?.identity == it.identity
+        }
+    val activeArrivalIdentity: OfficialBoardingIdentity?
+        get() = if (isBusJourney) activeBusArrival?.identity else selectedArrival?.identity
+    val activeArrivalSnapshot: RealtimeArrivalSnapshot?
+        get() = if (isBusJourney) activeBusArrival?.snapshot else selectedArrival?.snapshot
+    val activeArrivalVehicleId: String?
+        get() = if (isBusJourney) activeBusArrival?.vehicleId else selectedArrival?.trainId
 
     // Search, permission and live responses all carry generations. A new selection
     // invalidates even a response from an API that does not support cancellation.
@@ -135,6 +156,12 @@ internal class JourneyScreenState(val mode: FeatureMode,
         stationQuery = value
     }
 
+    fun editBusStopQuery(value: String) {
+        invalidateRequests()
+        clearOfficialSelection()
+        busStopQuery = value
+    }
+
     fun invalidateRequests() {
         revision++
         requestId++
@@ -164,6 +191,28 @@ internal class JourneyScreenState(val mode: FeatureMode,
         stationOptions = emptyList()
         stationsSearched = false
         arrivalOptions = emptyList()
+        busStopOptions = emptyList()
+        busStopsSearched = false
+        selectedBusStop = null
+        busRouteOptions = emptyList()
+        selectedBusRoute = null
+        busArrivalOptions = emptyList()
+        selectedBusArrival = null
+        arrivalRequestFailed = false
+        liveError = null
+        liveLoading = false
+        guidanceWalkingRoute = null
+    }
+
+    /** A new bus route keeps the chosen physical stop but invalidates its old vehicle/identity. */
+    fun clearSelectedBusRoute() {
+        liveRequestId++
+        lastArrivalPollElapsedMillis = null
+        selectedBusRoute = null
+        busArrivalOptions = emptyList()
+        selectedBusArrival = null
+        confirmedServiceIdentity = null
+        liveRetryAtEpochMillis = null
         arrivalRequestFailed = false
         liveError = null
         liveLoading = false
@@ -184,6 +233,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
         candidatesSearched = false
         detailsExpanded = false
         changingBoarding = false
+        busStopQuery = ""
         mapCenter = null
     }
 
@@ -226,7 +276,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
 
     /** One shared gate suppresses duplicate notifications when switching tabs. */
     fun claimAutomaticAlert(status: AutoGuidanceStatus, nowEpochMillis: Long): Boolean =
-        alertGate.claim(alertsEnabled, selectedArrival?.identity, selectedArrival?.trainId,
+        alertGate.claim(alertsEnabled, activeArrivalIdentity, activeArrivalVehicleId,
             status, nowEpochMillis)
 
     val boardingNotice: String?

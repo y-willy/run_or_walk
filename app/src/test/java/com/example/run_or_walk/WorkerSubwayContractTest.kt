@@ -164,8 +164,8 @@ class WorkerSubwayContractTest {
             """{"error":{"code":"BUDGET_WARMUP","retryAfterSeconds":86400}}""", "60", now)
         assertEquals(SeoulSubwayFailure.SERVER_WARMUP, warmup.failure)
         assertEquals("BUDGET_WARMUP", warmup.serverCode)
-        assertEquals(now + 86_400_000, warmup.retryAfterEpochMillis)
-        assertTrue(warmup.message!!.contains("최초 요청량 보호"))
+        assertEquals(now + 30_000, warmup.retryAfterEpochMillis)
+        assertTrue(warmup.message!!.contains("30초마다"))
         val denied = parseWorkerHttpFailure(403, "<html>private-proxy-token</html>", null, now)
         assertEquals(SeoulSubwayFailure.GATEWAY_ACCESS_DENIED, denied.failure)
         assertFalse(denied.message!!.contains("서울시 실시간 지하철 전용 인증키"))
@@ -187,5 +187,39 @@ class WorkerSubwayContractTest {
         val malformed = parseWorkerHttpFailure(429,
             """{"error":{"code":"IP_RATE_LIMITED","retryAfterSeconds":999999999999}}""", "-1", now)
         assertEquals(now + 30_000, malformed.retryAfterEpochMillis)
+    }
+
+    @Test fun legacyBootstrapHoldIsRecheckedAfterThirtySecondsWithoutShorteningRealQuota() {
+        val warmup = parseWorkerHttpFailure(429,
+            """{"error":{"code":"BUDGET_WARMUP","retryAfterSeconds":86400}}""", "86400", source)
+        assertEquals(source + 30_000L, warmup.retryAfterEpochMillis)
+        assertEquals(SeoulSubwayFailure.SERVER_WARMUP, warmup.failure)
+        val backoff = WorkerRequestBackoff()
+        backoff.record(warmup)
+        assertSame(warmup, assertThrows(SeoulSubwayApiException::class.java) { backoff.check(source + 29_999L) })
+        backoff.check(source + 30_000L)
+
+        val quota = parseWorkerHttpFailure(429,
+            """{"error":{"code":"UPSTREAM_BUDGET_EXHAUSTED","retryAfterSeconds":86400}}""", "86400", source)
+        assertEquals(SeoulSubwayFailure.REQUEST_LIMIT, quota.failure)
+        assertEquals(source + 86_400_000L, quota.retryAfterEpochMillis)
+        backoff.record(quota)
+        backoff.record(warmup) // A shorter legacy hold cannot override a real active quota.
+        assertSame(quota, assertThrows(SeoulSubwayApiException::class.java) { backoff.check(source + 30_000L) })
+        backoff.check(source + 86_400_000L)
+    }
+
+    @Test fun warmupUsesShorterServerDeadlineButIpAndHttpDateLimitsKeepTheirDuration() {
+        val shorter = parseWorkerHttpFailure(429,
+            """{"error":{"code":"BUDGET_WARMUP","retryAfterSeconds":10}}""", "10", source)
+        assertEquals(source + 10_000L, shorter.retryAfterEpochMillis)
+        val missing = parseWorkerHttpFailure(429, """{"error":{"code":"BUDGET_WARMUP"}}""", null, source)
+        assertEquals(source + 30_000L, missing.retryAfterEpochMillis)
+        val ip = parseWorkerHttpFailure(429,
+            """{"error":{"code":"IP_RATE_LIMITED","retryAfterSeconds":120}}""", "120", source)
+        assertEquals(source + 120_000L, ip.retryAfterEpochMillis)
+        val date = parseWorkerHttpFailure(429,
+            """{"error":{"code":"BUDGET_WARMUP"}}""", "Mon, 26 Oct 2026 06:09:50 GMT", source)
+        assertEquals(source + 30_000L, date.retryAfterEpochMillis)
     }
 }

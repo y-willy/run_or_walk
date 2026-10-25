@@ -1,15 +1,15 @@
 import { DurableObject } from 'cloudflare:workers';
+import { handleBusRequest, type BusEnv } from './bus';
+export { SeoulBusCoordinator } from './bus';
 import {
   CACHE_TTL_MS, FAILURE_BACKOFF_MS, UPSTREAM_BUDGET, WINDOW_MS, normalizeStation,
   normalizeUpstream, refreshCachedPayload, SourcePayloadError,
 } from './model';
 
-export interface Env {
+export interface Env extends BusEnv {
   SEOUL_SUBWAY_KEY: string;
   SUBWAY_COORDINATOR: DurableObjectNamespace<SubwayCoordinator>;
   IP_RATE_LIMITER: RateLimit;
-  /** Zero only after verifying zero preceding-24h calls and no other key consumer. */
-  BUDGET_BOOTSTRAP_HOLD_SECONDS?: string;
 }
 export const COORDINATOR_NAME = 'global-v1';
 const UPSTREAM_TIMEOUT_MS = 5_000;
@@ -38,6 +38,7 @@ export default {
       const url = new URL(request.url);
       if (request.method !== 'GET') return respond(failure('METHOD_NOT_ALLOWED', 405), { Allow: 'GET' });
       if (url.pathname === '/health') return respond(json({ status: 'ok' }));
+      if (url.pathname.startsWith('/bus/')) return await handleBusRequest(request, env);
       if (url.pathname !== '/subway') return respond(failure('NOT_FOUND', 404));
       if (url.searchParams.getAll('station').length !== 1) return respond(failure('INVALID_STATION', 400));
       const station = normalizeStation(url.searchParams.get('station'));
@@ -75,11 +76,10 @@ export class SubwayCoordinator extends DurableObject<Env> {
       retry_at INTEGER NOT NULL
     )`);
     ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS ledger_metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), upstream_not_before INTEGER NOT NULL)');
-    const rawHold = env.BUDGET_BOOTSTRAP_HOLD_SECONDS;
-    // First object creation (normally the first /subway request) anchors this
-    // persisted hold; deploying without any requests does not start its clock.
-    const hold = rawHold === '0' ? 0 : 86_400;
-    ctx.storage.sql.exec('INSERT OR IGNORE INTO ledger_metadata (singleton, upstream_not_before) VALUES (1, ?)', Date.now() + hold * 1000);
+    // Retire the old bootstrap hold in place. Do not remove the object, namespace,
+    // attempt ledger or cached data: the actual rolling 900-attempt budget survives.
+    ctx.storage.sql.exec('INSERT OR IGNORE INTO ledger_metadata (singleton, upstream_not_before) VALUES (1, 0)');
+    ctx.storage.sql.exec('UPDATE ledger_metadata SET upstream_not_before = 0 WHERE singleton = 1 AND upstream_not_before != 0');
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -106,8 +106,6 @@ export class SubwayCoordinator extends DurableObject<Env> {
   private async load(station: string): Promise<Result> {
     if (!this.env.SEOUL_SUBWAY_KEY) return failure('SERVICE_NOT_CONFIGURED', 503);
     const now = Date.now();
-    const notBefore = this.ctx.storage.sql.exec<{ upstream_not_before: number }>('SELECT upstream_not_before FROM ledger_metadata WHERE singleton = 1').one().upstream_not_before;
-    if (notBefore > now) return failure('BUDGET_WARMUP', 429, Math.ceil((notBefore - now) / 1000));
     const denied = this.ctx.storage.transactionSync(() => {
       const sql = this.ctx.storage.sql;
       // The open interval (now - 24h, now] is rolling, without a midnight reset.

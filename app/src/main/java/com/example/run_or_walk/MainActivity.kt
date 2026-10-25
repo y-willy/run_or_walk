@@ -80,6 +80,7 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
     val keyboard = LocalSoftwareKeyboardController.current
     val kakaoRepository = remember { KakaoApiRepository(BuildConfig.KAKAO_REST_KEY) }
     val subwayRepository = remember { SeoulSubwayRepository(context) }
+    val busRepository = remember { SeoulBusRepository() }
     val screens = remember {
         val alerts = AutomaticAlertGate()
         FeatureMode.entries.associateWith { JourneyScreenState(it, alerts) }
@@ -217,10 +218,102 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
         } else target.error = "진행 중인 위치 권한 요청을 완료해 주세요."
     }
 
+    fun selectOfficialBusRoute(target: JourneyScreenState, route: OfficialSeoulBusRoute) {
+        val stop = target.selectedBusStop ?: return
+        if (!route.supported || route.stopId != stop.stopId || route !in target.busRouteOptions) return
+        target.invalidateRequests()
+        target.clearSelectedBusRoute()
+        target.selectedBusRoute = route
+        target.confirmedServiceIdentity = route.identity
+        target.liveError = null
+    }
+
+    fun selectOfficialBusStop(target: JourneyScreenState, stop: OfficialSeoulBusStop,
+        automatic: Boolean = false) {
+        val point = stop.point ?: return
+        target.clearWalking()
+        target.clearOfficialSelection()
+        target.boarding = JourneyPlace("seoul-bus-${stop.stopId}", stop.name,
+            "정류장 번호 ${stop.arsId}", point, categoryName = "버스정류장")
+        target.boardingSource = BoardingPointSource.VERIFIED
+        target.boardingChosenByUser = !automatic
+        target.boardingMatchedAutomatically = automatic
+        target.selectedBusStop = stop
+        target.busStopOptions = listOf(stop)
+        target.busStopsSearched = true
+        target.busStopQuery = stop.name
+        target.changingBoarding = false
+        target.centerOn(point)
+        val generation = target.beginLiveRequest()
+        scope.launch {
+            try {
+                val routes = busRepository.routes(stop)
+                if (target.acceptsLiveResponse(generation) && latestScreen === target && target.selectedBusStop == stop) {
+                    target.busRouteOptions = routes
+                    val matched = resolveOfficialSeoulBusRoute(routes, stop.stopId,
+                        target.selectedRoute?.serviceName.orEmpty())
+                    if (matched != null) {
+                        target.selectedBusRoute = matched
+                        target.confirmedServiceIdentity = matched.identity
+                    }
+                    target.liveError = when {
+                        routes.isEmpty() -> "이 정류장에 조회 가능한 노선이 없어요."
+                        routes.none { it.supported } -> "이 정류장에는 서울 소속 지원 노선이 없어요. 경기·인천 노선은 별도 연동이 필요해요."
+                        else -> null
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (target.acceptsLiveResponse(generation) && latestScreen === target) {
+                    target.liveRetryAtEpochMillis = (error as? SeoulBusApiException)?.retryAfterEpochMillis
+                    target.liveError = (error as? SeoulBusApiException)?.message ?: "정류장의 버스 노선을 확인하지 못했어요."
+                }
+            } finally {
+                if (target.acceptsLiveResponse(generation)) target.liveLoading = false
+            }
+        }
+    }
+
+    fun findOfficialBusStops(target: JourneyScreenState, nearby: Boolean = false,
+        automatic: Boolean = false) {
+        val boarding = target.boarding ?: return
+        val query = target.busStopQuery.trim().ifBlank { boarding.name }
+        if (target.liveLoading) return
+        target.clearSelectedBusRoute()
+        target.selectedBusStop = null
+        target.busRouteOptions = emptyList()
+        target.busStopOptions = emptyList()
+        target.busStopsSearched = false
+        val generation = target.beginLiveRequest()
+        scope.launch {
+            try {
+                val stops = if (nearby) busRepository.nearbyStops(boarding.point)
+                    else busRepository.searchStops(query)
+                if (target.acceptsLiveResponse(generation) && latestScreen === target && target.boarding == boarding) {
+                    target.busStopOptions = stops
+                    target.busStopsSearched = true
+                    val matched = if (automatic) resolveOfficialSeoulBusStop(stops, boarding) else null
+                    if (matched != null) selectOfficialBusStop(target, matched, automatic = true)
+                    else target.liveError = if (stops.isEmpty())
+                        "서울 공식 정류장이 없어요. 정류장 이름이나 표지의 5자리 번호로 검색해 주세요." else null
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (target.acceptsLiveResponse(generation) && latestScreen === target) {
+                    target.liveRetryAtEpochMillis = (error as? SeoulBusApiException)?.retryAfterEpochMillis
+                    target.liveError = (error as? SeoulBusApiException)?.message ?: "서울 공식 정류장을 확인하지 못했어요."
+                }
+            } finally {
+                if (target.acceptsLiveResponse(generation)) target.liveLoading = false
+            }
+        }
+    }
+
     fun findOfficialStations(target: JourneyScreenState) {
         if (target.boarding?.isBusStop == true && target.boarding?.isSubwayStation != true ||
             target.selectedRoute?.kakao?.firstTransitType == "BUS") {
-            target.liveError = "버스 실시간 도착정보는 아직 지원하지 않아요."
+            target.busStopQuery = target.boarding?.name.orEmpty()
+            findOfficialBusStops(target, nearby = true, automatic = true)
             return
         }
         val query = target.stationQuery.trim()
@@ -299,7 +392,51 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
         }
     }
 
+    suspend fun refreshBusLive(target: JourneyScreenState, force: Boolean = false) {
+        val stop = target.selectedBusStop ?: return
+        val route = target.selectedBusRoute ?: return
+        val boarding = target.boarding ?: return
+        if (target.liveLoading || latestScreen !== target || !busRepository.isConfigured) return
+        if (target.liveRetryAtEpochMillis?.let { it > System.currentTimeMillis() } == true) return
+        val binding = target.confirmedServiceIdentity
+        if (binding != route.identity || route.stopId != stop.stopId || !route.supported) return
+        val generation = target.beginLiveRequest()
+        fun active() = target.acceptsLiveResponse(generation) && latestScreen === target &&
+            target.selectedBusStop == stop && target.selectedBusRoute == route &&
+            target.boarding == boarding && target.confirmedServiceIdentity == binding
+        try {
+            val elapsed = SystemClock.elapsedRealtime()
+            val previous = target.lastArrivalPollElapsedMillis
+            val arrivals = if (force || previous == null || elapsed - previous >= 30_000L) {
+                target.lastArrivalPollElapsedMillis = elapsed
+                busRepository.arrivals(stop, route)
+            } else target.busArrivalOptions
+            if (!active()) return
+            target.busArrivalOptions = arrivals
+            target.selectedBusArrival = chooseMatchingBusArrival(binding, arrivals, System.currentTimeMillis())
+            target.arrivalRequestFailed = false
+            target.liveRetryAtEpochMillis = null
+            target.liveError = when {
+                arrivals.isEmpty() -> "선택한 노선에 도착 예정 버스가 없어요. 운행 상태를 확인해 주세요."
+                target.selectedBusArrival == null -> arrivals.map {
+                    seoulBusArrivalDisplayStatus(it, System.currentTimeMillis())
+                }.distinct().joinToString("\n")
+                else -> null
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            if (active()) {
+                target.arrivalRequestFailed = true
+                target.liveRetryAtEpochMillis = (error as? SeoulBusApiException)?.retryAfterEpochMillis
+                target.liveError = (error as? SeoulBusApiException)?.message ?: "버스 도착정보를 가져오지 못했어요."
+            }
+        } finally {
+            if (target.acceptsLiveResponse(generation)) target.liveLoading = false
+        }
+    }
+
     suspend fun refreshLive(target: JourneyScreenState, force: Boolean = false) {
+        if (target.isBusJourney) { refreshBusLive(target, force); return }
         val station = target.selectedStation ?: return
         val boarding = target.boarding ?: return
         if (target.liveLoading || latestScreen !== target) return
@@ -479,9 +616,10 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
             }
         }
     }
-    val selectedTrainKey = screen.selectedArrival?.let { it.identity to it.trainId }
-    LaunchedEffect(screen, screen.selectedStation, screen.confirmedServiceIdentity) {
-        if (screen.selectedStation != null && subwayRepository.isConfigured) {
+    val selectedTrainKey = screen.activeArrivalIdentity to screen.activeArrivalVehicleId
+    LaunchedEffect(screen, screen.selectedStation, screen.selectedBusStop, screen.selectedBusRoute, screen.confirmedServiceIdentity) {
+        if (screen.selectedStation != null && subwayRepository.isConfigured ||
+            screen.selectedBusRoute != null && busRepository.isConfigured) {
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 while (isActive) { refreshLive(screen); delay(30_000L) }
             }
@@ -489,52 +627,66 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
     }
 
     val selectedArrival = screen.selectedArrival
+    val selectedBusArrival = screen.selectedBusArrival
+    val isBus = screen.isBusJourney
+    val configured = if (isBus) busRepository.isConfigured else subwayRepository.isConfigured
+    val activeSnapshot = screen.activeArrivalSnapshot
     val boarding = screen.boarding
-    val guidanceBoarding = if (selectedArrival != null && boarding != null) GuidanceBoarding(
-        selectedArrival.identity, boarding.point,
-        confirmed = screen.boardingConfirmed && screen.selectedStation?.let {
-            it.stopId == selectedArrival.identity.stopId && it.routeId == selectedArrival.identity.routeId
-        } == true) else null
+    val identity = screen.activeArrivalIdentity
+    val officialConnectionConfirmed = if (isBus) {
+        val route = screen.selectedBusRoute
+        route != null && screen.selectedBusStop?.stopId == route.stopId && route.identity == identity
+    } else screen.selectedStation?.let {
+        it.stopId == identity?.stopId && it.routeId == identity.routeId
+    } == true
+    val guidanceBoarding = if (identity != null && boarding != null) GuidanceBoarding(
+        identity, boarding.point, screen.boardingConfirmed && officialConnectionConfirmed) else null
     val assessment = calculateAutoGuidance(AutoGuidanceInput(
         location = screen.location, boarding = guidanceBoarding,
         walkingRoute = screen.guidanceWalkingRoute,
-        arrivals = selectedArrival?.snapshot.takeIf { subwayRepository.isConfigured },
+        arrivals = activeSnapshot.takeIf { configured },
         locationPermissionGranted = hasLocationPermission(context),
         arrivalRequestFailed = screen.arrivalRequestFailed), now)
-    val validArrival = selectedArrival?.snapshot?.takeIf {
-        subwayRepository.isConfigured && !screen.arrivalRequestFailed && it.reliable &&
+    val validArrival = activeSnapshot?.takeIf {
+        configured && !screen.arrivalRequestFailed && it.reliable &&
             it.trustState == ArrivalTrustState.VALID &&
             now - it.fetchedAtEpochMillis in 0L..minOf(it.validForMillis, 60_000L) &&
-            it.firstArrivalAtEpochMillis >= now
+            it.firstArrivalAtEpochMillis > now
     }
-    val arrivalDiagnostic = screen.arrivalOptions.takeIf { it.isNotEmpty() }
+    val arrivalDiagnostic = if (isBus) {
+        if (screen.busArrivalOptions.isNotEmpty() && validArrival == null) screen.liveError
+            ?: "확인된 버스의 도착 상태를 갱신하고 있어요." else null
+    } else screen.arrivalOptions.takeIf { it.isNotEmpty() }
         ?.let { subwayArrivalDiagnosticSummary(it, now) }
+    val officialStopSelected = if (isBus) screen.selectedBusStop != null else screen.selectedStation != null
+    val hasArrivalOptions = if (isBus) screen.busArrivalOptions.isNotEmpty() else screen.arrivalOptions.isNotEmpty()
     val unknownMessage = when {
         screen.boarding == null && screen.selectedRoute == null ->
-            "목적지나 이용할 역을 검색하면 현재 위치와 도착정보를 연결해요."
-        !subwayRepository.isConfigured -> "실시간 정보 연결 필요"
-        screen.selectedRoute?.kakao?.firstTransitType == "BUS" ||
-            boarding?.isBusStop == true && !boarding.isSubwayStation -> "버스 실시간 정보는 아직 지원하지 않아요."
+            "목적지나 이용할 정류장·역을 검색하면 현재 위치와 도착정보를 연결해요."
+        !configured -> "실시간 정보 연결 필요"
         screen.busy -> screen.status
-        !screen.boardingConfirmed -> "승차 장소 후보가 여러 개이거나 정확히 일치하지 않아요. 아래 후보에서 이용할 역을 선택해 주세요."
-        screen.selectedStation == null -> "공식 역·호선을 선택해 주세요."
+        !screen.boardingConfirmed -> "승차 장소 후보가 여러 개이거나 정확히 일치하지 않아요. 아래 후보에서 이용할 장소를 선택해 주세요."
+        !officialStopSelected && screen.liveError != null -> screen.liveError.orEmpty()
+        !officialStopSelected -> if (isBus) "서울 공식 정류장을 선택해 주세요." else "공식 역·호선을 선택해 주세요."
+        isBus && screen.selectedBusRoute == null -> screen.liveError ?: "탑승할 버스 노선·방향을 선택해 주세요."
         screen.liveRetryAtEpochMillis?.let { it > now } == true ->
             (screen.liveError ?: "서버 안내 시각까지 기다려 주세요.") +
                 " · 재조회까지 ${((requireNotNull(screen.liveRetryAtEpochMillis) - now) / 1_000L).coerceAtLeast(1)}초"
         screen.arrivalRequestFailed -> screen.liveError ?: "실시간 도착정보를 확인하지 못했어요. 자동으로 다시 조회해요."
         arrivalDiagnostic != null -> arrivalDiagnostic
-        screen.liveLoading && screen.arrivalOptions.isEmpty() -> "선택한 역의 도착정보를 받고 있어요."
-        screen.arrivalOptions.isEmpty() && screen.liveError != null -> screen.liveError.orEmpty()
-        selectedArrival == null -> "탑승할 노선·방향을 확인해 주세요."
+        screen.liveLoading && !hasArrivalOptions -> "선택한 승차 장소의 도착정보를 받고 있어요."
+        !hasArrivalOptions && screen.liveError != null -> screen.liveError.orEmpty()
+        activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요." else "탑승할 노선·방향을 확인해 주세요."
         else -> unknownReasonText(assessment.unknownReason)
     }
     val unknownTitle = when {
         screen.boarding == null && screen.selectedRoute == null -> "이동 안내를 시작해 보세요"
-        screen.busy || screen.liveLoading && screen.arrivalOptions.isEmpty() -> "이동 정보를 확인하고 있어요"
-        !screen.boardingConfirmed -> "승차역을 확인해 주세요"
-        screen.selectedStation == null -> "이용할 호선을 선택해 주세요"
+        screen.busy || screen.liveLoading && !hasArrivalOptions -> "이동 정보를 확인하고 있어요"
+        !screen.boardingConfirmed -> "승차 장소를 확인해 주세요"
+        !officialStopSelected -> if (isBus) "이용할 정류장을 선택해 주세요" else "이용할 호선을 선택해 주세요"
+        isBus && screen.selectedBusRoute == null -> "탑승할 버스·방향을 선택해 주세요"
         screen.arrivalRequestFailed || arrivalDiagnostic != null -> "도착정보를 확인하고 있어요"
-        selectedArrival == null -> "탑승할 방향을 선택해 주세요"
+        activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요" else "탑승할 방향을 선택해 주세요"
         else -> "자동 판단을 준비하고 있어요"
     }
     LaunchedEffect(screen, assessment.status, selectedTrainKey, screen.alertsEnabled) {
@@ -592,11 +744,15 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
                     }) { Text("기기 위치 설정") }
                 }
                 AutomaticGuidanceCard(assessment,
-                    serviceLabel = selectedArrival?.let { "${screen.selectedStation?.lineName.orEmpty()} · ${it.trainLabel} · ${it.directionLabel}" }
+                    serviceLabel = if (isBus) screen.selectedBusRoute?.let { "${it.name} · ${it.direction}" }
+                        ?: screen.selectedRoute?.serviceName.orEmpty()
+                        else selectedArrival?.let { "${screen.selectedStation?.lineName.orEmpty()} · ${it.trainLabel} · ${it.directionLabel}" }
                         ?: screen.selectedRoute?.serviceName.orEmpty(),
                     boardingLabel = boarding?.name, unknownMessage = unknownMessage,
                     unknownTitle = unknownTitle,
-                    arrivalInformation = if (screen.arrivalOptions.isNotEmpty() && validArrival == null)
+                    vehicleLabel = if (isBus) "버스" else "열차",
+                    movementHint = if (isBus) "정류장 접근과 횡단보도 신호를 확인해 주세요." else "역 내부 이동과 신호 대기는 확인해 주세요.",
+                    arrivalInformation = if (hasArrivalOptions && validArrival == null)
                         "서버 응답 수신 · 자동 판단 조건 확인 중" else null,
                     nowEpochMillis = now,
                     firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis,
@@ -634,7 +790,12 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
                         Text(if (screen.detailsExpanded) "승차·실시간 연결 접기" else "승차 변경 · 실시간 연결")
                     }
                     if (screen.detailsExpanded) {
-                        SelectionDetails(screen, subwayRepository.isConfigured, now,
+                        SelectionDetails(screen, configured, now,
+                            onBusQueryChange = { screen.editBusStopQuery(it) },
+                            onSearchBusStops = { findOfficialBusStops(screen) },
+                            onNearbyBusStops = { findOfficialBusStops(screen, nearby = true) },
+                            onChooseBusStop = { selectOfficialBusStop(screen, it) },
+                            onChooseBusRoute = { selectOfficialBusRoute(screen, it) },
                             onChangeBoarding = { screen.changingBoarding = true; findBoardingPlaces(screen) },
                             onFindBoarding = { findBoardingPlaces(screen) },
                             onChooseBoarding = { confirmBoarding(screen, it) },
@@ -682,7 +843,7 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
                     modifier = Modifier.fillMaxWidth().height(if (mapExpanded) 360.dp else 180.dp))
                 if (screen.walkRoute != null && screen.walkingPoints.size < 2) NoticeCard(
                     "도보 요약만 제공돼 지도 경로를 표시할 수 없어요.")
-                Text("서울 지하철 우선 · 경기권은 역별 확인이 필요해요. 버스 도착정보는 미지원이에요.",
+                Text("서울 지하철·서울 소속 버스와 광역버스 지원 · 경기·인천 소속 버스는 별도 연동이 필요해요.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = {
@@ -690,6 +851,10 @@ fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner) {
                         Uri.parse("https://data.seoul.go.kr/dataList/OA-12764/A/1/datasetView.do")))
                 }) { Text("역·도착정보: 서울특별시 TOPIS · 공공누리 1유형",
                     style = MaterialTheme.typography.labelSmall) }
+                if (isBus) TextButton(onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://www.data.go.kr/data/15000314/openapi.do")))
+                }) { Text("버스 도착정보: 서울특별시 · 공공누리 1유형", style = MaterialTheme.typography.labelSmall) }
             }
         }
     }
@@ -759,6 +924,8 @@ private fun PageControls(page: Int, count: Int, onPage: (Int) -> Unit) {
 
 @Composable
 private fun SelectionDetails(screen: JourneyScreenState, configured: Boolean, nowEpochMillis: Long,
+    onBusQueryChange: (String) -> Unit, onSearchBusStops: () -> Unit, onNearbyBusStops: () -> Unit,
+    onChooseBusStop: (OfficialSeoulBusStop) -> Unit, onChooseBusRoute: (OfficialSeoulBusRoute) -> Unit,
     onChangeBoarding: () -> Unit, onFindBoarding: () -> Unit,
     onChooseBoarding: (JourneyPlace) -> Unit, onStationQuery: (String) -> Unit,
     onFindStations: () -> Unit, onChooseStation: (OfficialSubwayStation) -> Unit,
@@ -780,9 +947,9 @@ private fun SelectionDetails(screen: JourneyScreenState, configured: Boolean, no
             }
         }
         if (screen.boardingConfirmed) {
-            if (screen.selectedRoute?.kakao?.firstTransitType == "BUS" ||
-                screen.boarding?.isBusStop == true && screen.boarding?.isSubwayStation != true) {
-                NoticeCard("버스 실시간 도착정보는 아직 지원하지 않아요.")
+            if (screen.isBusJourney) {
+                SeoulBusSelectionPanel(screen, nowEpochMillis, onBusQueryChange, onSearchBusStops,
+                    onNearbyBusStops, onChooseBusStop, onChooseBusRoute, onRefresh)
             } else {
                 NoticeCard(if (screen.selectedStation != null)
                     "승차 장소와 공식 역·호선을 연결했어요. 탑승할 방향을 확인해 주세요."
@@ -839,7 +1006,7 @@ private fun SelectionDetails(screen: JourneyScreenState, configured: Boolean, no
                 }
             }
         }
-        if (screen.liveLoading) LoadingStateCard("공식 역·도착정보를 확인하고 있어요")
+        if (screen.liveLoading) LoadingStateCard("승차 장소·실시간 정보를 확인하고 있어요")
         screen.liveError?.let { NoticeCard(it, isError = configured) }
     }
 }
@@ -854,9 +1021,9 @@ private fun unknownReasonText(reason: AutoGuidanceUnknownReason?): String = when
     AutoGuidanceUnknownReason.ARRIVAL_UNAVAILABLE -> "실시간 정보 연결 필요"
     AutoGuidanceUnknownReason.ARRIVAL_STALE -> "도착정보가 오래됐어요. 갱신이 필요해요."
     AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP -> "도착정보 생성 시각이 맞지 않아 판단할 수 없어요."
-    AutoGuidanceUnknownReason.ARRIVAL_INVALID_ETA -> "열차의 도착 예정시간을 확정할 수 없어요."
-    AutoGuidanceUnknownReason.NEXT_ARRIVAL_UNAVAILABLE -> "현재 열차는 여유가 부족하고 다음 열차 정보가 없어요."
-    AutoGuidanceUnknownReason.NO_CATCHABLE_TRAIN -> "확인된 열차들의 탑승 여유가 부족해요. 정보를 다시 확인해 주세요."
+    AutoGuidanceUnknownReason.ARRIVAL_INVALID_ETA -> "차량의 도착 예정시간을 확정할 수 없어요."
+    AutoGuidanceUnknownReason.NEXT_ARRIVAL_UNAVAILABLE -> "현재 차량은 여유가 부족하고 다음 차량 정보가 없어요."
+    AutoGuidanceUnknownReason.NO_CATCHABLE_TRAIN -> "확인된 차량들의 탑승 여유가 부족해요. 정보를 다시 확인해 주세요."
     AutoGuidanceUnknownReason.ARRIVAL_MISMATCH -> "선택한 역·방향과 도착정보가 달라요."
     AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN -> "차량 도착정보가 불확실해요."
     AutoGuidanceUnknownReason.WALKING_UNAVAILABLE -> "실제 도보 경로를 확인해야 해요."
@@ -876,7 +1043,7 @@ private fun distanceBetweenMeters(first: MapPoint, second: MapPoint): Double {
 
 private fun friendlyFailure(error: Exception, fallback: String): String =
     friendlyLocationFailure(error) ?: friendlyKakaoFailure(error)
-        ?: "$fallback. 잠시 후 다시 확인해 주세요."
+        ?: (error as? SeoulBusApiException)?.message ?: "$fallback. 잠시 후 다시 확인해 주세요."
 
 @Suppress("DEPRECATION")
 private fun supportsVibration(context: Context): Boolean {

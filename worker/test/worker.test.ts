@@ -288,15 +288,65 @@ describe('real SQLite Durable Object shared cache and rolling budget', () => {
     expect(await count()).toBe(1);
   });
 
-  it('persists a conservative initial 24-hour warmup and provides retry timing', async () => {
+  it('fetches on the first default request without a bootstrap flag or a 24-hour wait', async () => {
     const fetch = upstream();
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(await count()).toBe(1);
+    const metadata = await runInDurableObject(stub(), (_instance, state) => state.storage.sql.exec<{
+      upstream_not_before: number;
+    }>('SELECT upstream_not_before FROM ledger_metadata WHERE singleton = 1').one());
+    expect(metadata.upstream_not_before).toBe(0);
+  });
+
+  it('automatically unlocks an existing future warmup deadline while preserving recorded attempts', async () => {
+    const fetch = upstream();
+    await seedAttempts(3);
+    const recorded = await runInDurableObject(stub(), (_instance, state) => state.storage.sql.exec<{
+      id: number; attempted_at: number;
+    }>('SELECT id, attempted_at FROM upstream_attempts ORDER BY id').toArray());
     await runInDurableObject(stub(), (_instance, state) => state.storage.sql.exec('UPDATE ledger_metadata SET upstream_not_before = ?', Date.now() + WINDOW_MS));
     await abortAllDurableObjects();
     const response = await request();
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(await count()).toBe(4);
+    const after = await runInDurableObject(stub(), (_instance, state) => ({
+      attempts: state.storage.sql.exec<{ id: number; attempted_at: number }>(
+        'SELECT id, attempted_at FROM upstream_attempts ORDER BY id LIMIT 3').toArray(),
+      deadline: state.storage.sql.exec<{ upstream_not_before: number }>(
+        'SELECT upstream_not_before FROM ledger_metadata WHERE singleton = 1').one().upstream_not_before,
+    }));
+    expect(after.attempts).toEqual(recorded);
+    expect(after.deadline).toBe(0);
+  });
+
+  it('keeps a genuinely exhausted 900-attempt budget blocked when retiring the old warmup', async () => {
+    const fetch = upstream();
+    await seedAttempts(900);
+    await runInDurableObject(stub(), (_instance, state) => state.storage.sql.exec(
+      'UPDATE ledger_metadata SET upstream_not_before = ?', Date.now() + WINDOW_MS));
+    await abortAllDurableObjects();
+    const response = await request();
     expect(response.status).toBe(429);
-    expect(await response.json()).toMatchObject({ error: { code: 'BUDGET_WARMUP' } });
+    expect(await response.json()).toMatchObject({ error: { code: 'UPSTREAM_BUDGET_EXHAUSTED' } });
     expect(Number(response.headers.get('Retry-After'))).toBeGreaterThan(86_390);
     expect(fetch).not.toHaveBeenCalled();
-    expect(await count()).toBe(0);
+    expect(await count()).toBe(900);
+  });
+
+  it('does not recreate a bootstrap wait or reset the attempt ledger on later restarts', async () => {
+    const fetch = upstream();
+    expect((await request()).status).toBe(200);
+    await abortAllDurableObjects();
+    const cached = await request();
+    expect(cached.headers.get('X-Cache')).toBe('HIT');
+    expect(await count()).toBe(1);
+    await runInDurableObject(stub(), (_instance, state) => state.storage.sql.exec('DELETE FROM station_cache'));
+    await abortAllDurableObjects();
+    expect((await request()).status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(await count()).toBe(2);
   });
 });
