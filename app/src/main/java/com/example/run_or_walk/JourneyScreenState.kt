@@ -89,6 +89,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var selectedBusRoute by mutableStateOf<OfficialSeoulBusRoute?>(null)
     var busArrivalOptions by mutableStateOf<List<OfficialSeoulBusArrival>>(emptyList())
     var selectedBusArrival by mutableStateOf<OfficialSeoulBusArrival?>(null)
+    var selectedGyeonggiMatch by mutableStateOf<GyeonggiOfficialMatch?>(null)
     var gyeonggiStationId by mutableStateOf("")
     var gyeonggiArrivals by mutableStateOf<List<GyeonggiBusArrivalDisplay>>(emptyList())
     var gyeonggiLoading by mutableStateOf(false)
@@ -142,16 +143,46 @@ internal class JourneyScreenState(val mode: FeatureMode,
     val isBusJourney: Boolean get() = selectedRoute?.kakao?.firstTransitType == "BUS" ||
         boarding?.let { it.isBusStop && !it.isSubwayStation } == true
 
+    private val activeGyeonggiSnapshot: RealtimeArrivalSnapshot?
+        get() {
+            val match = selectedGyeonggiMatch ?: return null
+            if (selectedBusRoute != null) return null // Prefer a confirmed Seoul service.
+            val now = System.currentTimeMillis()
+            val rows = gyeonggiArrivals.filter { row ->
+                row.stationId == match.stationId && row.routeId == match.routeId &&
+                    row.staOrder == match.staOrder && row.trust == ArrivalTrustState.VALID &&
+                    row.seconds != null && row.seconds > 0 && row.observedAtMillis != null &&
+                    now - row.observedAtMillis in 0L..60_000L &&
+                    row.observedAtMillis + row.seconds * 1_000L > now
+            }.sortedBy { requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L }
+            val first = rows.firstOrNull() ?: return null
+            val observed = requireNotNull(first.observedAtMillis)
+            return RealtimeArrivalSnapshot(match.identity,
+                observed + requireNotNull(first.seconds) * 1_000L,
+                rows.drop(1).firstOrNull()?.let {
+                    requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L
+                }, observed, 60_000L)
+        }
     private val activeBusArrival: OfficialSeoulBusArrival?
         get() = selectedBusArrival?.takeIf {
             selectedBusStop?.stopId == it.identity.stopId && selectedBusRoute?.identity == it.identity
         }
     val activeArrivalIdentity: OfficialBoardingIdentity?
-        get() = if (isBusJourney) activeBusArrival?.identity else selectedArrival?.identity
+        get() = if (isBusJourney) activeBusArrival?.identity ?: activeGyeonggiSnapshot?.identity else selectedArrival?.identity
     val activeArrivalSnapshot: RealtimeArrivalSnapshot?
-        get() = if (isBusJourney) activeBusArrival?.snapshot else selectedArrival?.snapshot
+        get() = if (isBusJourney) activeBusArrival?.snapshot ?: activeGyeonggiSnapshot else selectedArrival?.snapshot
     val activeArrivalVehicleId: String?
-        get() = if (isBusJourney) activeBusArrival?.vehicleId else selectedArrival?.trainId
+        get() = if (isBusJourney) activeBusArrival?.vehicleId ?:
+            (activeGyeonggiSnapshot?.let { snapshot ->
+                gyeonggiArrivals.firstOrNull {
+                    it.trust == ArrivalTrustState.VALID &&
+                        it.stationId == snapshot.identity.stopId &&
+                        it.routeId == snapshot.identity.routeId &&
+                        it.staOrder == snapshot.identity.directionId &&
+                        it.observedAtMillis?.plus((it.seconds ?: 0) * 1_000L) ==
+                            snapshot.firstArrivalAtEpochMillis
+                }?.vehicleId
+            }) else selectedArrival?.trainId
 
     // Search, permission and live responses all carry generations. A new selection
     // invalidates even a response from an API that does not support cancellation.
@@ -254,6 +285,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
         busArrivalOptions = emptyList()
         selectedBusArrival = null
         gyeonggiGeneration++
+        selectedGyeonggiMatch = null
         gyeonggiStationId = ""
         gyeonggiArrivals = emptyList()
         gyeonggiMessage = null
