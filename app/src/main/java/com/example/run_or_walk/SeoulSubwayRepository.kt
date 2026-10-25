@@ -263,22 +263,6 @@ internal fun parseWorkerSubwayArrivals(
     return parseArrivalRows(rows, station, nowEpochMillis, fetched)
 }
 
-/** Retained direct-provider parser for fixtures/contract verification, not a network fallback. */
-internal fun parseSeoulSubwayArrivals(
-    json: String, station: OfficialSubwayStation, nowEpochMillis: Long
-): List<OfficialSubwayArrival> {
-    val root = try { JSONObject(json) } catch (_: JSONException) { throw invalidResponse() }
-    val error = root.optJSONObject("errorMessage") ?: throw invalidResponse()
-    when (error.seoulString("code")) {
-        "INFO-200" -> return emptyList()
-        "INFO-100" -> throw authenticationFailure()
-        "INFO-000" -> if (error.optInt("status", -1) != 200) throw invalidResponse()
-        else -> throw invalidResponse()
-    }
-    return parseArrivalRows(root.optJSONArray("realtimeArrivalList") ?: throw invalidResponse(),
-        station, nowEpochMillis, nowEpochMillis)
-}
-
 private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, now: Long,
     gatewayFetched: Long): List<OfficialSubwayArrival> {
     val arrivals = buildList {

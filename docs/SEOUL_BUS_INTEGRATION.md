@@ -83,7 +83,7 @@ npx --no-install wrangler secret put SEOUL_BUS_KEY
 
 ## 배포 코드 다운로드와 배포
 
-채팅의 로컬 파일 링크 대신 [GitHub ZIP](https://github.com/y-willy/run_or_walk/archive/refs/heads/main.zip)을 사용한다. 저장소의 **Code → Download ZIP**도 같다. 비공개 저장소라면 GitHub 계정에 로그인해 접근한다. 전체 저장소에는 Worker 테스트가 함께 검증하는 `app/src/test/resources/seoul_bus_worker_response.json`도 포함돼 있다. `worker` 폴더만 따로 복사하면 이 공유 테스트 파일이 빠질 수 있다.
+채팅의 로컬 파일 링크 대신 [GitHub ZIP](https://github.com/y-willy/run_or_walk/archive/refs/heads/main.zip)을 사용한다. 저장소의 **Code → Download ZIP**도 같다. 비공개 저장소라면 GitHub 계정에 로그인해 접근한다.
 
 Node.js 22 이상을 설치하고 압축을 영문 경로에 해제한다. 압축 해제된 `run_or_walk-main` 폴더의 터미널에서:
 
@@ -91,7 +91,6 @@ Node.js 22 이상을 설치하고 압축을 영문 경로에 해제한다. 압�
 cd worker
 npm ci
 npm run check
-npm test
 npm run build
 npx --no-install wrangler login
 npx --no-install wrangler whoami

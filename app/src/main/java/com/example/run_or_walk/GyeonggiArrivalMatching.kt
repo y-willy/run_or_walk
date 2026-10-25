@@ -9,24 +9,17 @@ internal fun chooseMatchingGyeonggiArrival(
     nowMillis: Long
 ): MatchedGyeonggiArrival? {
     if (!match.isValid() || nowMillis < 0) return null
-    val matching = arrivals.filter {
-        it.stationId == match.stationId && it.routeId == match.routeId && it.staOrder == match.staOrder
-    }.distinct()
-    // Conflicting rows for one vehicle or one arrival sequence cannot be resolved by list order.
-    if (matching.groupBy { it.vehicleId }.values.any { it.size > 1 } ||
-        matching.groupBy { it.sequence }.values.any { it.size > 1 }) return null
-    val rows = matching.filter {
-        it.sequence in 1..2 && it.vehicleId.matches(Regex("[1-9][0-9]+")) &&
+    // Trust positive official ETAs for the exact station, route and boarding order.
+    // GBIS may omit vehicle IDs or report minute-precision ETAs.
+    val rows = arrivals.filter {
+        it.stationId == match.stationId && it.routeId == match.routeId && it.staOrder == match.staOrder &&
             it.trust == ArrivalTrustState.VALID && it.seconds != null && it.seconds in 1..86_400 &&
-            it.observedAtMillis != null && it.observedAtMillis <= it.fetchedAtMillis &&
-            it.fetchedAtMillis <= nowMillis && nowMillis - it.observedAtMillis in 0L..60_000L &&
-            it.observedAtMillis + it.seconds * 1_000L > nowMillis &&
-            (it.routeName.isBlank() || it.routeName == match.routeName) &&
-            (it.destination.isBlank() || it.destination == match.destination)
+            it.observedAtMillis != null && nowMillis - it.observedAtMillis in 0L..60_000L &&
+            it.observedAtMillis + it.seconds * 1_000L > nowMillis
     }.sortedBy { requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L }
     val first = rows.firstOrNull() ?: return null
     val next = rows.drop(1).firstOrNull {
-        it.vehicleId != first.vehicleId && requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L >
+        requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L >
             requireNotNull(first.observedAtMillis) + requireNotNull(first.seconds) * 1_000L
     }
     val observed = requireNotNull(first.observedAtMillis)

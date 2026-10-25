@@ -144,20 +144,54 @@ internal class JourneyScreenState(val mode: FeatureMode,
     val isBusJourney: Boolean get() = selectedRoute?.kakao?.firstTransitType == "BUS" ||
         boarding?.let { it.isBusStop && !it.isSubwayStation } == true
 
-    private val activeGyeonggiArrival: MatchedGyeonggiArrival?
-        get() = selectedGyeonggiMatch?.takeIf { selectedBusRoute == null }?.let {
-            chooseMatchingGyeonggiArrival(it, gyeonggiArrivals, System.currentTimeMillis())
+    fun usableGyeonggiArrivals(nowMillis: Long): List<GyeonggiBusArrivalDisplay> {
+        val match = selectedGyeonggiMatch ?: return emptyList()
+        if (selectedBusRoute != null) return emptyList()
+        return gyeonggiArrivals.filter { row ->
+            row.stationId == match.stationId && row.routeId == match.routeId &&
+                row.staOrder == match.staOrder && row.trust == ArrivalTrustState.VALID &&
+                row.seconds != null && row.seconds > 0 && row.observedAtMillis != null &&
+                nowMillis - row.observedAtMillis in 0L..60_000L &&
+                row.observedAtMillis + row.seconds * 1_000L > nowMillis
+        }.sortedBy { requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L }
+    }
+
+    private val activeGyeonggiSnapshot: RealtimeArrivalSnapshot?
+        get() {
+            val match = selectedGyeonggiMatch ?: return null
+            if (selectedBusRoute != null) return null // Prefer a confirmed Seoul service.
+            val now = System.currentTimeMillis()
+            val rows = usableGyeonggiArrivals(now)
+            val first = rows.firstOrNull() ?: return null
+            val observed = requireNotNull(first.observedAtMillis)
+            val firstArrival = observed + requireNotNull(first.seconds) * 1_000L
+            // Minute rounding can make two different vehicles share the same ETA.
+            val nextArrival = rows.drop(1).map {
+                requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L
+            }.firstOrNull { it > firstArrival }
+            return RealtimeArrivalSnapshot(match.identity,
+                firstArrival, nextArrival, observed, 60_000L)
         }
     private val activeBusArrival: OfficialSeoulBusArrival?
         get() = selectedBusArrival?.takeIf {
             selectedBusStop?.stopId == it.identity.stopId && selectedBusRoute?.identity == it.identity
         }
     val activeArrivalIdentity: OfficialBoardingIdentity?
-        get() = if (isBusJourney) activeBusArrival?.identity ?: activeGyeonggiArrival?.snapshot?.identity else selectedArrival?.identity
+        get() = if (isBusJourney) activeBusArrival?.identity ?: activeGyeonggiSnapshot?.identity else selectedArrival?.identity
     val activeArrivalSnapshot: RealtimeArrivalSnapshot?
-        get() = if (isBusJourney) activeBusArrival?.snapshot ?: activeGyeonggiArrival?.snapshot else selectedArrival?.snapshot
+        get() = if (isBusJourney) activeBusArrival?.snapshot ?: activeGyeonggiSnapshot else selectedArrival?.snapshot
     val activeArrivalVehicleId: String?
-        get() = if (isBusJourney) activeBusArrival?.vehicleId ?: activeGyeonggiArrival?.vehicleId else selectedArrival?.trainId
+        get() = if (isBusJourney) activeBusArrival?.vehicleId ?:
+            (activeGyeonggiSnapshot?.let { snapshot ->
+                gyeonggiArrivals.firstOrNull {
+                    it.trust == ArrivalTrustState.VALID &&
+                        it.stationId == snapshot.identity.stopId &&
+                        it.routeId == snapshot.identity.routeId &&
+                        it.staOrder == snapshot.identity.directionId &&
+                        it.observedAtMillis?.plus((it.seconds ?: 0) * 1_000L) ==
+                            snapshot.firstArrivalAtEpochMillis
+                }?.vehicleId?.takeIf(String::isNotBlank)
+            }) else selectedArrival?.trainId
 
     // Search, permission and live responses all carry generations. A new selection
     // invalidates even a response from an API that does not support cancellation.
@@ -326,20 +360,6 @@ internal class JourneyScreenState(val mode: FeatureMode,
     fun centerOn(point: MapPoint) {
         mapCenter = point
         recenterRequest++
-    }
-
-    /** Keep the chosen train when it disappears, but invalidate its cached live snapshot. */
-    fun applyArrivalOptions(options: List<OfficialSubwayArrival>): OfficialSubwayArrival? {
-        arrivalOptions = options
-        val previous = selectedArrival ?: return null
-        // Missing vehicle IDs and conflicting duplicate rows cannot establish the same train.
-        val matching = options.filter {
-            previous.trainId.isNotBlank() &&
-            it.identity == previous.identity && it.trainId == previous.trainId
-        }.distinct().singleOrNull()
-        arrivalRequestFailed = matching == null
-        if (matching != null) selectedArrival = matching
-        return matching
     }
 
     /** One shared gate suppresses duplicate notifications when switching tabs. */

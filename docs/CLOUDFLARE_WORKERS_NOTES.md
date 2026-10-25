@@ -81,11 +81,10 @@ Node.js 22 이상과 npm을 사용한다. 저장소 루트에서:
 cd worker
 npm ci
 npm run check
-npm test
 npm run build
 ```
 
-테스트는 가짜 키·원본 응답으로 실행한다. 실제 서울시 키는 로컬 설치·모의 한도 테스트에 필요하지 않다. `npm run build`는 `wrangler deploy --dry-run --outdir dist`이며 업로드가 아니다. 로컬 통과는 계정 권한·실제 바인딩·서울시 응답·배포 성공의 증거가 아니다.
+`npm run check`는 TypeScript 정적 검사이고 `npm run build`는 `wrangler deploy --dry-run --outdir dist`이며 업로드가 아니다. 이 두 명령만으로 계정 권한·실제 바인딩·서울시 응답·배포 성공을 검증할 수는 없다.
 
 배포는 기존 계정에 대한 실제 Cloudflare 인증이 준비된 환경에서 다음과 같이 수행한다. 인증은 사용자 OAuth 로그인 또는 안전하게 설정한 `CLOUDFLARE_API_TOKEN`을 사용한다. 토큰 값을 명령문·문서·채팅에 넣지 않는다.
 

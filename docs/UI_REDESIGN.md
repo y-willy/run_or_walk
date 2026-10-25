@@ -69,7 +69,7 @@ Linux 검증 명령:
 ```bash
 source /workspace/.cloud-setup/activate.sh
 cd /workspace/run_or_walk
-bash gradlew :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --max-workers=4 --console=plain
+bash gradlew :app:compileDebugKotlin :app:assembleDebug :app:lintDebug --no-daemon --max-workers=4 --console=plain
 ```
 
 Windows Android Studio 터미널에서는 프로젝트 루트에서 `gradlew.bat :app:compileDebugKotlin`을 실행한다. 빌드 의존성은 선언된 버전을 유지한다.

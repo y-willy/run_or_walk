@@ -59,10 +59,12 @@ function text(value: unknown): string | null {
 }
 function parseKst(value: unknown): number | null {
   if (typeof value !== 'string') return null;
-  const m = /^(\d{4})[-/]?(\d{2})[-/]?(\d{2})[ T]?(\d{2}):?(\d{2}):?(\d{2})$/.exec(value.trim());
+  // GBIS queryTime may include fractional seconds (e.g. 23:25:47.599).
+  const m = /^(\d{4})[-/]?(\d{2})[-/]?(\d{2})[ T]?(\d{2}):?(\d{2}):?(\d{2})(?:\.(\d{1,9}))?$/.exec(value.trim());
   if (!m) return null;
-  const [year, month, day, hour, minute, second] = m.slice(1).map(Number);
-  const ms = Date.UTC(year, month - 1, day, hour, minute, second);
+  const [year, month, day, hour, minute, second] = m.slice(1, 7).map(Number);
+  const fraction = Number((m[7] ?? '').padEnd(3, '0').slice(0, 3));
+  const ms = Date.UTC(year, month - 1, day, hour, minute, second, fraction);
   const d = new Date(ms);
   return d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month && d.getUTCDate() === day &&
     hour < 24 && minute < 60 && second < 60 ? ms - 9 * 3600_000 : null;
@@ -94,13 +96,15 @@ export interface GyeonggiPayload {
 export function computeGyeonggiTrust(row: GyeonggiArrival, fetchedAtMs: number, nowMs: number): GyeonggiTrust {
   const observedMs = row.observedAt ? Date.parse(row.observedAt) : NaN;
   if (!Number.isFinite(observedMs)) return 'UNKNOWN';
-  if (observedMs > fetchedAtMs + 5_000) return 'FUTURE_TIMESTAMP';
-  if (nowMs < fetchedAtMs || nowMs - observedMs > 60_000) return 'STALE';
-  if (row.arrivalSeconds === null || row.arrivalSeconds > 86_400) return 'INVALID_ETA';
-  if (row.etaPrecision !== 'seconds' || row.arrivalSeconds === 0 ||
-      !row.vehicleId || !/^[1-9]\d+$/.test(row.vehicleId) ||
-      !['RUN', 'PASS'].includes(row.status ?? '')) return 'UNKNOWN';
-  if (observedMs + row.arrivalSeconds * 1_000 <= nowMs) return 'STALE';
+  if (observedMs > fetchedAtMs + 15_000 || observedMs > nowMs + 15_000) return 'FUTURE_TIMESTAMP';
+  if (nowMs < fetchedAtMs || nowMs - fetchedAtMs > 60_000 ||
+      nowMs - observedMs > 60_000) return 'STALE';
+  if (row.arrivalSeconds === null || row.arrivalSeconds <= 0 || row.arrivalSeconds > 86_400)
+    return 'INVALID_ETA';
+  // Route, stop and ETA come from GBIS. Missing vehicle IDs or second precision are not failures.
+  // Explicit STOP/WAIT/unknown flags disqualify an ETA; a missing flag alone does not.
+  if (row.status !== null && !['RUN', 'PASS'].includes(row.status)) return 'UNKNOWN';
+  if (Math.min(observedMs, fetchedAtMs) + row.arrivalSeconds * 1_000 <= nowMs) return 'STALE';
   return 'VALID';
 }
 export function normalizeGyeonggiResponse(payload: unknown, op: GyeonggiOperation, fetchedAtMs: number): GyeonggiPayload {
@@ -121,8 +125,13 @@ export function normalizeGyeonggiResponse(payload: unknown, op: GyeonggiOperatio
   }
   const rows = Array.isArray(sourceRows) ? sourceRows : [sourceRows];
   if (rows.length > 300) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
-  const observedMs = parseKst(header.queryTime);
-  const observedAt = observedMs === null ? null : new Date(observedMs).toISOString();
+  const sourceObservedMs = parseKst(header.queryTime);
+  // Bound a small (~6 s observed) upstream clock lead by the successful HTTPS receipt time.
+  // The original sourceQueryTime remains available for diagnostics.
+  const observedMs = sourceObservedMs === null ||
+    (sourceObservedMs > fetchedAtMs && sourceObservedMs - fetchedAtMs <= 15_000)
+    ? fetchedAtMs : sourceObservedMs;
+  const observedAt = new Date(observedMs).toISOString();
   const arrivals: GyeonggiArrival[] = [];
   for (const original of rows) {
     const row = record(original);
@@ -135,16 +144,22 @@ export function normalizeGyeonggiResponse(payload: unknown, op: GyeonggiOperatio
     for (const sequence of [1, 2] as const) {
       const exactSeconds = numeric(row['predictTimeSec' + sequence]);
       const minutes = numeric(row['predictTime' + sequence]);
-      const precision = exactSeconds !== null ? 'seconds' : minutes !== null ? 'minutes' : 'unknown';
+      // A zero/empty second field must not discard a positive official minute estimate.
+      const useSeconds = exactSeconds !== null && exactSeconds > 0;
+      const precision = useSeconds ? 'seconds' : minutes !== null ? 'minutes' : 'unknown';
+      const rawVehicleId = text(row['vehId' + sequence]);
+      const lowFloor = numeric(row['lowPlate' + sequence]);
       const item: GyeonggiArrival = {
         stationId, routeId, staOrder, routeName: text(row.routeName),
-        direction: text(row.routeDestName), vehicleId: text(row['vehId' + sequence]),
-        sequence, arrivalSeconds: exactSeconds ?? (minutes === null ? null : minutes * 60),
+        direction: text(row.routeDestName),
+        vehicleId: rawVehicleId !== null && /^[1-9]\d+$/.test(rawVehicleId) ? rawVehicleId : null,
+        sequence, arrivalSeconds: useSeconds ? exactSeconds :
+          (minutes === null ? exactSeconds : minutes * 60),
         observedAt, status: text(row.flag),
         trustState: 'UNKNOWN', etaPrecision: precision,
         locationStopsAway: numeric(row['locationNo' + sequence]),
         availableSeats: numeric(row['remainSeatCnt' + sequence]),
-        lowFloor: numeric(row['lowPlate' + sequence]),
+        lowFloor: lowFloor !== null && [0, 1, 2, 5, 6, 7].includes(lowFloor) ? lowFloor : null,
       };
       item.trustState = computeGyeonggiTrust(item, fetchedAtMs, fetchedAtMs);
       if (item.vehicleId || item.arrivalSeconds !== null) arrivals.push(item);

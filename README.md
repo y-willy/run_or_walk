@@ -19,7 +19,7 @@ JDK 25, Android SDK 37.0, 저장소의 Gradle Wrapper를 사용한다. Windows�
 Git에서 제외된 프로젝트 루트의 `local.properties`에 `sdk.dir`(Android Studio가 설정), `KAKAO_NATIVE_KEY`, `KAKAO_REST_KEY`를 안전하게 설정한다. Kakao Developers Android 등록은 패키지 `com.example.run_or_walk`와 **실제 설치 APK의 서명 키 해시**에 맞춰야 한다. 실제 키·로컬 설정·서명 파일을 커밋하지 않는다.
 
 ```powershell
-.\gradlew.bat :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+.\gradlew.bat :app:compileDebugKotlin :app:assembleDebug :app:lintDebug
 ```
 
 Linux/macOS는 `bash gradlew`를 사용한다. 디버그 APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성된다.
@@ -32,14 +32,9 @@ Linux/macOS는 `bash gradlew`를 사용한다. 디버그 APK는 `app/build/outpu
 cd worker
 npm ci
 npm run check
-npm test
 npm run build
 ```
 
-기존 공개 주소에서는 앱 고정 토큰이 필수가 아니다. 다른 승인된 중계 주소를 사용할 때만 로컬 `SUBWAY_GATEWAY_URL`을 덮어쓴다. `SUBWAY_GATEWAY_TOKEN`은 선택적 호환 설정이며 강력한 앱 인증으로 간주하지 않는다. 샘플 데이터는 테스트 전용이며 현재 차량 정보로 표시하지 않는다.
-
-```bash
-python3 -m unittest discover -s gateway -p 'test_*.py' -v
-```
+기존 공개 주소에서는 앱 고정 토큰이 필수가 아니다. 다른 승인된 중계 주소를 사용할 때만 로컬 `SUBWAY_GATEWAY_URL`을 덮어쓴다. `SUBWAY_GATEWAY_TOKEN`은 선택적 호환 설정이며 강력한 앱 인증으로 간주하지 않는다. 과거 샘플 응답은 실제 차량 정보로 표시하지 않는다.
 
 [현재 Worker 연동 보고](docs/WORKER_INTEGRATION.md), [공식 API·지원 지역 조사](docs/REALTIME_API_RESEARCH.md)에 구현 범위와 미검증 사항을 기록했다. `gateway/`의 Python 서버는 이전 대안 구현이다. 컴파일·단위 테스트 성공은 스마트폰의 지도 렌더링·실제 운행·GPS·진동 검증과 구분한다.

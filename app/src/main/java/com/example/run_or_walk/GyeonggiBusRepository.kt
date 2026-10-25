@@ -10,6 +10,8 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 /**
  * Only an independently confirmed GBIS stationId can be queried here.
@@ -87,6 +89,12 @@ internal fun parseGyeonggiWorkerArrivals(
     }
     val fetchedAt = root.optString("fetchedAt").let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
         ?: throw IOException("경기 조회시각이 유효하지 않아요.")
+    // GBIS may supply millisecond-resolution KST; older Workers omitted observedAt.
+    val sourceObservedAt = root.optString("sourceQueryTime").takeIf(String::isNotBlank)
+        ?.let { runCatching {
+            LocalDateTime.parse(it.trim().replace(' ', 'T'))
+                .toInstant(ZoneOffset.ofHours(9)).toEpochMilli()
+        }.getOrNull() }
     val rows = root.optJSONArray("arrivals") ?: throw IOException("경기 도착정보 배열이 없어요.")
     if (rows.length() > 600) throw IOException("경기 도착정보 건수가 올바르지 않아요.")
     return buildList {
@@ -97,27 +105,30 @@ internal fun parseGyeonggiWorkerArrivals(
             val order = row.optString("staOrder").takeIf { it.matches(Regex("[1-9][0-9]{0,3}")) } ?: continue
             val exactSeconds = row.opt("arrivalSeconds")?.toString()?.toDoubleOrNull()
                 ?.takeIf { it.isFinite() && it in 0.0..86_400.0 && it % 1.0 == 0.0 }?.toInt()
-            val observedAt = row.optString("observedAt").takeIf(String::isNotBlank)
+            val providerObserved = row.optString("observedAt").takeIf(String::isNotBlank)
                 ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+                ?: sourceObservedAt ?: fetchedAt
+            // Allow small differences between the GBIS, Worker and device clocks.
+            val observedAt = if (providerObserved > fetchedAt && providerObserved - fetchedAt <= 15_000L)
+                fetchedAt else providerObserved
+            val effectiveObservedAt = if (observedAt > nowMillis && observedAt - nowMillis <= 15_000L)
+                nowMillis else observedAt
             val computed = when {
-                observedAt == null -> ArrivalTrustState.UNKNOWN
-                observedAt > fetchedAt || observedAt > nowMillis || fetchedAt > nowMillis ->
+                providerObserved > fetchedAt + 15_000L || providerObserved > nowMillis + 15_000L ||
+                    fetchedAt > nowMillis + 15_000L ->
                     ArrivalTrustState.FUTURE_TIMESTAMP
-                nowMillis - observedAt > 60_000L -> ArrivalTrustState.STALE
-                exactSeconds == null -> ArrivalTrustState.INVALID_ETA
-                exactSeconds == 0 || row.optString("etaPrecision") != "seconds" ||
-                    row.optString("status") !in setOf("RUN", "PASS") ||
-                    !row.optString("vehicleId").matches(Regex("[1-9][0-9]+")) ||
-                    row.optInt("sequence", 0) !in 1..2 -> ArrivalTrustState.UNKNOWN
-                observedAt + exactSeconds * 1_000L <= nowMillis -> ArrivalTrustState.STALE
+                nowMillis - fetchedAt > 60_000L || nowMillis - effectiveObservedAt > 60_000L ->
+                    ArrivalTrustState.STALE
+                exactSeconds == null || exactSeconds == 0 -> ArrivalTrustState.INVALID_ETA
+                row.optString("status").isNotBlank() &&
+                    row.optString("status") !in setOf("RUN", "PASS") -> ArrivalTrustState.UNKNOWN
+                effectiveObservedAt + exactSeconds * 1_000L <= nowMillis -> ArrivalTrustState.STALE
                 else -> ArrivalTrustState.VALID
             }
-            val server = runCatching { ArrivalTrustState.valueOf(row.optString("trustState")) }
-                .getOrDefault(ArrivalTrustState.UNKNOWN)
+            // Official minute-only ETAs are usable. A vehicle ID is optional, not a trust gate.
             add(GyeonggiBusArrivalDisplay(stationId, routeId, order,
                 row.optString("routeName"), row.optString("direction"), row.optString("vehicleId"),
-                exactSeconds, fetchedAt, observedAt,
-                if (computed == ArrivalTrustState.VALID) server else computed,
+                exactSeconds, fetchedAt, effectiveObservedAt, computed,
                 row.optInt("sequence", 0)))
         }
     }

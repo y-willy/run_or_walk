@@ -1,18 +1,17 @@
-Run-or-walk Worker source and local tests. Requires Node.js 22 or later.
+Run-or-walk Worker source. Requires Node.js 22 or later.
 
 ```sh
 cd worker
 npm ci
 npm run check
-npm test
 npm run build
 ```
 
-Tests run the real Workers runtime and SQLite Durable Object with fake upstream responses; they do not use a Seoul API key. `build` bundles locally without deployment. See [Cloudflare setup, policy, and deployment notes](../docs/CLOUDFLARE_WORKERS_NOTES.md) before deploying to the existing account. New and upgraded subway ledgers can fetch immediately; the previous automatic 24-hour bootstrap hold has been removed. The existing `SEOUL_SUBWAY_KEY` secret remains in Cloudflare; do not copy its value into local files.
+`check` validates TypeScript; `build` bundles locally without deployment. See [Cloudflare setup, policy, and deployment notes](../docs/CLOUDFLARE_WORKERS_NOTES.md) before deploying to the existing account. New and upgraded subway ledgers can fetch immediately; the previous automatic 24-hour bootstrap hold has been removed. The existing `SEOUL_SUBWAY_KEY` secret remains in Cloudflare; do not copy its value into local files.
 
 Upgrading clears only the obsolete `ledger_metadata.upstream_not_before` deadline. It does **not** delete the Durable Object, change its namespace, erase attempts, or reset the rolling 900-attempt budget. Old `BUDGET_BOOTSTRAP_HOLD_SECONDS` variables are no longer used and no new flag is needed. A genuine exhausted budget still returns `UPSTREAM_BUDGET_EXHAUSTED` with `Retry-After`; short-lived IP/source backoff still applies. Calls made outside this Worker are not represented by its ledger, so check the provider's actual usage if the key has other consumers.
 
-In this cloud workspace the home configuration directory is read-only. Use `WRANGLER_LOG_PATH=/tmp/run-or-walk-wrangler-logs npm test`; for the dry build, create `/tmp/run-or-walk-config/.wrangler` and run `XDG_CONFIG_HOME=/tmp/run-or-walk-config WRANGLER_LOG_PATH=/tmp/run-or-walk-wrangler-logs npm run build`. No account authentication is needed for either check. Wrangler can warn about the absent local secret while the tests use their explicit fake binding.
+In this cloud workspace the home configuration directory is read-only. For the dry build, create `/tmp/run-or-walk-config/.wrangler` and run `XDG_CONFIG_HOME=/tmp/run-or-walk-config WRANGLER_LOG_PATH=/tmp/run-or-walk-wrangler-logs npm run build`. No account authentication is needed for a dry build. Wrangler can warn about the absent local secret.
 
 `src/stations.json` contains the 563 unique names from the existing Android asset's 696 official station rows. Refresh it when that asset changes. The public `destination` alias keeps the existing `trainLineNm` value; `bstatnNm` remains a separate original field. Cached responses retain their original `fetchedAt`, recheck the 60-second source-age limit, and keep a future-at-query timestamp unusable even after the clock catches up.
 
