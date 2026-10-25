@@ -198,7 +198,14 @@ internal class GyeonggiBusLookupRepository(
 
     suspend fun match(choice: KakaoTransitChoice): GyeonggiOfficialMatch? {
         val point = choice.boardingPoint ?: return null
-        val nearbyMatches = gyeonggiStopCandidates(choice, nearby(point))
+        val nearbyMatches = try {
+            gyeonggiStopCandidates(choice, nearby(point))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: IOException) {
+            // A failed GPS-radius endpoint must not block an independently validated name lookup.
+            emptyList()
+        }
         val candidates = nearbyMatches.ifEmpty {
             gyeonggiStopCandidates(choice, searchByName(choice.boardingStopName))
         }
