@@ -89,6 +89,26 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var selectedBusRoute by mutableStateOf<OfficialSeoulBusRoute?>(null)
     var busArrivalOptions by mutableStateOf<List<OfficialSeoulBusArrival>>(emptyList())
     var selectedBusArrival by mutableStateOf<OfficialSeoulBusArrival?>(null)
+    var gyeonggiStationId by mutableStateOf("")
+    var gyeonggiArrivals by mutableStateOf<List<GyeonggiBusArrivalDisplay>>(emptyList())
+    var gyeonggiLoading by mutableStateOf(false)
+    var gyeonggiMessage by mutableStateOf<String?>(null)
+    var gyeonggiGeneration: Long = 0
+        private set
+    fun beginGyeonggiRequest(): Long {
+        gyeonggiGeneration++
+        gyeonggiLoading = true
+        return gyeonggiGeneration
+    }
+    fun acceptsGyeonggiResponse(generation: Long): Boolean = gyeonggiGeneration == generation
+    fun updateGyeonggiStationId(value: String) {
+        gyeonggiGeneration++
+        gyeonggiStationId = value
+        gyeonggiArrivals = emptyList()
+        gyeonggiMessage = null
+        gyeonggiLoading = false
+    }
+
     var confirmedServiceIdentity by mutableStateOf<OfficialBoardingIdentity?>(null)
     var liveRetryAtEpochMillis by mutableStateOf<Long?>(null)
     var arrivalRequestFailed by mutableStateOf(false)
@@ -102,6 +122,12 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var walkFetchedAtEpochMillis by mutableStateOf<Long?>(null)
     var walkOrigin by mutableStateOf<MapPoint?>(null)
     var walkingPoints by mutableStateOf<List<MapPoint>>(emptyList())
+    // A feeder alternative is display-only until its own realtime vehicle identity is verified.
+    var accessTransitRoutes by mutableStateOf<List<JourneyTransitRoute>>(emptyList())
+    var accessTransitMessage by mutableStateOf<String?>(null)
+    var accessTransitLoading by mutableStateOf(false)
+    var accessTransitOrigin: MapPoint? = null
+    var accessTransitAttemptAtMillis: Long? = null
     var mapCenter by mutableStateOf<MapPoint?>(null)
     var recenterRequest by mutableStateOf(0)
 
@@ -175,6 +201,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
         revision++
         requestId++
         liveRequestId++
+        gyeonggiGeneration++
+        gyeonggiLoading = false
         loading = false
         waitingForPermission = false
         liveLoading = false
@@ -183,7 +211,16 @@ internal class JourneyScreenState(val mode: FeatureMode,
     fun clearWalking() {
         invalidateRequests()
         discardWalkingResults()
+        clearAccessTransit()
         location = null
+    }
+
+    fun clearAccessTransit() {
+        accessTransitRoutes = emptyList()
+        accessTransitMessage = null
+        accessTransitLoading = false
+        accessTransitOrigin = null
+        accessTransitAttemptAtMillis = null
     }
 
     /** Discard an obsolete path without throwing away a successfully observed GPS fix. */
@@ -212,6 +249,11 @@ internal class JourneyScreenState(val mode: FeatureMode,
         selectedBusRoute = null
         busArrivalOptions = emptyList()
         selectedBusArrival = null
+        gyeonggiGeneration++
+        gyeonggiStationId = ""
+        gyeonggiArrivals = emptyList()
+        gyeonggiMessage = null
+        gyeonggiLoading = false
         arrivalRequestFailed = false
         liveError = null
         liveLoading = false
