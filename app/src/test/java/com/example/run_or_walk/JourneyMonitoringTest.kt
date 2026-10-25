@@ -106,7 +106,7 @@ class JourneyMonitoringTest {
         val arriving = JourneyMonitoringAlert(JourneyMonitoringAlertKind.ARRIVING, AutoGuidanceStatus.UNKNOWN)
         assertEquals(10_000L, monitoringAlertLifetimeMillis(arriving, snapshot(10_000), now))
         assertEquals(5_000L, monitoringAlertLifetimeMillis(arriving, snapshot(30_000, now - 55_000), now))
-        val next = JourneyMonitoringAlert(JourneyMonitoringAlertKind.GUIDANCE_CHANGED, AutoGuidanceStatus.NEXT_TRAIN)
+        val next = JourneyMonitoringAlert(JourneyMonitoringAlertKind.GUIDANCE_CHANGED, AutoGuidanceStatus.NEXT_VEHICLE)
         assertEquals(50_000L, monitoringAlertLifetimeMillis(next,
             snapshot(10_000, now - 10_000).copy(nextArrivalAtEpochMillis = now + 70_000), now))
         assertEquals(0L, monitoringAlertLifetimeMillis(arriving, snapshot(-1), now))
