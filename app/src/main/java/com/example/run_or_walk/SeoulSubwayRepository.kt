@@ -434,10 +434,10 @@ internal fun subwayArrivalDisplayStatus(arrival: OfficialSubwayArrival, now: Lon
             "기기 날짜·시간이 서버보다 느려요 · 자동 날짜·시간 설정을 확인해 주세요"
         source != null && now - source > SEOUL_ARRIVAL_VALIDITY_MILLIS ->
             if (SubwayArrivalIssue.ETA_UNAVAILABLE in arrival.issues)
-                "서울시 원본 정보 갱신 대기 · 초 단위 예정시간도 미제공 · 자동 판단 제외"
+                "서울시 원본 정보 갱신 대기 · 마지막 수신 열차 위치로 안내"
             else "서울시 원본 정보 갱신 대기 · 자동 판단 제외"
         SubwayArrivalIssue.INVALID_ETA in arrival.issues -> "도착 예정시간이 유효하지 않아요"
-        SubwayArrivalIssue.ETA_UNAVAILABLE in arrival.issues -> "초 단위 도착 예정시간 미제공"
+        SubwayArrivalIssue.ETA_UNAVAILABLE in arrival.issues -> "열차 위치 정보로 안내 중 · 도착 시각 미제공"
         SubwayArrivalIssue.SOURCE_TIMESTAMP_MISSING in arrival.issues -> "원본 생성 시각 미제공"
         SubwayArrivalIssue.MISSING_SERVICE_IDENTITY in arrival.issues -> "열차·운행 식별정보 부족 · 자동 판단 제외"
         SubwayArrivalIssue.COUNTDOWN_ELAPSED in arrival.issues ||

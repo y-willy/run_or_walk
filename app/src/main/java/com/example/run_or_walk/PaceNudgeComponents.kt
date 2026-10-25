@@ -156,14 +156,17 @@ fun AutomaticGuidanceCard(
     unknownTitle: String = "자동 판단을 준비하고 있어요",
     arrivalInformation: String? = null,
     vehicleLabel: String = "열차",
-    movementHint: String = "역 내부 이동과 신호 대기는 확인해 주세요."
+    movementHint: String = "역 내부 이동과 신호 대기는 확인해 주세요.",
+    informationReceived: Boolean = false,
+    arrivalLabel: String = "차량 도착"
 ) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < .5f
     val (symbol, title, tint) = when (assessment.status) {
         AutoGuidanceStatus.WALK -> Triple("✓", "걸어가세요", if (dark) Color(0xFF86EFAC) else Color(0xFF23734C))
         AutoGuidanceStatus.FAST_WALK -> Triple("»", "빠른 걸음으로 이동하세요", if (dark) Color(0xFFFDBA74) else Color(0xFF9C5800))
         AutoGuidanceStatus.NEXT_VEHICLE -> Triple("→", "확인된 다음 ${vehicleLabel}를 이용하세요", MaterialTheme.colorScheme.error)
-        AutoGuidanceStatus.UNKNOWN -> Triple("", unknownTitle, MaterialTheme.colorScheme.onSurfaceVariant)
+        AutoGuidanceStatus.UNKNOWN -> Triple(if (informationReceived) "●" else "", unknownTitle,
+            if (informationReceived) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Surface(modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
         shape = RoundedCornerShape(20.dp),
@@ -187,7 +190,7 @@ fun AutomaticGuidanceCard(
                 Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surface) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("차량 도착", style = MaterialTheme.typography.labelSmall,
+                        Text(arrivalLabel, style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(arrivalInformation ?: arrivalText(firstArrivalAtEpochMillis, nowEpochMillis),
                             style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
@@ -209,7 +212,7 @@ fun AutomaticGuidanceCard(
             }
             arrivalFetchedAtEpochMillis?.let {
                 val age = ((nowEpochMillis - it) / 1000L).coerceAtLeast(0)
-                Text("정보 갱신 " + age + "초 전",
+                Text("원본 생성 " + age + "초 전",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

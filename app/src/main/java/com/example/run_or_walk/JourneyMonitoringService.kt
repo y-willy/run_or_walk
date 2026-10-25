@@ -131,6 +131,7 @@ class JourneyMonitoringService : Service() {
             var walking: GuidanceWalkingRoute? = null
             var failure = false
             var message: String? = null
+            var subwayObservations = emptyList<OfficialSubwayArrival>()
             try {
                 if (request.isGyeonggi) {
                     val match = requireNotNull(request.gyeonggiMatch)
@@ -146,8 +147,9 @@ class JourneyMonitoringService : Service() {
                     vehicleId = selected?.vehicleId
                     if (selected == null) message = "선택한 버스의 유효한 도착정보를 기다리고 있어요."
                 } else {
+                    subwayObservations = subway.arrivals(requireNotNull(request.subwayStation))
                     val selected = chooseMatchingSubwayArrival(request.identity,
-                        subway.arrivals(requireNotNull(request.subwayStation)), System.currentTimeMillis())
+                        subwayObservations, System.currentTimeMillis())
                     arrivals = selected?.snapshot
                     vehicleId = selected?.trainId
                     if (selected == null) message = "선택한 방향의 유효한 열차 정보를 기다리고 있어요."
@@ -198,14 +200,16 @@ class JourneyMonitoringService : Service() {
                 GuidanceBoarding(request.identity, request.boardingPoint, true), walking, arrivals,
                 hasLocationPermission(this), failure, active.settings.bufferSeconds), checkedAt,
                 AutoGuidancePolicy(fastSpeedKmh = active.settings.fastSpeedKmh))
+            val operation = subwayOperationGuidance(request.subwayStation, null, request.identity,
+                subwayObservations, checkedAt, failure)
             val summary = if (assessment.status == AutoGuidanceStatus.UNKNOWN)
-                message ?: "최신 위치·도보·도착정보가 확인될 때까지 판단을 보류해요."
+                operation?.message ?: message ?: "최신 위치·도보·도착정보가 확인될 때까지 판단을 보류해요."
                 else monitoringAssessmentMessage(assessment.status, request.isBus)
             JourneyMonitoringController.publish(JourneyMonitoringState(true, active, assessment,
                 location, walking, arrivals, summary, checkedAt, retryAt,
                 cachedWalk?.route?.distanceMeters.takeIf { walking != null },
                 cachedWalk?.route?.durationSeconds.takeIf { walking != null },
-                cachedWalk?.route?.points.orEmpty().takeIf { walking != null }.orEmpty()))
+                cachedWalk?.route?.points.orEmpty().takeIf { walking != null }.orEmpty(), subwayObservations))
             notifySafely(ONGOING_ID, ongoingNotification(active, summary, arrivals, checkedAt))
             if (assessment.status == AutoGuidanceStatus.UNKNOWN) notifications.cancel(ARRIVAL_ID)
             val event = alertGate.claim(request.identity, vehicleId, assessment, arrivals, checkedAt)

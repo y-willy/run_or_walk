@@ -23,7 +23,8 @@ internal data class JourneyMonitoringState(
     val retryAtEpochMillis: Long? = null,
     val walkingDistanceMeters: Int? = null,
     val providerWalkingSeconds: Int? = null,
-    val walkingPoints: List<MapPoint> = emptyList()
+    val walkingPoints: List<MapPoint> = emptyList(),
+    val subwayObservations: List<OfficialSubwayArrival> = emptyList()
 ) {
     val isRunning: Boolean get() = running
 }
@@ -105,7 +106,10 @@ internal fun monitoringStateWithSettings(
         locationPermissionGranted, bufferSeconds = request.settings.bufferSeconds), nowEpochMillis,
         AutoGuidancePolicy(fastSpeedKmh = request.settings.fastSpeedKmh))
     val message = if (assessment.status == AutoGuidanceStatus.UNKNOWN) {
-        if (state.assessment?.status == AutoGuidanceStatus.UNKNOWN) state.message
+        val operation = subwayOperationGuidance(request.subwayStation, null, request.identity,
+            state.subwayObservations, nowEpochMillis)
+        if (operation != null) operation.message
+        else if (state.assessment?.status == AutoGuidanceStatus.UNKNOWN) state.message
         else "최신 위치·도보·도착정보가 확인될 때까지 판단을 보류해요."
     } else monitoringAssessmentMessage(assessment.status, request.isBus)
     return state.copy(request = request, walkingRoute = walking, assessment = assessment, message = message)

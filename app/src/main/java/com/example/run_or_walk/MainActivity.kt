@@ -1035,6 +1035,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             now - it.fetchedAtEpochMillis in 0L..minOf(it.validForMillis, 60_000L) &&
             it.firstArrivalAtEpochMillis > now
     }
+    val operationGuidance = if (isBus || validArrival != null) null else subwayOperationGuidance(
+        if (monitored) monitoring.request?.subwayStation else screen.selectedStation,
+        screen.selectedRoute?.kakao,
+        if (monitored) monitoring.request?.identity else screen.confirmedServiceIdentity,
+        if (monitored) monitoring.subwayObservations else screen.arrivalOptions,
+        now, requestFailed = !monitored && screen.arrivalRequestFailed)
     val monitoringMessage = when {
         assessment.status != AutoGuidanceStatus.UNKNOWN -> monitoringAssessmentMessage(assessment.status, isBus)
         monitoring.assessment?.status == AutoGuidanceStatus.UNKNOWN -> monitoring.message
@@ -1054,6 +1060,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         (screen.busArrivalOptions.isNotEmpty() || screen.gyeonggiArrivals.isNotEmpty())
         else screen.arrivalOptions.isNotEmpty()
     val unknownMessage = when {
+        operationGuidance != null -> operationGuidance.message +
+            if (assessment.unknownReason?.name?.startsWith("LOCATION_") == true)
+                "\n" + unknownReasonText(assessment.unknownReason) else ""
         monitored -> monitoringMessage
         screen.boarding == null && screen.selectedRoute == null ->
             "목적지나 이용할 정류장·역을 검색하면 현재 위치와 도착정보를 연결해요."
@@ -1078,6 +1087,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         else -> unknownReasonText(assessment.unknownReason)
     }
     val unknownTitle = when {
+        operationGuidance != null -> operationGuidance.title
         screen.boarding == null && screen.selectedRoute == null -> "이동 안내를 시작해 보세요"
         screen.busy || screen.liveLoading && !hasArrivalOptions -> "이동 정보를 확인하고 있어요"
         !screen.boardingConfirmed -> "승차 지점 좌표 확인 불가"
@@ -1155,6 +1165,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                                     guidanceLabel = when {
                                         screen.selectedRoute?.id != route.id -> "예상 소요시간"
                                         assessment.status != AutoGuidanceStatus.UNKNOWN -> "검증된 실시간 안내"
+                                        operationGuidance != null -> "열차 위치 안내 중"
                                         screen.activeArrivalSnapshot != null -> "도착정보 수신 · 신뢰도 확인 중"
                                         else -> "승차점 자동 설정 · 실시간 정보 연결 중"
                                     },
@@ -1176,14 +1187,16 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                             ?: screen.selectedRoute?.serviceName.orEmpty(),
                         boardingLabel = boarding?.name, unknownMessage = unknownMessage,
                         unknownTitle = unknownTitle,
+                        informationReceived = operationGuidance != null,
+                        arrivalLabel = if (operationGuidance != null) "열차 위치·운행" else "차량 도착",
                         vehicleLabel = if (isBus) "버스" else "열차",
                         movementHint = if (isBus) "정류장 접근과 횡단보도 신호를 확인해 주세요." else "역 내부 이동과 신호 대기는 확인해 주세요.",
-                        arrivalInformation = if (hasArrivalOptions && validArrival == null)
+                        arrivalInformation = operationGuidance?.arrivalInformation ?: if (hasArrivalOptions && validArrival == null)
                             "서버 응답 수신 · 자동 판단 조건 확인 중" else null,
                         nowEpochMillis = now,
                         firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis,
                         nextArrivalAtEpochMillis = validArrival?.nextArrivalAtEpochMillis,
-                        arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis,
+                        arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis ?: operationGuidance?.sourceAtEpochMillis,
                         walkingSeconds = if (monitored) personalizedWalk?.durationSeconds?.takeIf {
                             now - personalizedWalk.fetchedAtEpochMillis in 0L..120_000L &&
                                 displayedLocation?.let { fix ->
