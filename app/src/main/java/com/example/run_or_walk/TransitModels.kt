@@ -63,7 +63,9 @@ data class KakaoTransitChoice(
     val boardingStopId: String? = null,
     val officialBoardingStopId: String? = null,
     val transitLineId: String? = null,
-    val directionName: String? = null
+    val directionName: String? = null,
+    /** Second stop shown by the route provider; never an official station ID. */
+    val nextStopName: String? = null
 )
 
 /** Unknown or incomplete WALK segment times never become a zero-minute walk. */
