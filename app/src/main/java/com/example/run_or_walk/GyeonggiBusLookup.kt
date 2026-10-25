@@ -58,14 +58,29 @@ internal fun resolveGyeonggiBusMatch(
             route.routeId.matches(Regex("[1-9][0-9]{5,11}")) &&
             route.staOrder.matches(Regex("[1-9][0-9]{0,3}"))
     }.distinctBy { (s,r) -> listOf(s.stationId, r.routeId, r.staOrder) }
-    if (same.size != 1) return null
-    val (stop, route) = same.single()
+    val selected = when {
+        same.size == 1 -> same.single()
+        else -> {
+            // Opposite-side stops may share both name and route number.
+            // Use a route-provider direction only when one official destination agrees.
+            val intended = normalizedGyeonggiDestination(choice.directionName.orEmpty())
+            if (intended.isBlank()) return null
+            same.filter { (_, route) ->
+                normalizedGyeonggiDestination(route.destination) == intended
+            }.singleOrNull() ?: return null
+        }
+    }
+    val (stop, route) = selected
     return GyeonggiOfficialMatch(stop.stationId, route.routeId, route.staOrder,
         route.routeName, route.destination, stop.point)
 }
 
 private fun normalizedGyeonggiName(name: String): String = name.trim().lowercase()
     .replace(Regex("\\s+"), "").removeSuffix("정류장").removeSuffix("정류소")
+
+private fun normalizedGyeonggiDestination(name: String): String =
+    normalizedGyeonggiName(name).removeSuffix("방향").removeSuffix("방면")
+        .removeSuffix("행").removeSuffix("역")
 private fun gbisDistanceMeters(a: MapPoint, b: MapPoint): Double {
     val r = 6_371_000.0
     val lat1 = Math.toRadians(a.y); val lat2 = Math.toRadians(b.y)
