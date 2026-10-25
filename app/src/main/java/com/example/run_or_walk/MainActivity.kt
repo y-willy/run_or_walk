@@ -1150,6 +1150,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         context.startActivity(Intent(Intent.ACTION_VIEW,
                             Uri.parse("https://www.data.go.kr/data/15000314/openapi.do")))
                     }) { Text("버스 도착정보: 서울특별시 · 공공누리 1유형", style = MaterialTheme.typography.labelSmall) }
+                    if (screen.selectedRoute?.kakao?.firstTransitType == "BUS") TextButton(onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://www.data.go.kr/data/15080346/openapi.do")))
+                    }) { Text("경기버스 도착정보: 경기도 공공데이터", style = MaterialTheme.typography.labelSmall) }
                 }
                 JourneySettingsPanel(settings) { value ->
                     session.updateSettings(value)
