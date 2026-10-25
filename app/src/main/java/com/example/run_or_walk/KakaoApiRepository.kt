@@ -130,7 +130,8 @@ class KakaoApiRepository(private val restKey: String) {
                     }
                 }
             }
-            // Missing geometry is never replaced with a straight-line path.
+            // Never fabricate a straight line when the provider omitted walking geometry.
+            if (points.size < 2) throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
             KakaoWalkingRoute(distance, duration, points)
         }
 
@@ -168,7 +169,8 @@ internal fun parseTransitChoices(routes: JSONArray?): List<KakaoTransitChoice> =
             val properties = step.optJSONObject("properties") ?: continue@routeLoop
             when (properties.nonBlankString("type")) {
                 "BUS", "SUBWAY" -> if (boarding == null) boarding = step
-                "WALK" -> walkingDurations.add(properties.nonNegativeInt("totalTime"))
+                "WALK", "WALKING" -> walkingDurations.add(
+                    properties.nonNegativeInt("time") ?: properties.nonNegativeInt("totalTime"))
                 else -> continue@routeLoop
             }
         }
