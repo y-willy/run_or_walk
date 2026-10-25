@@ -294,6 +294,10 @@ internal fun parseSeoulBusHttpFailure(status: Int, body: String?, retryAfter: St
     val (failure, message) = when {
         code in setOf("SEOUL_BUS_NOT_CONFIGURED", "BUS_KEY_INVALID", "BUS_SERVICE_NOT_CONFIGURED", "SERVICE_NOT_CONFIGURED") ->
             SeoulBusFailure.SETUP_REQUIRED to "서울 버스 연결 설정이 필요해요. Worker에 SEOUL_BUS_KEY Secret과 버스 바인딩을 등록해 주세요."
+        code == "BUS_UPSTREAM_KEY_REJECTED" ->
+            SeoulBusFailure.ACCESS_DENIED to "서울 버스 원본 서버가 인증 요청을 거절했어요(401). Worker의 SEOUL_BUS_KEY 값과 발급된 키를 확인해 주세요."
+        code == "BUS_UPSTREAM_ACCESS_FORBIDDEN" ->
+            SeoulBusFailure.ACCESS_DENIED to "서울 버스 원본 서버가 접근을 거절했어요(403). 승인 서비스와 API 접속 조건을 확인해 주세요."
         code in setOf("BUS_UPSTREAM_AUTHENTICATION", "BUS_UPSTREAM_PERMISSION", "BUS_UPSTREAM_REJECTED") ->
             SeoulBusFailure.ACCESS_DENIED to "서울 버스 API 인증·활용 신청 권한을 확인해 주세요. 정류소정보 서비스도 승인이 필요할 수 있어요."
         status == 401 || status == 403 -> SeoulBusFailure.ACCESS_DENIED to "버스 중계 서버가 앱 요청을 거절했어요. Cloudflare 접근 설정을 확인해 주세요."
@@ -324,7 +328,8 @@ internal class SeoulBusRequestBackoff {
 }
 
 private val busErrorCodes = setOf("SEOUL_BUS_NOT_CONFIGURED", "BUS_KEY_INVALID", "BUS_INVALID_QUERY", "BUS_SERVICE_UNAVAILABLE", "BUS_SERVICE_NOT_CONFIGURED", "SERVICE_NOT_CONFIGURED",
-    "BUS_UPSTREAM_AUTHENTICATION", "BUS_UPSTREAM_PERMISSION", "BUS_UPSTREAM_REJECTED", "BUS_UPSTREAM_BUDGET_EXHAUSTED", "BUS_UPSTREAM_RATE_LIMITED",
+    "BUS_UPSTREAM_AUTHENTICATION", "BUS_UPSTREAM_KEY_REJECTED", "BUS_UPSTREAM_ACCESS_FORBIDDEN",
+    "BUS_UPSTREAM_PERMISSION", "BUS_UPSTREAM_REJECTED", "BUS_UPSTREAM_BUDGET_EXHAUSTED", "BUS_UPSTREAM_RATE_LIMITED",
     "UPSTREAM_BUDGET_EXHAUSTED", "IP_RATE_LIMITED", "BUS_UPSTREAM_UNAVAILABLE", "BUS_UPSTREAM_TIMEOUT",
     "BUS_UPSTREAM_INVALID_JSON", "BUS_UPSTREAM_INVALID_XML", "BUS_STOP_NOT_FOUND", "BUS_ROUTE_NOT_FOUND",
     "BUS_COORDINATES_REJECTED", "BUS_REALTIME_UNAVAILABLE", "BUS_SERVICE_ENDED", "BUS_STOP_AMBIGUOUS", "BUS_ROUTE_AMBIGUOUS",
