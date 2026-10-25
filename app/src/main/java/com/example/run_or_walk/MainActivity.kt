@@ -252,10 +252,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val route = target.selectedRoute
         val revision = target.revision
         val requestId = target.requestId
+        val accessGeneration = target.beginAccessTransitRequest()
         scope.launch {
             fun active() = latestScreen === target && target.revision == revision &&
-                target.requestId == requestId && target.selectedRoute == route &&
-                target.departure.selected == departure
+                target.requestId == requestId && target.accessTransitGeneration == accessGeneration &&
+                target.selectedRoute == route && target.departure.selected == departure
             try {
                 val alternatives = kakaoRepository.searchPublicTransit(location.point, departure.point)
                 if (active()) {
