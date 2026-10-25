@@ -128,6 +128,9 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var accessTransitLoading by mutableStateOf(false)
     var accessTransitOrigin: MapPoint? = null
     var accessTransitAttemptAtMillis: Long? = null
+    var accessTransitGeneration: Long = 0
+        private set
+    fun beginAccessTransitRequest(): Long = ++accessTransitGeneration
     var mapCenter by mutableStateOf<MapPoint?>(null)
     var recenterRequest by mutableStateOf(0)
 
@@ -216,6 +219,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     }
 
     fun clearAccessTransit() {
+        accessTransitGeneration++
         accessTransitRoutes = emptyList()
         accessTransitMessage = null
         accessTransitLoading = false
