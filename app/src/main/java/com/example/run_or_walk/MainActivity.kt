@@ -421,6 +421,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         target.busStopQuery = stop.name
         target.changingBoarding = false
         target.centerOn(point)
+        // The canonical GBIS/Seoul stop coordinate may differ from Kakao's estimated pin.
+        // Recalculate an actual GPS walking polyline for the newly confirmed official stop.
+        requestLocation(target, LocationAction.WALKING)
         val generation = target.beginLiveRequest()
         scope.launch {
             try {
@@ -777,6 +780,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     target.changingBoarding = true
                     target.status = "승차 장소 후보에서 이용할 역을 선택해 주세요."
                 }
+            },
+            onFailure = {
+                target.detailsExpanded = true
+                target.changingBoarding = true
+                target.status = "승차 장소를 자동 연결하지 못했어요. 지도에서 장소를 다시 확인해 주세요."
             })
     }
 
