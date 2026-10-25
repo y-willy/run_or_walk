@@ -4,9 +4,12 @@ import {
   GyeonggiPayloadError, gyeonggiSourceUrl, normalizeGyeonggiResponse,
   parseGyeonggiOperation, refreshGyeonggiPayload, type GyeonggiOperation,
 } from './gyeonggi-bus-model';
+import { parseGyeonggiLookup, gyeonggiLookupSourceUrl, normalizeGyeonggiLookup,
+  type GyeonggiLookupOperation } from './gyeonggi-lookup-model';
 
 export interface GyeonggiEnv {
   GYEONGGI_BUS_KEY?: string;
+  GYEONGGI_STATION_KEY?: string;
   GYEONGGI_BUS_COORDINATOR?: DurableObjectNamespace<GyeonggiBusCoordinator>;
   IP_RATE_LIMITER: RateLimit;
 }
@@ -30,9 +33,11 @@ function respond(data: Outcome, additional: Record<string, string> = {}): Respon
 }
 export async function handleGyeonggiRequest(request: Request, env: GyeonggiEnv): Promise<Response> {
   try {
-    const op = parseGyeonggiOperation(new URL(request.url));
+    const op = parseGyeonggiOperation(new URL(request.url)) ?? parseGyeonggiLookup(new URL(request.url));
     if (!op) return respond(fail('GYEONGGI_INVALID_QUERY', 400));
-    if (!env.GYEONGGI_BUS_KEY || !env.GYEONGGI_BUS_COORDINATOR || !env.IP_RATE_LIMITER) {
+    const isLookup = op.kind === 'nearby' || op.kind === 'via';
+    if (!(isLookup ? env.GYEONGGI_STATION_KEY : env.GYEONGGI_BUS_KEY) ||
+        !env.GYEONGGI_BUS_COORDINATOR || !env.IP_RATE_LIMITER) {
       return respond(fail('GYEONGGI_NOT_CONFIGURED', 503));
     }
     const ip = request.headers.get('CF-Connecting-IP');
@@ -42,12 +47,21 @@ export async function handleGyeonggiRequest(request: Request, env: GyeonggiEnv):
     catch { return respond(fail('RATE_LIMITER_UNAVAILABLE', 503, 60)); }
     if (!allowed) return respond(fail('IP_RATE_LIMITED', 429, 60));
     const stub = env.GYEONGGI_BUS_COORDINATOR.get(env.GYEONGGI_BUS_COORDINATOR.idFromName(COORDINATOR));
-    const params = new URLSearchParams({ stationId: op.stationId });
-    if (op.kind === 'item') {
-      params.set('routeId', op.routeId);
-      params.set('staOrder', op.staOrder);
+    const params = new URLSearchParams();
+    let path: string;
+    if (op.kind === 'nearby') {
+      path = '/gyeonggi/bus/nearby';
+      params.set('x', String(op.x)); params.set('y', String(op.y));
+    } else if (op.kind === 'via') {
+      path = '/gyeonggi/bus/via';
+      params.set('stationId', op.stationId);
+    } else {
+      path = op.kind === 'item' ? '/gyeonggi/bus/arrival' : '/gyeonggi/bus/arrivals';
+      params.set('stationId', op.stationId);
+      if (op.kind === 'item') {
+        params.set('routeId', op.routeId); params.set('staOrder', op.staOrder);
+      }
     }
-    const path = op.kind === 'item' ? '/gyeonggi/bus/arrival' : '/gyeonggi/bus/arrivals';
     return await stub.fetch(new Request('https://gyeonggi-coordinator' + path + '?' + params));
   } catch { return respond(fail('GYEONGGI_SERVICE_UNAVAILABLE', 503, 30)); }
 }
@@ -63,7 +77,7 @@ export class GyeonggiBusCoordinator extends DurableObject<GyeonggiEnv> {
   }
   async fetch(request: Request): Promise<Response> {
     try {
-      const op = parseGyeonggiOperation(new URL(request.url));
+      const op = parseGyeonggiOperation(new URL(request.url)) ?? parseGyeonggiLookup(new URL(request.url));
       if (!op) return respond(fail('GYEONGGI_INVALID_QUERY', 400));
       const key = JSON.stringify(op);
       const running = this.pending.get(key);
@@ -72,7 +86,8 @@ export class GyeonggiBusCoordinator extends DurableObject<GyeonggiEnv> {
       const cached = this.ctx.storage.sql.exec<{ body: string; expires_at: number }>(
         'SELECT body, expires_at FROM arrival_cache WHERE cache_key = ?', key).toArray()[0];
       if (cached && cached.expires_at > now) return respond({
-        status: 200, body: refreshGyeonggiPayload(cached.body, now),
+        status: 200, body: (op.kind === 'list' || op.kind === 'item') ?
+          refreshGyeonggiPayload(cached.body, now) : cached.body,
       }, { 'X-Cache': 'HIT' });
       const error = this.ctx.storage.sql.exec<{ code: string; status: number; retry_at: number }>(
         'SELECT code, status, retry_at FROM failures WHERE cache_key = ?', key).toArray()[0];
@@ -84,8 +99,9 @@ export class GyeonggiBusCoordinator extends DurableObject<GyeonggiEnv> {
       finally { this.pending.delete(key); }
     } catch { return respond(fail('GYEONGGI_SERVICE_UNAVAILABLE', 503, 30)); }
   }
-  private async load(op: GyeonggiOperation, cacheKey: string): Promise<Outcome> {
-    if (!this.env.GYEONGGI_BUS_KEY) return fail('GYEONGGI_NOT_CONFIGURED', 503);
+  private async load(op: GyeonggiOperation | GyeonggiLookupOperation, cacheKey: string): Promise<Outcome> {
+    if ((op.kind === 'list' || op.kind === 'item') ? !this.env.GYEONGGI_BUS_KEY :
+        !this.env.GYEONGGI_STATION_KEY) return fail('GYEONGGI_NOT_CONFIGURED', 503);
     const now = Date.now();
     const limit = this.ctx.storage.transactionSync(() => {
       const sql = this.ctx.storage.sql;
@@ -120,11 +136,13 @@ export class GyeonggiBusCoordinator extends DurableObject<GyeonggiEnv> {
     await this.ctx.storage.sync();
     return outcome;
   }
-  private async upstream(op: GyeonggiOperation): Promise<Outcome> {
+  private async upstream(op: GyeonggiOperation | GyeonggiLookupOperation): Promise<Outcome> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const url = gyeonggiSourceUrl(op, this.env.GYEONGGI_BUS_KEY!);
+      const url = (op.kind === 'list' || op.kind === 'item') ?
+        gyeonggiSourceUrl(op, this.env.GYEONGGI_BUS_KEY!) :
+        gyeonggiLookupSourceUrl(op, this.env.GYEONGGI_STATION_KEY!);
       const response = await fetch(url, { redirect: 'manual', signal: controller.signal,
         headers: { Accept: 'application/json' } });
       if (response.status >= 300 && response.status < 400) return fail('GYEONGGI_UPSTREAM_REDIRECT', 502, 10);
@@ -148,7 +166,8 @@ export class GyeonggiBusCoordinator extends DurableObject<GyeonggiEnv> {
       let decoded: unknown;
       try { decoded = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(all)); }
       catch { return fail('GYEONGGI_INVALID_RESPONSE', 502, 10); }
-      return ok(normalizeGyeonggiResponse(decoded, op, Date.now()));
+      return ok((op.kind === 'list' || op.kind === 'item') ?
+        normalizeGyeonggiResponse(decoded, op, Date.now()) : normalizeGyeonggiLookup(decoded, op));
     } catch (error) {
       if (error instanceof GyeonggiPayloadError) return fail(error.code, 502, 10);
       return fail(controller.signal.aborted ? 'GYEONGGI_TIMEOUT' : 'GYEONGGI_UPSTREAM_UNAVAILABLE', 502, 10);
