@@ -5,12 +5,20 @@ import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
 import android.graphics.Path
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceView
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,11 +28,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -82,6 +92,7 @@ fun KakaoMapPanel(
     var kakaoMap by remember(mapView) { mutableStateOf<KakaoMap?>(null) }
     var mapFailure by remember(mapView) { mutableStateOf<MapLoadFailure?>(null) }
     var mapResumed by remember(mapView) { mutableStateOf(false) }
+    var showAuthenticationHelp by remember { mutableStateOf(false) }
     val markerBitmaps = remember(context) {
         val density = context.resources.displayMetrics.density
         createLocationMarker(density, false) to createLocationMarker(density, true)
@@ -158,16 +169,24 @@ fun KakaoMapPanel(
                 tonalElevation = 2.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier.padding(12.dp).verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     val failure = mapFailure
                     if (failure != null) {
                         Text("지도를 불러오지 못했어요", style = MaterialTheme.typography.titleSmall)
-                        Text(failure.guidance, style = MaterialTheme.typography.bodySmall)
+                        val authenticationFailure = failure.category in setOf(
+                            MapFailureCategory.AUTHENTICATION, MapFailureCategory.CONFIGURATION)
+                        Text(if (authenticationFailure) "카카오 개발자 설정에서 앱 인증 정보를 확인해 주세요."
+                            else failure.guidance, style = MaterialTheme.typography.bodySmall)
                         Text("오류 코드: ${failure.diagnosticCode}", style = MaterialTheme.typography.labelSmall)
-                        Button(onClick = { retryCount++ }) { Text("지도 다시 불러오기") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (authenticationFailure) {
+                                TextButton(onClick = { showAuthenticationHelp = true }) { Text("지도 인증 설정") }
+                            }
+                            Button(onClick = { retryCount++ }) { Text("재시도") }
+                        }
                     } else {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -180,6 +199,10 @@ fun KakaoMapPanel(
                 }
             }
         }
+    }
+
+    if (showAuthenticationHelp) {
+        MapAuthenticationHelpDialog(onDismiss = { showAuthenticationHelp = false })
     }
 
     DisposableEffect(mapView, lifecycleOwner) {
@@ -345,6 +368,45 @@ fun KakaoMapPanel(
             )
         }
     }
+}
+
+@Composable
+private fun MapAuthenticationHelpDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val diagnostics = remember(context) { readMapAuthenticationDiagnostics(context) }
+    var copiedMessage by remember { mutableStateOf<String?>(null) }
+    fun copy(label: String, value: String) {
+        (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)
+            ?.setPrimaryClip(ClipData.newPlainText(label, value))
+        copiedMessage = "$label 복사했어요."
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("카카오 지도 인증 설정") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("401은 지도 인증이 거절된 상태예요. 사용 중인 네이티브 앱 키의 카카오 개발자 앱에서 Android 플랫폼을 등록하고 아래 정보를 확인해 주세요.")
+                SelectionContainer { Text(diagnostics.copyText) }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { copy("패키지", diagnostics.packageName) }) { Text("패키지 복사") }
+                    TextButton(enabled = diagnostics.signingKeyHashes.isNotEmpty(), onClick = {
+                        copy("키 해시", diagnostics.signingKeyHashes.joinToString("\n"))
+                    }) { Text("키 해시 복사") }
+                }
+                copiedMessage?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+                Text("이 값은 지금 설치된 APK의 서명이에요. Android Studio·클라우드·배포 빌드는 서명이 다를 수 있어 각각 등록해야 해요.")
+                Text("네이티브 앱 키가 REST API 키와 바뀌지 않았는지, 같은 카카오 앱에서 지도 사용 권한이 활성화되어 있는지도 확인해 주세요. 설정을 저장한 뒤 지도를 다시 불러오세요.")
+                TextButton(onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://developers.kakao.com/console/app")))
+                    }
+                }) { Text("카카오 개발자 콘솔 열기") }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("확인") } }
+    )
 }
 
 // Native SDK labels use real coordinates. Shape and text distinguish the two

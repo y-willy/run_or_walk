@@ -16,8 +16,8 @@ internal data class MapLoadFailure(
 
     val guidance: String
         get() = when (category) {
-            MapFailureCategory.CONFIGURATION -> "지도 서비스 설정이 필요합니다. 앱 설정을 확인해 주세요."
-            MapFailureCategory.AUTHENTICATION -> "지도 서비스 인증이 거절됐어요. 앱 설정 확인이 필요합니다."
+            MapFailureCategory.CONFIGURATION -> "지도용 네이티브 앱 키 설정이 필요해요. 지도 인증 설정을 확인해 주세요."
+            MapFailureCategory.AUTHENTICATION -> "카카오 지도 인증이 거절됐어요. 네이티브 앱 키와 Android 패키지·서명 키 해시 등록을 확인해 주세요."
             MapFailureCategory.NETWORK -> "네트워크 연결을 확인하고 다시 시도해 주세요."
             MapFailureCategory.TIMEOUT -> "지도 응답이 지연되고 있어요. 연결을 확인하고 다시 시도해 주세요."
             MapFailureCategory.SERVICE -> "지도 서비스 응답을 받지 못했어요. 잠시 후 다시 시도해 주세요."
@@ -54,6 +54,7 @@ internal data class MapLoadFailure(
                 MapAuthException.CONNECT_INITIATE_FAILURE, MapAuthException.CONNECT_ERROR ->
                     MapFailureCategory.NETWORK
                 429, in 500..599 -> MapFailureCategory.SERVICE
+                499 -> MapFailureCategory.NETWORK
                 else -> MapFailureCategory.SDK
             },
             sdkCode = code

@@ -1,11 +1,13 @@
 # Worker 연동·실시간 정확성 검증 보고
 
+2026-10-25 실기기 오류 수정은 [위치·지도·승차역·도착정보 진단 보고](DEVICE_ISSUES_20261025.md)를 참고한다. 아래 85개 앱 테스트·133개 Worker 테스트는 최초 연동 시점의 기록이며, 이번 앱 수정 후에는 109개 테스트를 검증했다.
+
 ## 1. 변경 파일
 
 - `worker/`: 기존 `run-or-walk` Worker 소스, SQLite Durable Object, 정규화·신뢰도, Wrangler/Rate Limiting/migration 설정, 잠금 파일과 실제 Workers 런타임 테스트.
 - `SeoulSubwayRepository.kt`, `app/build.gradle.kts`: 기본 주소와 `/subway?station=` 계약 연결, 선택적 토큰, 앱 식별자, 응답 파싱·Retry-After 공유 제한.
 - `AutoGuidance.kt`, `ExactSubwayArrivalMatching.kt`: 네 가지 상태, 원본 신뢰도, 검증된 역·호선·방향·운행 종류만 매칭, 유효한 다음 열차 조건.
-- `JourneyScreenState.kt`, `MainActivity.kt`: 명시적 방향 확인 뒤 자동 열차 선택·foreground 갱신, 이전 요청 버전 차단, 탭·역 변경에도 요청 제한 보존.
+- `JourneyScreenState.kt`, `MainActivity.kt`: 유일한 실제 승차 장소·공식 역 자동 연결, 명시적 방향 확인 뒤 자동 열차 선택·foreground 갱신, 이전 요청 버전 차단, 탭·역 변경에도 요청 제한 보존.
 - `PaceNudgeComponents.kt`: 빠른 걸음 안내와 초 단위 도착/도보시간·정보 나이, 불확실한 행의 선택 차단.
 - 관련 단위 테스트·실제 사용자 강남역 응답 fixture, README와 배포 문서.
 - `BrandLaunchScreen.kt`, 런처/테마 리소스와 PNG: 제공한 Run_or_Walk 로고를 바탕으로 앱 아이콘과 시작 화면 적용. 작은 아이콘은 발자국·경로 그래픽을 사용하며, 전체 포스터는 시작 시 650ms 표시하고 복원·회전 때 반복하지 않는다.
@@ -14,7 +16,7 @@
 
 사용자가 제공한 원래 Worker는 캐시·IP 제한·전역 예산이 없었고, 원본 응답에서 `arvlCd`, `btrainNo` 등 식별 필드를 버렸다. 이를 보존하고 기존 `/health`, `/subway`, `station`·`destination` 등 별칭의 의미를 유지한다. HTTP 성공이나 `realtime:true` 자체는 데이터 신뢰도 보장이 아니다.
 
-앱은 Seoul Secret을 요구하지 않는다. 역·호선 선택 시 비동기로 조회하며, 방향·행선지를 사용자가 확인한 후 **공식 역 ID + 호선 ID + 방향 + 운행 종류/종착/방면**이 정확히 일치하는 유효한 실제 열차 중 가장 이른 것을 사용한다. 이름만으로 첫 열차를 고르지 않는다. Kakao 결과에 매칭 근거가 없으면 최소한의 방향 확인을 유지한다. 버스 도착정보를 지하철 데이터로 대체하지 않는다.
+앱은 Seoul Secret을 요구하지 않는다. 정확한 역 이름·호선과 실제 장소가 유일하면 자동 연결하고, 모호하면 선택을 요청한다. 역·호선 연결 시 비동기로 조회하며, 방향·행선지를 사용자가 확인한 후 **공식 역 ID + 호선 ID + 방향 + 운행 종류/종착/방면**이 정확히 일치하는 유효한 실제 열차 중 가장 이른 것을 사용한다. 이름만으로 첫 열차를 고르지 않는다. Kakao 결과에 매칭 근거가 없으면 최소한의 방향 확인을 유지한다. 버스 도착정보를 지하철 데이터로 대체하지 않는다.
 
 판단은 `WALK`, `FAST_WALK`, `NEXT_TRAIN`, `UNKNOWN`이다. 빠른 걸음 소요시간은 기존 0.75 비율 **추정**이며 달리기 안내를 하지 않는다. 다음 열차는 실제 응답으로 확인되고 일반 보행+안전 여유로 탑승 가능한 경우에만 추천한다. 다음 정보가 없거나 불확실하면 UNKNOWN이다. 기존 수동 Urgency 경계값과 진동 파형은 유지하며 자동 알림은 명시적 동의·중복 억제를 따른다.
 

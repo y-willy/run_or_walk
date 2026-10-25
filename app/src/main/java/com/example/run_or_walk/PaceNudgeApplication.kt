@@ -23,7 +23,7 @@ class PaceNudgeApplication : Application() {
             MapLoadFailure(MapFailureCategory.CONFIGURATION)
         } else {
             try {
-                KakaoMapSdk.init(this, BuildConfig.KAKAO_NATIVE_KEY)
+                KakaoMapSdk.init(this, BuildConfig.KAKAO_NATIVE_KEY.trim())
                 if (KakaoMapSdk.isInitialized()) null
                 else MapLoadFailure(MapFailureCategory.INITIALIZATION)
             } catch (error: Exception) {

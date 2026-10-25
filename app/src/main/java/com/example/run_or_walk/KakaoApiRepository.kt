@@ -10,47 +10,58 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.URLEncoder
 
-class KakaoApiException(message: String, val httpStatus: Int? = null) : IOException(message)
-
 class KakaoApiRepository(private val restKey: String) {
     private suspend fun request(url: String, params: Map<String, String>): JSONObject {
-        check(restKey.isNotBlank()) { "카카오 REST API 키가 설정되지 않았습니다." }
+        if (restKey.isBlank()) throw KakaoApiException(KakaoFailure.SETUP_REQUIRED)
         currentCoroutineContext().ensureActive()
         val query = params.entries.joinToString("&") {
             "${URLEncoder.encode(it.key, "UTF-8")}=${URLEncoder.encode(it.value, "UTF-8")}"
         }
         val connection = URL("$url?$query").openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
+        connection.instanceFollowRedirects = false
         connection.connectTimeout = 15_000
         connection.readTimeout = 15_000
         connection.setRequestProperty("Authorization", "KakaoAK $restKey")
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("User-Agent", "PaceNudge/1.0 (Android)")
         try {
             val status = connection.responseCode
             currentCoroutineContext().ensureActive()
             if (status !in 200..299) {
                 // Never expose response bodies or URLs containing auth/location data.
-                val message = when (status) {
-                    401, 403 -> "카카오 API 인증 또는 서비스 이용 권한을 확인해 주세요."
-                    429 -> "카카오 API 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요."
-                    else -> "카카오 API 요청을 처리하지 못했습니다. (HTTP $status)"
-                }
-                throw KakaoApiException(message, status)
+                throw KakaoApiException(kakaoFailureForHttpStatus(status), status)
             }
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                val result = StringBuilder()
+                val buffer = CharArray(8_192)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val count = reader.read(buffer)
+                    if (count < 0) break
+                    if (result.length + count > 4_000_000) throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+                    result.append(buffer, 0, count)
+                }
+                result.toString()
+            }
             currentCoroutineContext().ensureActive()
             return JSONObject(body)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: KakaoApiException) {
             throw failure
+        } catch (_: SocketTimeoutException) {
+            currentCoroutineContext().ensureActive()
+            throw KakaoApiException(KakaoFailure.TIMEOUT)
         } catch (_: IOException) {
             currentCoroutineContext().ensureActive()
-            throw KakaoApiException("카카오 서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.")
+            throw KakaoApiException(KakaoFailure.NETWORK)
         } catch (_: JSONException) {
-            throw KakaoApiException("카카오 API 응답을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+            throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
         } finally {
             connection.disconnect()
         }
@@ -63,7 +74,7 @@ class KakaoApiRepository(private val restKey: String) {
             mapOf("query" to query, "size" to "15")
         )
         val documents = json.optJSONArray("documents")
-            ?: throw KakaoApiException("장소 검색 결과를 확인할 수 없습니다.")
+            ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
         buildList {
             for (index in 0 until documents.length()) {
                 val item = documents.optJSONObject(index) ?: continue
@@ -96,16 +107,16 @@ class KakaoApiRepository(private val restKey: String) {
                 )
             )
             if (json.optString("status") != "OK") {
-                throw KakaoApiException("도보 경로를 받지 못했습니다. 다시 검색해 주세요.")
+                throw KakaoApiException(KakaoFailure.NO_ROUTE)
             }
             val route = json.optJSONObject("route")
-                ?: throw KakaoApiException("도보 경로 정보를 확인할 수 없습니다.")
+                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
             val info = route.optJSONObject("properties")
-                ?: throw KakaoApiException("도보 경로의 요약 정보를 확인할 수 없습니다.")
+                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
             val distance = info.nonNegativeInt("totalDistance")
-                ?: throw KakaoApiException("도보 경로의 거리 정보가 없습니다.")
+                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
             val duration = info.nonNegativeInt("totalTime")
-                ?: throw KakaoApiException("도보 경로의 소요시간 정보가 없습니다.")
+                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
             val points = buildList {
                 val legs = route.optJSONArray("legs") ?: return@buildList
                 for (i in 0 until legs.length()) {
@@ -133,7 +144,7 @@ class KakaoApiRepository(private val restKey: String) {
                 )
             )
             if (json.optString("status") != "OK") {
-                throw KakaoApiException("대중교통 경로를 받지 못했습니다. 다시 검색해 주세요.")
+                throw KakaoApiException(KakaoFailure.NO_ROUTE)
             }
             selectTopTransitChoices(parseTransitChoices(json.optJSONArray("routes")))
         }

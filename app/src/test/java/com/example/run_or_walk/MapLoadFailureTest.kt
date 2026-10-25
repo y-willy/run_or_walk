@@ -27,6 +27,8 @@ class MapLoadFailureTest {
             MapLoadFailure.fromSdkCode(MapAuthException.SOCKET_TIMEOUT_EXCEPTION).category)
         assertEquals(MapFailureCategory.NETWORK,
             MapLoadFailure.fromSdkCode(MapAuthException.CONNECT_ERROR).category)
+        assertEquals(MapFailureCategory.NETWORK,
+            MapLoadFailure.fromSdkCode(499).category)
         assertEquals(MapFailureCategory.AUTHENTICATION,
             MapLoadFailure.fromSdkCode(MapAuthException.APP_KEY_INVALID_ERROR).category)
         assertEquals(MapFailureCategory.RENDERING,
@@ -56,5 +58,13 @@ class MapLoadFailureTest {
 
         assertEquals("MAP_CONFIGURATION", failure.diagnosticCode)
         assertFalse(failure.guidance.isBlank())
+    }
+
+    @Test
+    fun authenticationGuidanceNamesActualDeveloperConfiguration() {
+        val failure = MapLoadFailure.fromSdkCode(401)
+        org.junit.Assert.assertTrue(failure.guidance.contains("네이티브"))
+        org.junit.Assert.assertTrue(failure.guidance.contains("서명 키 해시"))
+        assertFalse(failure.guidance.contains("GPS"))
     }
 }

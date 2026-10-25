@@ -139,14 +139,16 @@ fun AutomaticGuidanceCard(
     firstArrivalAtEpochMillis: Long?,
     nextArrivalAtEpochMillis: Long?,
     arrivalFetchedAtEpochMillis: Long?,
-    walkingSeconds: Int?
+    walkingSeconds: Int?,
+    unknownTitle: String = "자동 판단을 준비하고 있어요",
+    arrivalInformation: String? = null
 ) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < .5f
     val (symbol, title, tint) = when (assessment.status) {
         AutoGuidanceStatus.WALK -> Triple("✓", "걸어가세요", if (dark) Color(0xFF86EFAC) else Color(0xFF23734C))
         AutoGuidanceStatus.FAST_WALK -> Triple("»", "빠른 걸음으로 이동하세요", if (dark) Color(0xFFFDBA74) else Color(0xFF9C5800))
         AutoGuidanceStatus.NEXT_TRAIN -> Triple("→", "확인된 다음 열차를 이용하세요", MaterialTheme.colorScheme.error)
-        AutoGuidanceStatus.UNKNOWN -> Triple("?", "확인이 필요해요", MaterialTheme.colorScheme.onSurfaceVariant)
+        AutoGuidanceStatus.UNKNOWN -> Triple("", unknownTitle, MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Surface(modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
         shape = RoundedCornerShape(16.dp),
@@ -156,11 +158,11 @@ fun AutomaticGuidanceCard(
             if (serviceLabel.isNotBlank()) Text(serviceLabel,
                 style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             boardingLabel?.let { Text("승차: $it", style = MaterialTheme.typography.bodySmall) }
-            Text("$symbol $title", style = MaterialTheme.typography.titleLarge,
+            Text(listOf(symbol, title).filter(String::isNotBlank).joinToString(" "), style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold, color = tint)
             if (assessment.status == AutoGuidanceStatus.UNKNOWN) Text(unknownMessage,
                 style = MaterialTheme.typography.bodyMedium)
-            Text("차량 도착: ${arrivalText(firstArrivalAtEpochMillis, nowEpochMillis)}",
+            Text("차량 도착: ${arrivalInformation ?: arrivalText(firstArrivalAtEpochMillis, nowEpochMillis)}",
                 style = MaterialTheme.typography.bodyMedium)
             walkingSeconds?.let {
                 Text("승차 지점까지: 도보 ${durationText(it.toLong())}",

@@ -13,12 +13,22 @@ internal data class JourneyPlace(
     val id: String,
     val name: String,
     val detail: String,
-    val point: MapPoint
+    val point: MapPoint,
+    val categoryGroupCode: String? = null,
+    val categoryName: String? = null
 ) {
+    val isSubwayStation: Boolean
+        get() = categoryGroupCode == "SW8" || categoryName?.split('>')
+            ?.map(String::trim)?.any { it in setOf("지하철역", "전철역", "지하철역,전철역") } == true
+
+    val isBusStop: Boolean
+        get() = categoryName?.split('>')?.map(String::trim)?.any { it == "버스정류장" } == true
+
     companion object {
         fun from(place: KakaoPlace) = JourneyPlace(
             id = "kakao-${place.id}", name = place.name,
-            detail = place.address.ifBlank { "주소 정보 없음" }, point = place.point)
+            detail = place.address.ifBlank { "주소 정보 없음" }, point = place.point,
+            categoryGroupCode = place.categoryGroupCode, categoryName = place.categoryName)
     }
 }
 
@@ -56,6 +66,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var boarding by mutableStateOf<JourneyPlace?>(null)
     var boardingSource by mutableStateOf<BoardingPointSource?>(null)
     var boardingChosenByUser by mutableStateOf(false)
+    var boardingMatchedAutomatically by mutableStateOf(false)
+    val boardingConfirmed: Boolean get() = boardingChosenByUser || boardingMatchedAutomatically
     var boardingCandidates by mutableStateOf<List<JourneyPlace>>(emptyList())
     var candidatesSearched by mutableStateOf(false)
     var detailsExpanded by mutableStateOf(false)
@@ -167,6 +179,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
         boarding = null
         boardingSource = null
         boardingChosenByUser = false
+        boardingMatchedAutomatically = false
         boardingCandidates = emptyList()
         candidatesSearched = false
         detailsExpanded = false
@@ -218,7 +231,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
 
     val boardingNotice: String?
         get() = when {
-            boardingChosenByUser -> null
+            boardingConfirmed -> null
             boardingSource == BoardingPointSource.ESTIMATED -> "승차 위치 추정 · 지도에서 장소를 선택해 주세요."
             else -> "승차 위치 확인 필요 · 장소를 직접 선택해 주세요."
         }

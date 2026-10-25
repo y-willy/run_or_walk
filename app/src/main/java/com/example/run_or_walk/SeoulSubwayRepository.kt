@@ -17,6 +17,7 @@ import java.net.URI
 import java.net.URLEncoder
 import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZonedDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
@@ -39,17 +40,30 @@ data class OfficialSubwayArrival(
     val trainId: String,
     val snapshot: RealtimeArrivalSnapshot,
     val statusMessage: String = "",
-    val gatewayFetchedAtEpochMillis: Long? = null
+    val gatewayFetchedAtEpochMillis: Long? = null,
+    /** Provider text is display-only; it never establishes a safe countdown. */
+    val officialArrivalMessage: String = "",
+    val sourceReceivedAtEpochMillis: Long? = null,
+    val gatewayContract: SubwayGatewayContract = SubwayGatewayContract.UNKNOWN,
+    val issues: Set<SubwayArrivalIssue> = emptySet()
 )
+
+enum class SubwayGatewayContract { RAW_FIELDS, LEGACY_ALIASES, UNKNOWN }
+enum class SubwayArrivalIssue {
+    LEGACY_GATEWAY_FIELDS, SOURCE_TIMESTAMP_MISSING, SOURCE_FUTURE, DEVICE_CLOCK_BEHIND,
+    SOURCE_STALE, COUNTDOWN_ELAPSED, INVALID_ETA, ETA_UNAVAILABLE, MISSING_SERVICE_IDENTITY,
+    ARRIVAL_STATE_UNCERTAIN
+}
 
 enum class SeoulSubwayFailure {
     SETUP_REQUIRED, INVALID_AUTHENTICATION, REQUEST_LIMIT, SERVICE_ERROR,
-    INVALID_RESPONSE, CONNECTION_FAILED
+    INVALID_RESPONSE, CONNECTION_FAILED, GATEWAY_ACCESS_DENIED, SERVER_WARMUP
 }
 
 /** Intentionally carries no URL, response body, key, or underlying transport exception. */
 class SeoulSubwayApiException(message: String, val failure: SeoulSubwayFailure,
-    val retryAfterEpochMillis: Long? = null) : IOException(message)
+    val retryAfterEpochMillis: Long? = null, val serverCode: String? = null,
+    val httpStatus: Int? = null) : IOException(message)
 
 private const val SEOUL_ARRIVAL_VALIDITY_MILLIS = 60_000L
 private const val SEOUL_REQUEST_INTERVAL_NANOS = 30_000_000_000L
@@ -145,19 +159,11 @@ class SeoulSubwayRepository(
             val status = connection.responseCode
             currentCoroutineContext().ensureActive()
             if (status !in 200..299) {
-                val retryAt = connection.getHeaderField("Retry-After")?.toLongOrNull()
-                    ?.takeIf { it in 1L..172_800L }?.let { System.currentTimeMillis() + it * 1000L }
-                    ?: if (status == 429) System.currentTimeMillis() + 30_000L else null
-                throw when (status) {
-                    401, 403 -> authenticationFailure()
-                    429 -> SeoulSubwayApiException(
-                        "서울시 도착정보 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
-                        SeoulSubwayFailure.REQUEST_LIMIT, retryAt
-                    )
-                    else -> SeoulSubwayApiException(
-                        "실시간 정보 서버 요청을 처리하지 못했습니다.", SeoulSubwayFailure.SERVICE_ERROR, retryAt
-                    )
-                }
+                // Error pages may be HTML, or include provider diagnostics. Only an
+                // allowlisted machine code is retained; raw text never leaves here.
+                val body = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readTextBounded(8_192) }
+                throw parseWorkerHttpFailure(status, body, connection.getHeaderField("Retry-After"),
+                    System.currentTimeMillis())
             }
             return connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                 val body = StringBuilder()
@@ -248,7 +254,7 @@ internal fun parseWorkerSubwayArrivals(
     json: String, station: OfficialSubwayStation, nowEpochMillis: Long
 ): List<OfficialSubwayArrival> {
     val root = try { JSONObject(json) } catch (_: JSONException) { throw invalidResponse() }
-    if (root.has("error")) throw invalidResponse()
+    if (root.has("error")) throw parseWorkerHttpFailure(503, json, null, nowEpochMillis)
     val rows = root.optJSONArray("arrivals") ?: throw invalidResponse()
     val fetched = root.seoulString("fetchedAt")?.let {
         try { Instant.parse(it).toEpochMilli() } catch (_: Exception) { null }
@@ -296,7 +302,27 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
             val code = text("arvlCd")
             val complete = trainId.isNotBlank() && trainType != null && destinationId != null &&
                 destinationName != null && nextStationId != null
+            val contract = when {
+                row.has("statnId") || row.has("subwayId") || row.has("recptnDt") -> SubwayGatewayContract.RAW_FIELDS
+                row.has("stationId") && row.has("lineId") && row.has("receivedAt") -> SubwayGatewayContract.LEGACY_ALIASES
+                else -> SubwayGatewayContract.UNKNOWN
+            }
             val arrival = if (sourceTime != null && seconds != null) sourceTime + seconds * 1_000L else 0L
+            val issues = buildSet {
+                if (contract == SubwayGatewayContract.LEGACY_ALIASES) add(SubwayArrivalIssue.LEGACY_GATEWAY_FIELDS)
+                if (sourceTime == null) add(SubwayArrivalIssue.SOURCE_TIMESTAMP_MISSING)
+                if (sourceTime != null && sourceTime > gatewayFetched) add(SubwayArrivalIssue.SOURCE_FUTURE)
+                if (gatewayFetched > now && (sourceTime == null || sourceTime <= gatewayFetched))
+                    add(SubwayArrivalIssue.DEVICE_CLOCK_BEHIND)
+                if (sourceTime != null && now - sourceTime > SEOUL_ARRIVAL_VALIDITY_MILLIS)
+                    add(SubwayArrivalIssue.SOURCE_STALE)
+                if (seconds == null) add(SubwayArrivalIssue.INVALID_ETA)
+                else if (seconds == 0L) add(SubwayArrivalIssue.ETA_UNAVAILABLE)
+                else if (arrival <= now && sourceTime != null) add(SubwayArrivalIssue.COUNTDOWN_ELAPSED)
+                if (!complete) add(SubwayArrivalIssue.MISSING_SERVICE_IDENTITY)
+                if (direction !in setOf("상행", "하행", "내선", "외선") || code !in setOf("3", "4", "5", "99"))
+                    add(SubwayArrivalIssue.ARRIVAL_STATE_UNCERTAIN)
+            }
             val computed = when {
                 sourceTime == null -> ArrivalTrustState.UNKNOWN
                 sourceTime > gatewayFetched || sourceTime > now || gatewayFetched > now ->
@@ -333,7 +359,8 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
                     fetchedAtEpochMillis = sourceTime ?: 0L,
                     validForMillis = SEOUL_ARRIVAL_VALIDITY_MILLIS,
                     reliable = trust == ArrivalTrustState.VALID, trustState = trust),
-                message, gatewayFetched
+                message, gatewayFetched,
+                text("arvlMsg2", "arrivalMessage").orEmpty(), sourceTime, contract, issues
             ))
         }
     }
@@ -391,6 +418,105 @@ private fun connectionFailure() = SeoulSubwayApiException(
     "서울시 도착정보 서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.",
     SeoulSubwayFailure.CONNECTION_FAILED
 )
+
+/** A safe diagnosis for the UI, independent from the decision engine's trust state. */
+internal fun subwayArrivalDisplayStatus(arrival: OfficialSubwayArrival, now: Long): String {
+    val source = arrival.sourceReceivedAtEpochMillis ?: arrival.snapshot.fetchedAtEpochMillis.takeIf { it > 0L }
+    val age = source?.takeIf { it <= now }?.let { (now - it) / 1_000L }
+    val reason = when {
+        arrival.gatewayContract == SubwayGatewayContract.LEGACY_ALIASES ->
+            "중계 서버 업데이트 필요 · 열차 번호·도착 상태 누락"
+        SubwayArrivalIssue.SOURCE_FUTURE in arrival.issues ->
+            "서울시 원본 생성 시각이 서버 조회 시각보다 늦어요 · 자동 판단 제외"
+        SubwayArrivalIssue.DEVICE_CLOCK_BEHIND in arrival.issues ||
+            arrival.gatewayFetchedAtEpochMillis?.let { it > now } == true ->
+            "기기 날짜·시간이 서버보다 느려요 · 자동 날짜·시간 설정을 확인해 주세요"
+        source != null && now - source > SEOUL_ARRIVAL_VALIDITY_MILLIS ->
+            "서울시 원본 정보 갱신 대기 · 자동 판단 제외"
+        SubwayArrivalIssue.INVALID_ETA in arrival.issues -> "도착 예정시간이 유효하지 않아요"
+        SubwayArrivalIssue.ETA_UNAVAILABLE in arrival.issues -> "초 단위 도착 예정시간 미제공"
+        SubwayArrivalIssue.SOURCE_TIMESTAMP_MISSING in arrival.issues -> "원본 생성 시각 미제공"
+        SubwayArrivalIssue.MISSING_SERVICE_IDENTITY in arrival.issues -> "열차·운행 식별정보 부족 · 자동 판단 제외"
+        SubwayArrivalIssue.COUNTDOWN_ELAPSED in arrival.issues ||
+            arrival.snapshot.firstArrivalAtEpochMillis <= now -> "도착 예정시각 경과 · 다음 자동 갱신 대기"
+        arrival.snapshot.trustState == ArrivalTrustState.VALID && arrival.snapshot.reliable -> "자동 판단에 사용할 수 있어요"
+        else -> arrival.statusMessage.ifBlank { "도착 상태 확인 필요 · 자동 판단 제외" }
+    }
+    return if (age == null) reason else "$reason · 원본 생성 ${age}초 전"
+}
+
+/** A successful HTTP response with unusable rows must not be reported as a network failure. */
+internal fun subwayArrivalDiagnosticSummary(arrivals: List<OfficialSubwayArrival>, now: Long): String? = when {
+    arrivals.isEmpty() -> "서버 응답은 받았지만 선택한 역·호선의 도착 예정 열차가 없어요."
+    arrivals.all { it.gatewayContract == SubwayGatewayContract.LEGACY_ALIASES } ->
+        "도착정보 수신 완료 · 현재 중계 서버에 열차 번호·도착 상태가 빠져 있어요. Worker 업데이트 후 자동 판단을 연결할 수 있어요."
+    arrivals.any { it.snapshot.reliable && it.snapshot.trustState == ArrivalTrustState.VALID &&
+        now - it.snapshot.fetchedAtEpochMillis in 0L..minOf(it.snapshot.validForMillis, SEOUL_ARRIVAL_VALIDITY_MILLIS) &&
+        it.snapshot.firstArrivalAtEpochMillis > now } -> null
+    arrivals.all { SubwayArrivalIssue.SOURCE_FUTURE in it.issues } ->
+        "도착정보 수신 완료 · 서울시 원본 생성 시각이 서버 조회보다 늦어 자동 판단에서 제외했어요."
+    arrivals.any { SubwayArrivalIssue.DEVICE_CLOCK_BEHIND in it.issues ||
+        it.gatewayFetchedAtEpochMillis?.let { fetched -> fetched > now } == true } ->
+        "기기 날짜·시간이 서버 시각보다 느려요. 휴대전화의 날짜·시간 자동 설정을 확인해 주세요."
+    arrivals.all { now - it.snapshot.fetchedAtEpochMillis > SEOUL_ARRIVAL_VALIDITY_MILLIS } ->
+        "도착정보 수신 완료 · 서울시 원본 정보가 60초 이상 갱신되지 않아 자동 판단을 보류했어요."
+    else -> "도착정보 수신 완료 · 유효한 예정시간과 열차 상태가 확인될 때까지 자동 판단을 보류해요."
+}
+
+private const val MAX_RETRY_MILLIS = 172_800_000L
+private val workerErrorCodes = setOf(
+    "SERVICE_NOT_CONFIGURED", "SERVER_NOT_CONFIGURED", "CLIENT_IP_UNAVAILABLE", "RATE_LIMITER_UNAVAILABLE",
+    "SERVICE_UNAVAILABLE", "IP_RATE_LIMITED", "UPSTREAM_BUDGET_EXHAUSTED", "BUDGET_WARMUP",
+    "UPSTREAM_REDIRECT", "UPSTREAM_REDIRECT_BLOCKED", "UPSTREAM_UNAVAILABLE", "UPSTREAM_HTTP_ERROR",
+    "UPSTREAM_INVALID_JSON", "UPSTREAM_REJECTED", "UPSTREAM_TIMEOUT", "UPSTREAM_REQUEST_FAILED",
+    "ARRIVAL_DATA_UNAVAILABLE", "INVALID_STATION", "NOT_FOUND", "METHOD_NOT_ALLOWED"
+)
+
+/** No untrusted body text or URL is included in the returned exception. */
+internal fun parseWorkerHttpFailure(status: Int, body: String?, retryAfter: String?, now: Long): SeoulSubwayApiException {
+    val root = body?.takeIf { it.length <= 8_192 }?.let { runCatching { JSONObject(it) }.getOrNull() }
+    val error = root?.optJSONObject("error")
+    val code = (error?.optString("code") ?: root?.optString("error"))?.takeIf { it in workerErrorCodes }
+    fun validRetry(at: Long?): Long? = at?.takeIf { it > now && it - now <= MAX_RETRY_MILLIS }
+    val headerRetry = retryAfter?.trim()?.let { text ->
+        text.toLongOrNull()?.takeIf { it in 1L..172_800L }?.let { now + it * 1_000L }
+            ?: runCatching { ZonedDateTime.parse(text, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() }.getOrNull()
+    }?.let(::validRetry)
+    val bodyRetry = error?.opt("retryAfterSeconds")?.toString()?.toLongOrNull()?.takeIf { it in 1L..172_800L }
+        ?.let { now + it * 1_000L }
+    val retryAt = listOfNotNull(headerRetry, bodyRetry).maxOrNull()
+        ?: if (status == 429) now + 30_000L else null
+    val (kind, message) = when {
+        code == "BUDGET_WARMUP" -> SeoulSubwayFailure.SERVER_WARMUP to
+            "중계 서버의 최초 요청량 보호 대기 중이에요. 서버 안내 시각 이후 자동으로 다시 확인해요."
+        code in setOf("SERVICE_NOT_CONFIGURED", "SERVER_NOT_CONFIGURED") -> SeoulSubwayFailure.SETUP_REQUIRED to
+            "중계 서버 설정이 완료되지 않았어요. 서버의 비밀키·바인딩 설정 확인이 필요해요."
+        status == 401 || status == 403 -> SeoulSubwayFailure.GATEWAY_ACCESS_DENIED to
+            "중계 서버가 앱 요청을 거절했어요. Cloudflare 접근 규칙·앱 연결 설정을 확인해 주세요."
+        status == 429 -> SeoulSubwayFailure.REQUEST_LIMIT to when (code) {
+            "UPSTREAM_BUDGET_EXHAUSTED" -> "서울시 원본 조회 한도 보호 중이에요. 서버 안내 시각 이후 다시 확인해요."
+            "IP_RATE_LIMITED" -> "이 네트워크의 요청이 잠시 제한됐어요. 잠시 후 다시 확인해요."
+            else -> "실시간 도착정보 요청이 잠시 제한됐어요. 서버 안내 시각 이후 다시 확인해요."
+        }
+        code == "UPSTREAM_TIMEOUT" -> SeoulSubwayFailure.SERVICE_ERROR to "서울시 원본 도착정보 응답이 지연되고 있어요."
+        code in setOf("UPSTREAM_INVALID_JSON", "UPSTREAM_REJECTED", "ARRIVAL_DATA_UNAVAILABLE") ->
+            SeoulSubwayFailure.SERVICE_ERROR to "중계 서버는 연결됐지만 서울시 원본 도착정보를 확인할 수 없어요."
+        status in 300..399 -> SeoulSubwayFailure.SERVICE_ERROR to "중계 서버 주소가 변경됐어요. 앱 연결 주소 확인이 필요해요."
+        else -> SeoulSubwayFailure.SERVICE_ERROR to "실시간 정보 서버 요청을 처리하지 못했어요. 잠시 후 다시 확인해요."
+    }
+    return SeoulSubwayApiException(message, kind, retryAt, code, status)
+}
+
+private fun java.io.Reader.readTextBounded(limit: Int): String {
+    val buffer = CharArray(limit)
+    var used = 0
+    while (used < limit) {
+        val count = read(buffer, used, limit - used)
+        if (count < 0) break
+        used += count
+    }
+    return String(buffer, 0, used)
+}
 
 /** Shared across station names/tabs, guarded by the repository mutex. */
 internal class WorkerRequestBackoff {
