@@ -15,6 +15,8 @@ class GyeonggiBusLookupTest {
     @Test fun routeSelectionAutomaticallyMatchesOneOfficialStopAndLine() {
         val candidates = gyeonggiStopCandidates(route(), listOf(official))
         assertEquals(listOf(official), candidates)
+        assertEquals(listOf(official.copy(name = "영통역.경희대")), gyeonggiStopCandidates(
+            route(), listOf(official.copy(name = "영통역.경희대"))))
         val match = resolveGyeonggiBusMatch(route(), listOf(official to valid))
         assertEquals("200000177", match?.stationId)
         assertEquals("200000037", match?.routeId)
