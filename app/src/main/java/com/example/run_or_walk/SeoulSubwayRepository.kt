@@ -458,6 +458,8 @@ internal fun subwayArrivalDiagnosticSummary(arrivals: List<OfficialSubwayArrival
     arrivals.any { SubwayArrivalIssue.DEVICE_CLOCK_BEHIND in it.issues ||
         it.gatewayFetchedAtEpochMillis?.let { fetched -> fetched > now } == true } ->
         "기기 날짜·시간이 서버 시각보다 느려요. 휴대전화의 날짜·시간 자동 설정을 확인해 주세요."
+    arrivals.all { SubwayArrivalIssue.ETA_UNAVAILABLE in it.issues } ->
+        "도착정보 수신 완료 · 서울시 원본의 도착예정시간이 모두 0초라 자동 판단을 보류했어요."
     arrivals.all { now - it.snapshot.fetchedAtEpochMillis > SEOUL_ARRIVAL_VALIDITY_MILLIS } ->
         "도착정보 수신 완료 · 서울시 원본 정보가 60초 이상 갱신되지 않아 자동 판단을 보류했어요."
     else -> "도착정보 수신 완료 · 유효한 예정시간과 열차 상태가 확인될 때까지 자동 판단을 보류해요."
