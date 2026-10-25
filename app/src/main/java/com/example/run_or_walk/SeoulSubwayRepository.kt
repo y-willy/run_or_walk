@@ -45,7 +45,8 @@ data class OfficialSubwayArrival(
     val officialArrivalMessage: String = "",
     val sourceReceivedAtEpochMillis: Long? = null,
     val gatewayContract: SubwayGatewayContract = SubwayGatewayContract.UNKNOWN,
-    val issues: Set<SubwayArrivalIssue> = emptySet()
+    val issues: Set<SubwayArrivalIssue> = emptySet(),
+    val sourceEtaSeconds: Long? = null
 )
 
 enum class SubwayGatewayContract { RAW_FIELDS, LEGACY_ALIASES, UNKNOWN }
@@ -360,7 +361,7 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
                     validForMillis = SEOUL_ARRIVAL_VALIDITY_MILLIS,
                     reliable = trust == ArrivalTrustState.VALID, trustState = trust),
                 message, gatewayFetched,
-                text("arvlMsg2", "arrivalMessage").orEmpty(), sourceTime, contract, issues
+                text("arvlMsg2", "arrivalMessage").orEmpty(), sourceTime, contract, issues, seconds
             ))
         }
     }
@@ -432,7 +433,9 @@ internal fun subwayArrivalDisplayStatus(arrival: OfficialSubwayArrival, now: Lon
             arrival.gatewayFetchedAtEpochMillis?.let { it > now } == true ->
             "기기 날짜·시간이 서버보다 느려요 · 자동 날짜·시간 설정을 확인해 주세요"
         source != null && now - source > SEOUL_ARRIVAL_VALIDITY_MILLIS ->
-            "서울시 원본 정보 갱신 대기 · 자동 판단 제외"
+            if (SubwayArrivalIssue.ETA_UNAVAILABLE in arrival.issues)
+                "서울시 원본 정보 갱신 대기 · 초 단위 예정시간도 미제공 · 자동 판단 제외"
+            else "서울시 원본 정보 갱신 대기 · 자동 판단 제외"
         SubwayArrivalIssue.INVALID_ETA in arrival.issues -> "도착 예정시간이 유효하지 않아요"
         SubwayArrivalIssue.ETA_UNAVAILABLE in arrival.issues -> "초 단위 도착 예정시간 미제공"
         SubwayArrivalIssue.SOURCE_TIMESTAMP_MISSING in arrival.issues -> "원본 생성 시각 미제공"
@@ -459,7 +462,9 @@ internal fun subwayArrivalDiagnosticSummary(arrivals: List<OfficialSubwayArrival
         it.gatewayFetchedAtEpochMillis?.let { fetched -> fetched > now } == true } ->
         "기기 날짜·시간이 서버 시각보다 느려요. 휴대전화의 날짜·시간 자동 설정을 확인해 주세요."
     arrivals.all { SubwayArrivalIssue.ETA_UNAVAILABLE in it.issues } ->
-        "도착정보 수신 완료 · 서울시 원본의 도착예정시간이 모두 0초라 자동 판단을 보류했어요."
+        if (arrivals.all { now - it.snapshot.fetchedAtEpochMillis > SEOUL_ARRIVAL_VALIDITY_MILLIS })
+            "도착정보 수신 완료 · 원본 예정시간이 모두 0초이고 60초 이상 갱신되지 않아 자동 판단을 보류했어요."
+        else "도착정보 수신 완료 · 서울시 원본의 도착예정시간이 모두 0초라 자동 판단을 보류했어요."
     arrivals.all { now - it.snapshot.fetchedAtEpochMillis > SEOUL_ARRIVAL_VALIDITY_MILLIS } ->
         "도착정보 수신 완료 · 서울시 원본 정보가 60초 이상 갱신되지 않아 자동 판단을 보류했어요."
     else -> "도착정보 수신 완료 · 유효한 예정시간과 열차 상태가 확인될 때까지 자동 판단을 보류해요."

@@ -79,12 +79,24 @@ internal fun resolveAutomaticSubwayIdentity(
     val nextStop = directionHint(route.nextStopName.orEmpty())
     // Missing both route hints never licenses the first API row as the correct platform.
     if (supplied.isBlank() && nextStop.isBlank()) return null
-    val matches = arrivals.filter { arrival ->
+    val matches = subwayRouteArrivalRows(route, arrivals).filter { arrival ->
         val snapshot = arrival.snapshot
         if (!arrival.identity.isComplete || arrival.trainId.isBlank() ||
             !snapshot.reliable || snapshot.trustState != ArrivalTrustState.VALID ||
             nowMillis - snapshot.fetchedAtEpochMillis !in 0L..minOf(snapshot.validForMillis, 60_000L) ||
             snapshot.firstArrivalAtEpochMillis <= nowMillis) return@filter false
+        true
+    }
+    return matches.map(OfficialSubwayArrival::identity).distinct().singleOrNull()
+}
+
+/** Display source observations even when ETA or optional train metadata cannot authorize guidance. */
+internal fun subwayRouteArrivalRows(route: KakaoTransitChoice?, arrivals: List<OfficialSubwayArrival>): List<OfficialSubwayArrival> {
+    if (route == null) return arrivals
+    if (route.firstTransitType != "SUBWAY") return emptyList()
+    val supplied = directionHint(route.directionName.orEmpty())
+    val nextStop = directionHint(route.nextStopName.orEmpty())
+    return arrivals.filter { arrival ->
         val officialService = arrival.directionLabel.substringAfter('·', "")
         val direction = directionHint(arrival.identity.directionId)
         val destination = directionHint(officialService.substringBefore('-'))
@@ -98,7 +110,6 @@ internal fun resolveAutomaticSubwayIdentity(
             (officialNext.isNotBlank() && nextStop == officialNext)
         directionMatches && nextMatches
     }
-    return matches.map(OfficialSubwayArrival::identity).distinct().singleOrNull()
 }
 
 private data class StationNameParts(val full: String, val base: String)

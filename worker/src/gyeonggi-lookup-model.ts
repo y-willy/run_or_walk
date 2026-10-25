@@ -90,8 +90,13 @@ export function normalizeGyeonggiLookup(input: unknown, op: GyeonggiLookupOperat
   if (!header) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
   const code = text(header.resultCode);
   if (!['0', '00', '4'].includes(code ?? '')) throw new GyeonggiPayloadError('GYEONGGI_UPSTREAM_REJECTED');
-  const raw = code === '4' ? [] : op.kind === 'via' ? body?.busRouteList : body?.busStationList;
+  // The official around-list response has a DIFFERENT field from station-name search.
+  // Reading busStationList here silently discarded every successful nearby response.
+  const field = op.kind === 'via' ? 'busRouteList' :
+    op.kind === 'nearby' ? 'busStationAroundList' : 'busStationList';
+  const raw = code === '4' ? [] : body?.[field];
   if (code !== '4' && !body) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
+  if (code !== '4' && body && !(field in body)) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
   const rows = raw == null || raw === '' ? [] : Array.isArray(raw) ? raw : [raw];
   if (rows.length > 100) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
   if (op.kind !== 'via') {

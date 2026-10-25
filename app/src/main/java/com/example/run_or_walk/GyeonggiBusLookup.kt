@@ -27,6 +27,12 @@ internal data class GyeonggiOfficialMatch(
 ) {
     val identity: OfficialBoardingIdentity get() =
         OfficialBoardingIdentity("GBIS", stationId, routeId, staOrder, routeName)
+
+    fun isValid(): Boolean = stationId.matches(Regex("[1-9][0-9]{5,11}")) &&
+        routeId.matches(Regex("[1-9][0-9]{5,11}")) && staOrder.matches(Regex("[1-9][0-9]{0,3}")) &&
+        routeName.isNotBlank() && routeName.length <= 100 && destination.isNotBlank() &&
+        destination.length <= 200 && (routeName + destination).none(Char::isISOControl) &&
+        point.x.isFinite() && point.y.isFinite() && point.x in 124.0..132.0 && point.y in 32.0..40.0
 }
 
 /** Match only one nearby physical stop; a distance-only guess cannot identify a 5100/3 bus. */
@@ -52,8 +58,11 @@ internal fun resolveGyeonggiBusMatch(
     if (choice.firstTransitType != "BUS") return null
     val expected = normalizedGyeonggiName(choice.serviceName)
     if (expected.isEmpty()) return null
+    val intended = normalizedGyeonggiDestination(choice.directionName.orEmpty())
     val same = matches.filter { (stop, route) ->
         normalizedGyeonggiName(route.routeName) == expected &&
+            route.destination.isNotBlank() &&
+            (intended.isBlank() || normalizedGyeonggiDestination(route.destination) == intended) &&
             stop.stationId.matches(Regex("[1-9][0-9]{5,11}")) &&
             route.routeId.matches(Regex("[1-9][0-9]{5,11}")) &&
             route.staOrder.matches(Regex("[1-9][0-9]{0,3}"))
@@ -63,7 +72,6 @@ internal fun resolveGyeonggiBusMatch(
         else -> {
             // Opposite-side stops may share both name and route number.
             // Use a route-provider direction only when one official destination agrees.
-            val intended = normalizedGyeonggiDestination(choice.directionName.orEmpty())
             if (intended.isBlank()) return null
             same.filter { (_, route) ->
                 normalizedGyeonggiDestination(route.destination) == intended
@@ -71,9 +79,22 @@ internal fun resolveGyeonggiBusMatch(
         }
     }
     val (stop, route) = selected
+    // Recheck physical stop evidence here, including callers other than the discovery repository.
+    if (stop !in gyeonggiStopCandidates(choice, listOf(stop))) return null
     return GyeonggiOfficialMatch(stop.stationId, route.routeId, route.staOrder,
-        route.routeName, route.destination, stop.point)
+        route.routeName, route.destination, stop.point).takeIf { it.isValid() }
 }
+
+internal fun GyeonggiOfficialMatch.toSessionJson(): JSONObject = JSONObject()
+    .put("stationId", stationId).put("routeId", routeId).put("staOrder", staOrder)
+    .put("routeName", routeName).put("destination", destination).put("x", point.x).put("y", point.y)
+
+internal fun decodeGyeonggiMatch(json: JSONObject?): GyeonggiOfficialMatch? = runCatching {
+    if (json == null) return null
+    GyeonggiOfficialMatch(json.getString("stationId"), json.getString("routeId"), json.getString("staOrder"),
+        json.getString("routeName"), json.getString("destination"),
+        MapPoint(json.getDouble("x"), json.getDouble("y"))).takeIf { it.isValid() }
+}.getOrNull()
 
 private fun normalizedGyeonggiName(name: String): String = name.trim().lowercase()
     .replace(Regex("\\s+"), "").removeSuffix("정류장").removeSuffix("정류소")
@@ -94,6 +115,7 @@ private fun gbisDistanceMeters(a: MapPoint, b: MapPoint): Double {
 internal class GyeonggiBusLookupRepository(
     private val baseUrl: String = BuildConfig.SUBWAY_GATEWAY_URL
 ) {
+    private val requestBackoff = GyeonggiRequestBackoff()
     private fun url(path: String): String {
         val uri = runCatching { URI(baseUrl) }.getOrNull()
         if (uri?.scheme != "https" || uri.host.isNullOrBlank() ||
@@ -103,6 +125,7 @@ internal class GyeonggiBusLookupRepository(
     }
 
     private suspend fun request(path: String): JSONObject = withContext(Dispatchers.IO) {
+        requestBackoff.check(System.currentTimeMillis())
         val connection = URI(url(path)).toURL().openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "GET"
@@ -112,11 +135,7 @@ internal class GyeonggiBusLookupRepository(
             connection.setRequestProperty("Accept", "application/json")
             val status = connection.responseCode
             currentCoroutineContext().ensureActive()
-            if (status !in 200..299) throw IOException(when (status) {
-                503 -> "경기 정류소 검색 API 승인 또는 GYEONGGI_STATION_KEY Worker 설정이 필요해요."
-                429 -> "경기버스 조회 한도에 도달했어요. 잠시 후 다시 시도해 주세요."
-                else -> "경기 정류소 공식 검색에 실패했어요. (HTTP $status)"
-            })
+            if (status !in 200..299) throw readGyeonggiHttpFailure(connection, status).also(requestBackoff::record)
             val data = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                 val buffer = StringBuilder()
                 val chunk = CharArray(4096)

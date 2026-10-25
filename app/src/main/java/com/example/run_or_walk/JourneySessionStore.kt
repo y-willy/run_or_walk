@@ -29,7 +29,8 @@ internal data class JourneySelectionSnapshot(
     val alertsEnabled: Boolean,
     val detailsExpanded: Boolean,
     val departureQuery: String = "",
-    val departure: JourneyPlace? = null
+    val departure: JourneyPlace? = null,
+    val gyeonggiMatch: GyeonggiOfficialMatch? = null
 )
 
 internal fun captureJourneySession(
@@ -42,7 +43,7 @@ internal fun captureJourneySession(
         state.boardingSource, state.boardingChosenByUser, state.boardingMatchedAutomatically,
         state.stationQuery, state.selectedStation, state.busStopQuery, state.selectedBusStop,
         state.selectedBusRoute, state.confirmedServiceIdentity, state.alertsEnabled,
-        state.detailsExpanded, state.departure.query, state.departure.selected)
+        state.detailsExpanded, state.departure.query, state.departure.selected, state.selectedGyeonggiMatch)
 })
 
 /** Use fresh screen instances: dynamic data and in-flight generations always start empty. */
@@ -76,6 +77,19 @@ internal fun restoreJourneyScreens(snapshot: JourneySessionSnapshot?): Map<Featu
                         busRouteOptions = listOfNotNull(selectedBusRoute)
                         confirmedServiceIdentity = saved.confirmedIdentity?.takeIf {
                             it == selectedBusRoute?.identity
+                        }
+                        if (selectedBusRoute == null) {
+                            selectedGyeonggiMatch = saved.gyeonggiMatch?.takeIf {
+                                it.isValid() && it.point == saved.boarding.point &&
+                                    it.identity == saved.confirmedIdentity && saved.selectedRoute?.kakao?.let { route ->
+                                        resolveGyeonggiBusMatch(route, listOf(
+                                            GyeonggiNearbyStop(it.stationId, saved.boarding.name, it.point, 0.0) to
+                                                GyeonggiStopRoute(it.routeId, it.routeName, it.staOrder, it.destination)
+                                        )) == it
+                                    } == true
+                            }
+                            confirmedServiceIdentity = selectedGyeonggiMatch?.identity
+                            gyeonggiStationId = selectedGyeonggiMatch?.stationId.orEmpty()
                         }
                     } else {
                         selectedStation = saved.station
@@ -129,6 +143,7 @@ internal fun encodeJourneySession(snapshot: JourneySessionSnapshot): String = JS
             .put("stationQuery", saved.stationQuery).putOptional("station", saved.station?.toJson())
             .put("busStopQuery", saved.busStopQuery).putOptional("busStop", saved.busStop?.toJson())
             .putOptional("busRoute", saved.busRoute?.toJson())
+            .putOptional("gyeonggiMatch", saved.gyeonggiMatch?.toSessionJson())
             .putOptional("confirmedIdentity", saved.confirmedIdentity?.toJson())
             .put("alertsEnabled", saved.alertsEnabled).put("detailsExpanded", saved.detailsExpanded)
     })).toString()
@@ -153,7 +168,8 @@ internal fun decodeJourneySession(text: String?): JourneySessionSnapshot? {
                 row.query("busStopQuery"), row.optJSONObject("busStop")?.busStop(),
                 row.optJSONObject("busRoute")?.busRoute(), row.optJSONObject("confirmedIdentity")?.identity(),
                 row.flag("alertsEnabled"), row.flag("detailsExpanded"),
-                row.query("departureQuery"), row.place("departure"))
+                row.query("departureQuery"), row.place("departure"),
+                decodeGyeonggiMatch(row.optJSONObject("gyeonggiMatch")))
         }
         if (screens.map { it.mode }.distinct().size != screens.size) return null
         JourneySessionSnapshot(mode, screens)
@@ -183,7 +199,7 @@ private fun JourneyTransitRoute.toJson(): JSONObject {
         .put("boardingSource", choice.boardingSource.name).put("firstTransitType", choice.firstTransitType)
         .putOptional("totalWalkingSeconds", choice.totalWalkingSeconds).putOptional("boardingStopId", choice.boardingStopId)
         .putOptional("officialBoardingStopId", choice.officialBoardingStopId).putOptional("transitLineId", choice.transitLineId)
-        .putOptional("directionName", choice.directionName)
+        .putOptional("directionName", choice.directionName).putOptional("nextStopName", choice.nextStopName)
 }
 private fun JSONObject.route(): JourneyTransitRoute? {
     val id = text("id", 160) ?: return null
@@ -194,7 +210,7 @@ private fun JSONObject.route(): JourneyTransitRoute? {
         text("serviceName", 200).orEmpty(), text("boardingStopName", 200).orEmpty(),
         optJSONObject("boardingPoint")?.point(), source, type, integer("totalWalkingSeconds", 0, 86_400),
         text("boardingStopId", 160), text("officialBoardingStopId", 160), text("transitLineId", 160),
-        text("directionName", 200)))
+        text("directionName", 200), text("nextStopName", 200)))
 }
 private fun OfficialSubwayStation.toJson() = JSONObject().put("stopId", stopId).put("routeId", routeId)
     .put("name", name).put("lineName", lineName)
@@ -229,7 +245,7 @@ private fun JSONObject.identity(): OfficialBoardingIdentity? {
     val value = OfficialBoardingIdentity(text("authority", 16) ?: return null,
         text("stopId", 12) ?: return null, text("routeId", 12) ?: return null,
         text("directionId", 40) ?: return null, text("serviceVariant", 2_048) ?: return null)
-    return value.takeIf { it.isComplete && it.authority in setOf("seoul", "seoul-bus") }
+    return value.takeIf { it.isComplete && it.authority in setOf("seoul", "seoul-bus", "GBIS") }
 }
 private fun busId(value: String) = value.matches(Regex("[1-9][0-9]{8}"))
 private fun JSONObject.putOptional(key: String, value: Any?): JSONObject = put(key, value ?: JSONObject.NULL)

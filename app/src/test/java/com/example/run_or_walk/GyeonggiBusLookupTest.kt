@@ -37,6 +37,11 @@ class GyeonggiBusLookupTest {
         assertNull(resolveGyeonggiBusMatch(route(),
             listOf(official to valid, official to alternate)))
     }
+    @Test fun aSingleCandidateCannotOverrideAnExplicitOppositeDirectionOrMissingOfficialDestination() {
+        assertNull(resolveGyeonggiBusMatch(route().copy(directionName = "광교행"), listOf(official to valid)))
+        assertNull(resolveGyeonggiBusMatch(route(), listOf(official to valid.copy(destination = ""))))
+        assertNull(resolveGyeonggiBusMatch(route(), listOf(official.copy(point = MapPoint(127.10, 37.25)) to valid)))
+    }
     @Test fun rejectsWrongLineAndFarAwayOrDifferentName() {
         assertNull(resolveGyeonggiBusMatch(route("3"), listOf(official to valid)))
         assertEquals(emptyList<GyeonggiNearbyStop>(), gyeonggiStopCandidates(route(),

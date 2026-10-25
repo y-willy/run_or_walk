@@ -57,6 +57,11 @@ class BusBoardingResolutionTest {
         assertSame(night, resolveOfficialSeoulBusRoute(listOf(night), stop.stopId, "n26"))
     }
 
+    @Test fun routeDirectionMustAgreeEvenWhenOnlyOneOfficialBusIsReturned() {
+        assertSame(route, resolveOfficialSeoulBusRoute(listOf(route), stop.stopId, "140", "내곡IC 방면"))
+        assertNull(resolveOfficialSeoulBusRoute(listOf(route), stop.stopId, "140", "서울역 방면"))
+    }
+
     private fun busArrival(vehicle: String = "100000001") = OfficialSeoulBusArrival(
         route.identity, vehicle, route.name, route.direction,
         RealtimeArrivalSnapshot(route.identity, 601_000L, fetchedAtEpochMillis = 1_000L, validForMillis = 60_000L))

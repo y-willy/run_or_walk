@@ -14,7 +14,7 @@ import java.time.Instant
 /**
  * Only an independently confirmed GBIS stationId can be queried here.
  * Kakao's place/stop IDs are not interchangeable with GBIS official IDs.
- * This adapter deliberately does not authorize WALK/FAST_WALK guidance.
+ * Only independently matched stop/route/order evidence can authorize guidance.
  */
 internal data class GyeonggiBusArrivalDisplay(
     val stationId: String,
@@ -32,6 +32,7 @@ internal data class GyeonggiBusArrivalDisplay(
 internal class GyeonggiBusRepository(
     private val baseUrl: String = BuildConfig.SUBWAY_GATEWAY_URL
 ) {
+    private val requestBackoff = GyeonggiRequestBackoff()
     val isConfigured: Boolean get() = runCatching { gatewayBase() }.isSuccess
 
     private fun gatewayBase(): String {
@@ -45,6 +46,7 @@ internal class GyeonggiBusRepository(
     }
 
     suspend fun arrivals(stationId: String): List<GyeonggiBusArrivalDisplay> = withContext(Dispatchers.IO) {
+        requestBackoff.check(System.currentTimeMillis())
         if (!stationId.matches(Regex("[1-9][0-9]{5,11}"))) throw IOException("공식 경기 정류소 ID를 확인해 주세요.")
         val url = gatewayBase() + "/gyeonggi/bus/arrivals?stationId=" + stationId
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
@@ -56,12 +58,7 @@ internal class GyeonggiBusRepository(
             connection.setRequestProperty("Accept", "application/json")
             val code = connection.responseCode
             currentCoroutineContext().ensureActive()
-            if (code !in 200..299) throw IOException(when (code) {
-                400 -> "경기 공식 정류소 ID가 올바르지 않아요."
-                429 -> "조회 제한 중이에요. 잠시 후 다시 조회해 주세요."
-                503 -> "경기버스 Worker의 Secret·바인딩 설정을 확인해 주세요."
-                else -> "경기 버스 응답을 확인하지 못했어요."
-            })
+            if (code !in 200..299) throw readGyeonggiHttpFailure(connection, code).also(requestBackoff::record)
             val json = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                 val value = StringBuilder()
                 val chars = CharArray(4_096)
@@ -110,7 +107,8 @@ internal fun parseGyeonggiWorkerArrivals(
                 exactSeconds == null -> ArrivalTrustState.INVALID_ETA
                 exactSeconds == 0 || row.optString("etaPrecision") != "seconds" ||
                     row.optString("status") !in setOf("RUN", "PASS") ||
-                    row.optString("vehicleId").isBlank() -> ArrivalTrustState.UNKNOWN
+                    !row.optString("vehicleId").matches(Regex("[1-9][0-9]+")) ||
+                    row.optInt("sequence", 0) !in 1..2 -> ArrivalTrustState.UNKNOWN
                 observedAt + exactSeconds * 1_000L <= nowMillis -> ArrivalTrustState.STALE
                 else -> ArrivalTrustState.VALID
             }

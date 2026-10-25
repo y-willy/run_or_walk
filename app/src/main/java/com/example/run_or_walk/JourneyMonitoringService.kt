@@ -42,6 +42,7 @@ class JourneyMonitoringService : Service() {
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
     private val subway by lazy { SeoulSubwayRepository(this) }
     private val bus by lazy { SeoulBusRepository() }
+    private val gyeonggi by lazy { GyeonggiBusRepository() }
     private val kakao by lazy { KakaoApiRepository(BuildConfig.KAKAO_REST_KEY) }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -131,7 +132,14 @@ class JourneyMonitoringService : Service() {
             var failure = false
             var message: String? = null
             try {
-                if (request.isBus) {
+                if (request.isGyeonggi) {
+                    val match = requireNotNull(request.gyeonggiMatch)
+                    val selected = chooseMatchingGyeonggiArrival(match,
+                        gyeonggi.arrivals(match.stationId), System.currentTimeMillis())
+                    arrivals = selected?.snapshot
+                    vehicleId = selected?.vehicleId
+                    if (selected == null) message = "선택한 경기버스 방향의 유효한 도착정보를 기다리고 있어요."
+                } else if (request.isBus) {
                     val selected = chooseMatchingBusArrival(request.identity,
                         bus.arrivals(requireNotNull(request.busStop), requireNotNull(request.busRoute)), System.currentTimeMillis())
                     arrivals = selected?.snapshot
@@ -150,7 +158,9 @@ class JourneyMonitoringService : Service() {
                 failure = true
                 retryAt = (error as? SeoulBusApiException)?.retryAfterEpochMillis
                     ?: (error as? SeoulSubwayApiException)?.retryAfterEpochMillis
+                    ?: (error as? GyeonggiApiException)?.retryAfterEpochMillis
                 message = (error as? SeoulBusApiException)?.message
+                    ?: (error as? GyeonggiApiException)?.message
                     ?: (error as? SeoulSubwayApiException)?.message ?: "실시간 도착정보 연결을 다시 확인하고 있어요."
             }
             try {
@@ -160,9 +170,7 @@ class JourneyMonitoringService : Service() {
                     monitoringDistance(old.origin, location.point) > 25.0) {
                     cachedWalk = null
                     val route = kakao.searchWalk(location.point, request.boardingPoint)
-                    if (route.points.size < 2 ||
-                        monitoringDistance(route.points.first(), location.point) > 150.0 ||
-                        monitoringDistance(route.points.last(), request.boardingPoint) > 150.0) {
+                    if (!validWalkingAccess(route, location.point, request.boardingPoint)) {
                         throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
                     }
                     cachedWalk = MonitoringWalk(location.point, route, System.currentTimeMillis())
@@ -221,6 +229,7 @@ class JourneyMonitoringService : Service() {
             AutoGuidanceAssessment(AutoGuidanceStatus.UNKNOWN, bufferSeconds = request.settings.bufferSeconds),
             message = message, lastUpdatedEpochMillis = now, retryAtEpochMillis = retryAt))
         notifySafely(ONGOING_ID, ongoingNotification(request, message, checkedAt = now))
+        notifications.cancel(ARRIVAL_ID)
     }
 
     private fun createChannels() {

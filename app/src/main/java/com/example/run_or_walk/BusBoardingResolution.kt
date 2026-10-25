@@ -33,7 +33,8 @@ internal fun resolveOfficialSeoulBusStop(
 internal fun resolveOfficialSeoulBusRoute(
     candidates: List<OfficialSeoulBusRoute>,
     stopId: String,
-    serviceName: String
+    serviceName: String,
+    directionName: String? = null
 ): OfficialSeoulBusRoute? {
     val expected = normalizeBusRouteName(serviceName)
     if (stopId.isBlank() || expected.isBlank()) return null
@@ -41,9 +42,13 @@ internal fun resolveOfficialSeoulBusRoute(
         it.stopId == stopId && it.stopId.matches(officialBusId) && it.supported &&
             it.routeId.matches(officialBusId) &&
             it.stopOrder.toIntOrNull()?.let { order -> order > 0 } == true &&
+            (directionName.isNullOrBlank() || normalizeBusDirection(it.direction) == normalizeBusDirection(directionName)) &&
             normalizeBusRouteName(it.name) == expected
     }.singleOrNull()
 }
+
+private fun normalizeBusDirection(value: String): String = normalizeBusRouteName(value)
+    .removeSuffix("방향").removeSuffix("방면").removeSuffix("행").removeSuffix("역")
 
 private fun normalizeBusStopName(value: String): String =
     Normalizer.normalize(value, Normalizer.Form.NFC).trim()

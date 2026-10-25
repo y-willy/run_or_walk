@@ -5,6 +5,17 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+internal fun shouldSearchTransitAccess(error: Exception): Boolean =
+    (error as? KakaoApiException)?.failure == KakaoFailure.NO_ROUTE
+
+/** Search estimates lose their context when GPS moves, ages, or the app resumes much later. */
+internal fun isAccessEstimateFresh(
+    origin: MapPoint?, location: GuidanceLocation?, fetchedAtMillis: Long?, now: Long
+): Boolean = origin != null && location != null && fetchedAtMillis != null &&
+    now - fetchedAtMillis in 0L..120_000L && now - location.observedAtEpochMillis in 0L..30_000L &&
+    location.accuracyMeters.isFinite() && location.accuracyMeters in 0.0..50.0 &&
+    accessDistanceMeters(origin, location.point) <= 25.0
+
 /**
  * An alternative public-transport trip from GPS to the selected departure is an estimate.
  * It is not proof that its feeder bus/train can be boarded, or that the original itinerary

@@ -36,6 +36,20 @@ class JourneyMonitoringTest {
             .put("version", 99).toString()))
     }
 
+    @Test fun confirmedGbisRouteCanStartScreenOffMonitoringButWrongOrderOrMixedProvidersCannot() {
+        val match = GyeonggiOfficialMatch("200000177", "200000037", "19", "5100", "강남", point)
+        val request = JourneyMonitoringRequest("영통역", point, match.identity, gyeonggiMatch = match)
+        assertTrue(request.isValid())
+        assertTrue(request.isBus)
+        assertTrue(request.isGyeonggi)
+        assertTrue(request.serviceLabel.contains("5100"))
+        assertEquals(request, JourneyMonitoringRequestCodec.decode(JourneyMonitoringRequestCodec.encode(request)))
+        assertFalse(request.copy(identity = match.identity.copy(directionId = "20")).isValid())
+        assertFalse(request.copy(busStop = stop, busRoute = route).isValid())
+        assertFalse(request.copy(gyeonggiMatch = match.copy(point = MapPoint(127.0, 37.5))).isValid())
+        assertFalse(request.isSameJourney(request.copy(gyeonggiMatch = match.copy(staOrder = "20"))))
+    }
+
     @Test fun settingsChangesKeepSameConfirmedJourneyButDirectionOrStopChangesDoNot() {
         assertTrue(busRequest.isSameJourney(busRequest.copy(settings = JourneySettings(), vibrationEnabled = false)))
         assertTrue(busRequest.matches(route.identity, point))

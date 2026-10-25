@@ -11,10 +11,14 @@ internal data class JourneyMonitoringRequest(
     val busStop: OfficialSeoulBusStop? = null,
     val busRoute: OfficialSeoulBusRoute? = null,
     val settings: JourneySettings = JourneySettings(),
-    val vibrationEnabled: Boolean = false
+    val vibrationEnabled: Boolean = false,
+    val gyeonggiMatch: GyeonggiOfficialMatch? = null
 ) {
-    val isBus: Boolean get() = identity.authority == "seoul-bus"
-    val serviceLabel: String get() = if (isBus) busRoute?.let { "${it.name} · ${it.direction}" }.orEmpty()
+    val isGyeonggi: Boolean get() = identity.authority == "GBIS"
+    val isBus: Boolean get() = identity.authority in setOf("seoul-bus", "GBIS")
+    val serviceLabel: String get() = if (isGyeonggi)
+        gyeonggiMatch?.let { "${it.routeName} · ${it.destination}" }.orEmpty()
+        else if (isBus) busRoute?.let { "${it.name} · ${it.direction}" }.orEmpty()
         else subwayStation?.let { "${it.lineName} · ${identity.directionId}" }.orEmpty()
 
     fun matches(identity: OfficialBoardingIdentity?, point: MapPoint?): Boolean =
@@ -22,7 +26,8 @@ internal data class JourneyMonitoringRequest(
 
     fun isSameJourney(other: JourneyMonitoringRequest): Boolean =
         identity == other.identity && boardingPoint == other.boardingPoint &&
-            subwayStation == other.subwayStation && busStop == other.busStop && busRoute == other.busRoute
+            subwayStation == other.subwayStation && busStop == other.busStop && busRoute == other.busRoute &&
+            gyeonggiMatch == other.gyeonggiMatch
 
     fun isValid(): Boolean {
         if (boardingName.isBlank() || boardingName.length > 200 || boardingName.any(Char::isISOControl) ||
@@ -30,12 +35,14 @@ internal data class JourneyMonitoringRequest(
             listOf(identity.authority, identity.stopId, identity.routeId, identity.directionId, identity.serviceVariant)
                 .any { it.length > 512 || it.any(Char::isISOControl) }) return false
         return when (identity.authority) {
-            "seoul" -> busStop == null && busRoute == null && subwayStation?.let {
+            "GBIS" -> subwayStation == null && busStop == null && busRoute == null &&
+                gyeonggiMatch?.let { it.isValid() && it.identity == identity && it.point == boardingPoint } == true
+            "seoul" -> gyeonggiMatch == null && busStop == null && busRoute == null && subwayStation?.let {
                 it.stopId == identity.stopId && it.routeId == identity.routeId &&
                     it.name.isNotBlank() && it.lineName.isNotBlank() &&
                     identity.directionId in setOf("상행", "하행", "내선", "외선")
             } == true
-            "seoul-bus" -> subwayStation == null && busStop?.let { stop ->
+            "seoul-bus" -> gyeonggiMatch == null && subwayStation == null && busStop?.let { stop ->
                 busRoute?.let { route -> stop.stopId == route.stopId && route.identity == identity &&
                     route.supported && route.routeType in setOf("2", "3", "4", "5", "6") &&
                     route.name.isNotBlank() && route.direction.isNotBlank() &&
@@ -60,6 +67,7 @@ internal object JourneyMonitoringRequestCodec {
                 .put("directionId", request.identity.directionId).put("serviceVariant", request.identity.serviceVariant))
             .put("settings", JSONObject(JourneySettingsCodec.encode(request.settings)))
             .put("vibrationEnabled", request.vibrationEnabled).apply {
+                request.gyeonggiMatch?.let { put("gyeonggiMatch", it.toSessionJson()) }
                 request.subwayStation?.let {
                     put("subwayStation", JSONObject().put("stopId", it.stopId).put("routeId", it.routeId)
                         .put("name", it.name).put("lineName", it.lineName))
@@ -98,7 +106,8 @@ internal object JourneyMonitoringRequestCodec {
         }
         JourneyMonitoringRequest(root.text("boardingName"), point, identity, station, stop, route,
             JourneySettingsCodec.decode(root.optJSONObject("settings")?.toString()),
-            root.opt("vibrationEnabled") == true).takeIf { it.isValid() }
+            root.opt("vibrationEnabled") == true,
+            decodeGyeonggiMatch(root.optJSONObject("gyeonggiMatch"))).takeIf { it.isValid() }
     }.getOrNull()
 }
 

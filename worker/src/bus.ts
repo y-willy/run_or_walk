@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { publicApiFailure } from './public-api-errors';
 import {
   BUS_CACHE_TTL_MS, BUS_UPSTREAM_BUDGET, BUS_WINDOW_MS, BusSourceError,
   busSourceUrl, normalizeBusPayload, parseBusOperation, refreshBusPayload, type BusOperation,
@@ -166,12 +167,11 @@ export class SeoulBusCoordinator extends DurableObject<BusEnv> {
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
       let payload: unknown;
       const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+      const gatewayError = publicApiFailure(text);
+      if (gatewayError) return fail('BUS_GATEWAY_' + gatewayError,
+        gatewayError === 'RATE_LIMITED' ? 429 : 502, gatewayError === 'RATE_LIMITED' ? 60 : 10);
       try { payload = JSON.parse(text); }
       catch {
-        // Gateway errors may be XML despite resultType=json; never copy their body/message/URL.
-        if (/<OpenAPI_ServiceResponse\b/.test(text) && /<cmmMsgHeader\b/.test(text)) {
-          return fail('BUS_UPSTREAM_PERMISSION', 502, 10);
-        }
         return fail('BUS_UPSTREAM_INVALID_JSON', 502, 10);
       }
       return json(normalizeBusPayload(operation, payload, Date.now(), key));

@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { publicApiFailure } from './public-api-errors';
 import {
   GYEONGGI_BUDGET, GYEONGGI_CACHE_MS, GYEONGGI_WINDOW_MS,
   GyeonggiPayloadError, gyeonggiSourceUrl, normalizeGyeonggiResponse,
@@ -149,7 +150,8 @@ export class GyeonggiBusCoordinator extends DurableObject<GyeonggiEnv> {
       const response = await fetch(url, { redirect: 'manual', signal: controller.signal,
         headers: { Accept: 'application/json' } });
       if (response.status >= 300 && response.status < 400) return fail('GYEONGGI_UPSTREAM_REDIRECT', 502, 10);
-      if ([401, 403].includes(response.status)) return fail('GYEONGGI_AUTHENTICATION', 502, 10);
+      if (response.status === 401) return fail('GYEONGGI_KEY_REJECTED', 502, 10);
+      if (response.status === 403) return fail('GYEONGGI_ACCESS_FORBIDDEN', 502, 10);
       if (response.status === 429) return fail('GYEONGGI_UPSTREAM_RATE_LIMIT', 429, 60);
       if (!response.ok) return fail('GYEONGGI_UPSTREAM_UNAVAILABLE', 502, 10);
       const reader = response.body?.getReader();
@@ -167,7 +169,11 @@ export class GyeonggiBusCoordinator extends DurableObject<GyeonggiEnv> {
       let cursor = 0;
       for (const part of chunks) { all.set(part, cursor); cursor += part.byteLength; }
       let decoded: unknown;
-      try { decoded = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(all)); }
+      const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(all);
+      const gatewayError = publicApiFailure(text);
+      if (gatewayError) return fail('GYEONGGI_GATEWAY_' + gatewayError,
+        gatewayError === 'RATE_LIMITED' ? 429 : 502, gatewayError === 'RATE_LIMITED' ? 60 : 10);
+      try { decoded = JSON.parse(text); }
       catch { return fail('GYEONGGI_INVALID_RESPONSE', 502, 10); }
       return ok((op.kind === 'list' || op.kind === 'item') ?
         normalizeGyeonggiResponse(decoded, op, Date.now()) : normalizeGyeonggiLookup(decoded, op));

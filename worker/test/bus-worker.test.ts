@@ -40,6 +40,17 @@ async function seed(service: string, total: number, at = Date.now()) {
 afterEach(async () => { vi.restoreAllMocks(); await reset(); });
 
 describe('Seoul bus endpoints in real Workers runtime and SQLite', () => {
+  it.each([['30', 'KEY_REJECTED', 502], ['20', 'ACCESS_FORBIDDEN', 502], ['31', 'KEY_EXPIRED', 502], ['22', 'RATE_LIMITED', 429]])(
+    'classifies gateway XML %s separately from HTTP authentication', async (code, suffix, status) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(
+        `<OpenAPI_ServiceResponse><cmmMsgHeader><errMsg>${secret}</errMsg><returnReasonCode>${code}</returnReasonCode></cmmMsgHeader></OpenAPI_ServiceResponse>`));
+      const result = await request();
+      expect(result.status).toBe(status);
+      const body = await result.text();
+      expect(JSON.parse(body)).toMatchObject({ error: { code: 'BUS_GATEWAY_' + suffix } });
+      expect(body).not.toContain(secret);
+      expect(await count('arrivals')).toBe(1);
+    });
   it('provides first and actual next bus, preserving exact identities and source time', async () => {
     const fetch = upstream();
     const response = await request();
@@ -175,7 +186,7 @@ describe('Seoul bus endpoints in real Workers runtime and SQLite', () => {
     const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(
       `<OpenAPI_ServiceResponse><cmmMsgHeader><errMsg>${secret}</errMsg></cmmMsgHeader></OpenAPI_ServiceResponse>`));
     const response = await request();
-    expect(await response.json()).toMatchObject({ error: { code: 'BUS_UPSTREAM_PERMISSION' } });
+    expect(await response.json()).toMatchObject({ error: { code: 'BUS_GATEWAY_REJECTED' } });
     expect(fetch).toHaveBeenCalledTimes(1);
     vi.restoreAllMocks();
     await reset();

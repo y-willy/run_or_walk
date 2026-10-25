@@ -70,6 +70,11 @@ class AutoGuidanceTest {
         assertUnknown(missing, AutoGuidanceUnknownReason.WALKING_UNAVAILABLE)
     }
 
+    @Test fun zeroDistanceWithNonzeroWalkingTimeNeverCreatesAnInstantFastWalk() {
+        assertUnknown(input(walkingDistanceMeters = 0), AutoGuidanceUnknownReason.WALKING_UNAVAILABLE)
+        assertUnknown(input(walkingSeconds = 0, walkingDistanceMeters = 100), AutoGuidanceUnknownReason.WALKING_UNAVAILABLE)
+    }
+
     @Test
     fun nextRecommendationDoesNotInventMissingNextArrival() {
         assertUnknown(input(arrivalAfterMillis = 120_000L),

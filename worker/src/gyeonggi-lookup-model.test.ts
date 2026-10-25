@@ -35,7 +35,7 @@ describe('GBIS station discovery contract', () => {
     expect(c.searchParams.get('keyword')).toBe('영통역');
   });
   it('normalizes official station and its route/order without guessing', () => {
-    const stations = normalizeGyeonggiLookup(envelope('busStationList', {
+    const stations = normalizeGyeonggiLookup(envelope('busStationAroundList', {
       stationId: 200000177, stationName: '영통역', x: 127.05, y: 37.25,
       mobileNo: 12345, distance: 35,
     }), nearby);
@@ -58,9 +58,16 @@ describe('GBIS station discovery contract', () => {
     expect(() => normalizeGyeonggiLookup({
       response: { msgHeader: { resultCode: 1 }, msgBody: {} },
     }, nearby)).toThrow();
-    const data = normalizeGyeonggiLookup(envelope('busStationList', {
+    const data = normalizeGyeonggiLookup(envelope('busStationAroundList', {
       stationId: 200000177, stationName: '영통역', x: 0, y: 0, distance: 35,
     }), nearby);
     expect(data.kind === 'nearby' && data.stops).toEqual([]);
+  });
+  it('never reports a schema mismatch as a successful empty nearby stop list', () => {
+    expect(() => normalizeGyeonggiLookup(envelope('busStationList', {
+      stationId: 200000177, stationName: '영통역', x: 127.05, y: 37.25, distance: 20,
+    }), nearby)).toThrow('GYEONGGI_INVALID_RESPONSE');
+    expect(normalizeGyeonggiLookup({ response: { msgHeader: { resultCode: 4 } } }, nearby))
+      .toEqual({ provider: 'gyeonggi-gbis', kind: 'nearby', stops: [] });
   });
 });

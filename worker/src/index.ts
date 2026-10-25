@@ -39,9 +39,11 @@ export default {
     try {
       const url = new URL(request.url);
       if (request.method !== 'GET') return respond(failure('METHOD_NOT_ALLOWED', 405), { Allow: 'GET' });
-      if (url.pathname === '/health') return respond(json({ status: 'ok' }));
+      if (url.pathname === '/health') return respond(json({ status: 'ok' }), {
+        'X-PaceNudge-Contract': '2026-10-25.2',
+      });
       if (url.pathname.startsWith('/bus/')) return await handleBusRequest(request, env);
-       if (url.pathname.startsWith('/gyeonggi/bus/')) return await handleGyeonggiRequest(request, env);
+      if (url.pathname.startsWith('/gyeonggi/bus/')) return await handleGyeonggiRequest(request, env);
       if (url.pathname !== '/subway') return respond(failure('NOT_FOUND', 404));
       if (url.searchParams.getAll('station').length !== 1) return respond(failure('INVALID_STATION', 400));
       const station = normalizeStation(url.searchParams.get('station'));

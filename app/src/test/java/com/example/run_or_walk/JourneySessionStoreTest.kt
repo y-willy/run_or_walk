@@ -173,4 +173,33 @@ class JourneySessionStoreTest {
         assertEquals(subwayIdentity, restored.confirmedServiceIdentity)
         assertEquals("kakao-2", restored.selectedRoute?.id)
     }
+
+    @Test fun restoresSubwayNextStopEvidenceAndGbisSelectionWithoutRealtimeData() {
+        val screens = selectedScreens()
+        val state = screens.getValue(FeatureMode.ROUTE)
+        val next = state.selectedRoute!!.copy(kakao = state.selectedRoute!!.kakao.copy(nextStopName = "역삼"))
+        state.selectedRoute = next
+        assertEquals("역삼", restoreJourneyScreens(roundTrip(screens)).getValue(FeatureMode.ROUTE).selectedRoute?.kakao?.nextStopName)
+
+        val match = GyeonggiOfficialMatch("200000177", "200000037", "19", "5100", "강남", MapPoint(127.05, 37.25))
+        state.clearRoutesAndBoarding()
+        state.selectedRoute = JourneyTransitRoute("gbis-trip", KakaoTransitChoice(900, 0, "5100", "영통역",
+            match.point, BoardingPointSource.ESTIMATED, "BUS", directionName = "강남행"))
+        state.boarding = JourneyPlace("route-bus", "영통역", "공식 정류장", match.point, categoryName = "버스정류장")
+        state.boardingMatchedAutomatically = true
+        state.boardingSource = BoardingPointSource.VERIFIED
+        state.selectedGyeonggiMatch = match
+        state.confirmedServiceIdentity = match.identity
+        val snapshot = roundTrip(screens)
+        val restored = restoreJourneyScreens(snapshot).getValue(FeatureMode.ROUTE)
+        assertEquals(match, restored.selectedGyeonggiMatch)
+        assertEquals(match.identity, restored.confirmedServiceIdentity)
+        assertEquals(match.stationId, restored.gyeonggiStationId)
+        assertTrue(restored.gyeonggiArrivals.isEmpty())
+        assertNull(restored.activeArrivalSnapshot)
+        val broken = snapshot.copy(screens = snapshot.screens.map {
+            if (it.mode == FeatureMode.ROUTE) it.copy(gyeonggiMatch = match.copy(staOrder = "20")) else it
+        })
+        assertNull(restoreJourneyScreens(broken).getValue(FeatureMode.ROUTE).confirmedServiceIdentity)
+    }
 }

@@ -195,6 +195,10 @@ fun calculateAutoGuidance(
     val distance = walking.distanceMeters
         ?: return unknown(AutoGuidanceUnknownReason.WALKING_UNAVAILABLE)
     if (distance < 0) return unknown(AutoGuidanceUnknownReason.INVALID_INPUT)
+    if ((distance == 0 && walking.durationSeconds > 0) ||
+        (distance > 0 && walking.durationSeconds == 0)) {
+        return unknown(AutoGuidanceUnknownReason.WALKING_UNAVAILABLE)
+    }
     val estimate = ceil(distance.toDouble() * 3.6 / policy.fastSpeedKmh)
         .coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
     // Provider time may already reflect a faster pace.
