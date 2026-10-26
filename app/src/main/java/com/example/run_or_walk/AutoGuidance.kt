@@ -238,9 +238,9 @@ fun calculateAutoGuidance(
                 value.latestArrivalAtEpochMillis > nowEpochMillis
         if (!validEstimate(first)) return unknown(AutoGuidanceUnknownReason.ARRIVAL_STALE)
         val next = evidence.next?.takeIf { validEstimate(it) && it.trainNo != first.trainNo &&
-            it.earliestArrivalAtEpochMillis > first.earliestArrivalAtEpochMillis }
-        firstArrival = first.earliestArrivalAtEpochMillis
-        nextArrival = next?.earliestArrivalAtEpochMillis
+            it.midpointArrivalAtEpochMillis() > first.midpointArrivalAtEpochMillis() }
+        firstArrival = first.midpointArrivalAtEpochMillis()
+        nextArrival = next?.midpointArrivalAtEpochMillis()
         fetchedAt = first.sourceTimestampEpochMillis
         precision = ArrivalTimePrecision.MINUTES
         firstLatest = first.latestArrivalAtEpochMillis
@@ -322,7 +322,7 @@ fun calculateAutoGuidance(
     ) AutoGuidanceStatus.FAST_WALK else rawStatus
     val recommended = (listOfNotNull(nextArrival) + if (useTimetable) scheduled?.later.orEmpty()
         .filter { it.validUntilEpochMillis >= nowEpochMillis && it.identity.directionId == boarding.identity.directionId }
-        .map { it.earliestArrivalAtEpochMillis }
+        .map { it.midpointArrivalAtEpochMillis() }
         else arrivals?.laterArrivalAtEpochMillis.orEmpty()).distinct().sorted().firstOrNull {
         it > firstArrival && it - nowEpochMillis >= walkingWithBufferMillis
     }
@@ -356,13 +356,28 @@ fun calculateAutoGuidance(
     )
 }
 
+/** One fixed arrival instant for display and both foreground/background movement decisions. */
+internal fun OfficialTimetableEstimate.midpointArrivalAtEpochMillis(): Long =
+    earliestArrivalAtEpochMillis + (latestArrivalAtEpochMillis-earliestArrivalAtEpochMillis)/2L
+
+internal fun movementGuidanceTitle(assessment: AutoGuidanceAssessment, now: Long): String = when (assessment.status) {
+    AutoGuidanceStatus.NEXT_VEHICLE -> "다음 차량을 기다리세요"
+    AutoGuidanceStatus.FAST_WALK -> "뛰세요"
+    AutoGuidanceStatus.WALK -> if (assessment.firstArrivalAtEpochMillis?.let {
+        it-now-((assessment.walkingSeconds ?: 0).toLong()+assessment.bufferSeconds)*1000L >= 180_000L
+    } == true) "여유 있어요" else "걸으세요"
+    AutoGuidanceStatus.UNKNOWN -> "도착정보를 확인하고 있어요"
+}
+
 /** ETA availability changes the detail, never the decision that the first vehicle is too soon. */
 fun nextVehicleGuidanceText(assessment: AutoGuidanceAssessment, now: Long): String {
     val at = assessment.recommendedArrivalAtEpochMillis
     if (assessment.nextVehicleState == NextVehicleState.ETA_AVAILABLE && at != null && at > now) {
         val seconds = ((at - now + 999) / 1000).coerceAtLeast(1)
+        val minutes = if (assessment.arrivalSource == GuidanceArrivalSource.OFFICIAL_REALTIME)
+            (seconds+59)/60 else ((seconds+30)/60).coerceAtLeast(1)
         val remaining = if (assessment.recommendedArrivalPrecision == ArrivalTimePrecision.MINUTES)
-            "약 ${(seconds + 59) / 60}분" else "약 ${seconds / 60}분 ${seconds % 60}초"
+            "약 ${minutes}분" else "약 ${seconds / 60}분 ${seconds % 60}초"
         return "탑승 여유가 있는 다음 차량은 $remaining 뒤 도착 예정이에요."
     }
     return when (assessment.nextVehicleState) {

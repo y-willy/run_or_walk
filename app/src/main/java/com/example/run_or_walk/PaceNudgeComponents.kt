@@ -172,10 +172,10 @@ fun AutomaticGuidanceCard(
     var detailsExpanded by rememberSaveable { mutableStateOf(false) }
     val dark = MaterialTheme.colorScheme.surface.luminance() < .5f
     val (symbol, title, tint) = when (assessment.status) {
-        AutoGuidanceStatus.WALK -> Triple("✓", "평소 속도로 걸으세요", if (dark) Color(0xFF86EFAC) else Color(0xFF23734C))
-        AutoGuidanceStatus.FAST_WALK -> Triple("»", "빠른 걸음 권장", if (dark) Color(0xFFFDBA74) else Color(0xFF9C5800))
+        AutoGuidanceStatus.WALK -> Triple("✓", movementGuidanceTitle(assessment,nowEpochMillis), if (dark) Color(0xFF86EFAC) else Color(0xFF23734C))
+        AutoGuidanceStatus.FAST_WALK -> Triple("»", "뛰세요", if (dark) Color(0xFFFDBA74) else Color(0xFF9C5800))
         AutoGuidanceStatus.NEXT_VEHICLE -> Triple("→", "다음 차량을 기다리세요", MaterialTheme.colorScheme.error)
-        AutoGuidanceStatus.UNKNOWN -> Triple(if (informationReceived) "●" else "", unknownTitle,
+        AutoGuidanceStatus.UNKNOWN -> Triple("", movementGuidanceTitle(assessment,nowEpochMillis),
             if (informationReceived) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Surface(modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -185,7 +185,7 @@ fun AutomaticGuidanceCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("지금 이동 안내", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
-            Text(listOf(symbol, "시간표 추정 · ".takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }.orEmpty() + title)
+            Text(listOf(symbol, title)
                 .filter(String::isNotBlank).joinToString(" "),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.ExtraBold, color = tint)
@@ -200,7 +200,7 @@ fun AutomaticGuidanceCard(
                 Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surface) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(arrivalLabel, style = MaterialTheme.typography.labelSmall,
+                        Text("도착까지", style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(arrivalInformation ?: arrivalText(firstArrivalAtEpochMillis, nowEpochMillis, arrivalPrecision),
                             style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
@@ -220,8 +220,6 @@ fun AutomaticGuidanceCard(
                 Text("다음 " + vehicleLabel + " · " + arrivalText(it, nowEpochMillis, nextArrivalPrecision),
                     style = MaterialTheme.typography.bodySmall)
             }
-            paceStatus?.let { Text(it, style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (unknownMessage.isNotBlank() || arrivalFetchedAtEpochMillis != null || estimateLabel != null ||
                 assessment.status != AutoGuidanceStatus.UNKNOWN) {
                 TextButton(onClick = { detailsExpanded = !detailsExpanded }) {
@@ -229,19 +227,19 @@ fun AutomaticGuidanceCard(
                 }
             }
             if (detailsExpanded) {
+                paceStatus?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                 if (assessment.status == AutoGuidanceStatus.UNKNOWN && unknownMessage.isNotBlank())
                     Text(unknownMessage, style = MaterialTheme.typography.bodySmall)
                 arrivalFetchedAtEpochMillis?.let {
                     val age = ((nowEpochMillis - it) / 1000L).coerceAtLeast(0)
                     Text("원본 생성 ${age}초 전", style = MaterialTheme.typography.labelSmall)
                 }
-                estimateLabel?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                 if (assessment.status != AutoGuidanceStatus.UNKNOWN) {
                     Text("안전 여유 " + settingsBufferLabel(assessment.bufferSeconds) +
                         " 포함 · " + movementHint, style = MaterialTheme.typography.bodySmall)
                 }
                 if (assessment.status == AutoGuidanceStatus.FAST_WALK) {
-                    Text("빠른 걸음 예상 " +
+                    Text("이동 예상 " +
                         durationText((assessment.fastTravelSeconds ?: 0).toLong()),
                         style = MaterialTheme.typography.bodySmall)
                 }

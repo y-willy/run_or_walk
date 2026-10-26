@@ -1455,7 +1455,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             else if (monitored) monitoring.subwayObservations else screen.arrivalOptions,
         now, requestFailed = !monitored && screen.arrivalRequestFailed)
     val monitoringMessage = when {
-        assessment.status != AutoGuidanceStatus.UNKNOWN -> monitoringAssessmentMessage(assessment.status, isBus)
+        assessment.status != AutoGuidanceStatus.UNKNOWN -> movementGuidanceTitle(assessment,now)
         monitoring.assessment?.status == AutoGuidanceStatus.UNKNOWN -> monitoring.message
             .ifBlank { unknownReasonText(assessment.unknownReason) }
         else -> unknownReasonText(assessment.unknownReason)
@@ -1475,10 +1475,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val unknownMessage = when {
         walkingOutsideRange -> ""
         validArrival != null -> unknownReasonText(assessment.unknownReason)
-        estimatedArrivals != null -> (if (estimatedArrivals.first.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE)
-            "공식 시간표 기준 예정시각이에요. 실제 열차의 지연은 반영하지 않았어요. "
-            else "공식 시간표와 현재 열차 위치로 도착 범위를 추정했어요. ") +
-            unknownReasonText(assessment.unknownReason)
+        estimatedArrivals != null -> unknownReasonText(assessment.unknownReason)
         stationArrivalInformation != null -> "방향별 도착시간을 계산했어요. 목적지 방면 또는 탑승할 열차를 선택해 주세요."
         !isBus && screen.timetableError != null -> screen.timetableError.orEmpty()
         operationGuidance != null -> operationGuidance.message +
@@ -1508,23 +1505,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요." else "선택한 경로의 열차 방향을 공식 도착정보와 자동 대조 중이에요."
         else -> unknownReasonText(assessment.unknownReason)
     }
-    val unknownTitle = when {
-        walkingOutsideRange -> WALKING_OUTSIDE_RANGE_MESSAGE
-        validArrival != null -> "이동 경로 확인 필요"
-        estimatedArrivals != null -> "시간표 기반 도착 추정"
-        stationArrivalInformation != null -> "방향별 도착시간 안내"
-        !isBus && screen.timetableError != null -> "도착시간 계산 오류"
-        operationGuidance != null -> operationGuidance.title
-        screen.boarding == null && screen.selectedRoute == null -> "이동 안내를 시작해 보세요"
-        screen.busy || screen.liveLoading && !hasArrivalOptions -> "이동 정보를 확인하고 있어요"
-        !screen.boardingConfirmed -> "승차 지점 좌표 확인 불가"
-        !officialStopSelected -> "실시간 연동 정보를 확인하고 있어요"
-        isBus && screen.selectedBusRoute == null && screen.selectedGyeonggiMatch == null -> "버스 실시간 연결 준비 중"
-        screen.arrivalRequestFailed || arrivalDiagnostic != null -> "도착정보를 확인하고 있어요"
-        !isBus && analysis?.message != null -> "열차 운행정보 확인 필요"
-        activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요" else "열차 도착정보 자동 연결 중"
-        else -> "자동 판단을 준비하고 있어요"
-    }
+    val unknownTitle = movementGuidanceTitle(assessment,now)
     LaunchedEffect(screen, assessment.status, selectedTrainKey, screen.alertsEnabled) {
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
             screen.claimAutomaticAlert(assessment.status, now) && !monitored && vibrationSupported) {
@@ -1663,7 +1644,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                                     guidanceLabel = when {
                                         screen.selectedRoute?.id != route.id -> "예상 소요시간"
                                         assessment.status != AutoGuidanceStatus.UNKNOWN -> "검증된 실시간 안내"
-                                        operationGuidance != null -> "열차 위치 안내 중"
+                                        operationGuidance != null -> "도착정보를 확인하고 있어요"
                                         screen.activeArrivalSnapshot != null -> "공식 실시간 도착예정 수신"
                                         else -> "승차점 자동 설정 · 실시간 정보 연결 중"
                                     },
@@ -1690,20 +1671,20 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         boardingLabel = boarding?.name, unknownMessage = unknownMessage,
                         unknownTitle = unknownTitle,
                         informationReceived = operationGuidance != null,
-                        arrivalLabel = if (operationGuidance != null) "열차 위치·운행" else "차량 도착",
+                        arrivalLabel = "도착까지",
                         vehicleLabel = if (isBus) "버스" else "열차",
                         movementHint = if (isBus) "정류장 접근과 횡단보도 신호를 확인해 주세요." else "역 내부 이동과 신호 대기는 확인해 주세요.",
                         arrivalInformation = if (validArrival != null) null else estimatedArrivals?.let { timetableArrivalText(it, now) }
                             ?: stationArrivalInformation
-                            ?: operationGuidance?.arrivalInformation
+                            ?: "도착정보 확인 중".takeIf { operationGuidance != null }
                             ?: screen.busArrivalOptions.firstOrNull {
                                 it.identity == screen.selectedBusRoute?.identity
                             }?.officialArrivalMessage?.takeIf { "출발대기" in it }?.let { "출발 대기 중" }
                             ?: if (hasArrivalOptions)
                             (screen.liveError ?: "사용 가능한 도착 예정시간이 없어요") else null,
                         nowEpochMillis = now,
-                        firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis ?: estimatedArrivals?.first?.earliestArrivalAtEpochMillis,
-                        nextArrivalAtEpochMillis = validArrival?.nextArrivalAtEpochMillis ?: estimatedArrivals?.next?.earliestArrivalAtEpochMillis,
+                        firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis ?: estimatedArrivals?.first?.midpointArrivalAtEpochMillis(),
+                        nextArrivalAtEpochMillis = validArrival?.nextArrivalAtEpochMillis ?: estimatedArrivals?.next?.midpointArrivalAtEpochMillis(),
                         arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis
                             ?: estimatedArrivals?.first?.takeIf { it.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION }
                                 ?.sourceTimestampEpochMillis ?: operationGuidance?.sourceAtEpochMillis,
@@ -1713,7 +1694,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         paceStatus = if (effectivePace != null) "내 걸음속도로 자동 계산 중"
                             else if (settings.useProviderWalkingTime) "지도 도보시간 기준으로 계산 중"
                             else "설정한 걸음속도로 계산 중",
-                        estimateLabel = estimatedArrivals?.first?.label.takeIf { validArrival == null },
+                        estimateLabel = null,
                         walkingSeconds = if (walkingOutsideRange) null else if (monitored) personalizedWalk?.durationSeconds?.takeIf {
                             now - personalizedWalk.fetchedAtEpochMillis in 0L..120_000L &&
                                 displayedLocation?.let { fix ->

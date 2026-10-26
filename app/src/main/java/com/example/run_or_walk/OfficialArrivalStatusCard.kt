@@ -41,7 +41,7 @@ internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
                 Text(estimate ?: row.officialArrivalMessage.ifBlank { "초 단위 예정시간 미제공" },
                     style = MaterialTheme.typography.bodyLarge)
                 Text(if (estimate != null && !row.snapshot.hasUsableOfficialEta(now))
-                    "공식 시간표를 이용한 추정값이에요." else subwayArrivalDisplayStatus(row, now),
+                    "예상 도착시간이에요." else subwayArrivalDisplayStatus(row, now),
                     style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -49,7 +49,7 @@ internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
             it.estimate.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE &&
                 now <= it.estimate.validUntilEpochMillis
         }?.let { scheduled ->
-            Text("선택한 방향의 다음 시간표 운행 · ${subwayEstimateText(scheduled.estimate, now)}",
+            Text("다음 열차 · ${subwayEstimateText(scheduled.estimate, now)}",
                 style = MaterialTheme.typography.bodyMedium)
         }
         busRows.take(2).forEach { row ->

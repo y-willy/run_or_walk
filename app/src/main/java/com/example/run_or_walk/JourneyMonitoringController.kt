@@ -121,11 +121,11 @@ internal fun monitoringStateWithSettings(
         val operation = subwayOperationGuidance(request.subwayStation, null, request.identity,
             state.subwayObservations, nowEpochMillis)
         if (evidence != null) timetableArrivalText(evidence,nowEpochMillis)
-        else if (operation != null) operation.message
+        else if (operation != null) movementGuidanceTitle(assessment,nowEpochMillis)
         else if (state.assessment?.status == AutoGuidanceStatus.UNKNOWN) state.message
         else "최신 위치·도보·도착정보가 확인될 때까지 판단을 보류해요."
     } else if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
         estimatePrefix + "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, nowEpochMillis)
-    else estimatePrefix + monitoringAssessmentMessage(assessment.status, request.isBus)
+    else estimatePrefix + movementGuidanceTitle(assessment,nowEpochMillis)
     return state.copy(request = request, walkingRoute = walking, assessment = assessment, message = message)
 }

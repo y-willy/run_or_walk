@@ -22,11 +22,11 @@ internal fun selectDestinationSubwayArrival(analysis: SubwayTimetableAnalysis?, 
 internal fun selectTimetableEvidence(analysis: SubwayTimetableAnalysis?, now: Long): TimetableArrivalEvidence? {
     if (analysis?.directionVerified != true) return null
     val estimates = analysis.estimates.filter { now <= it.estimate.validUntilEpochMillis &&
-        it.estimate.latestArrivalAtEpochMillis > now }.sortedBy { it.estimate.earliestArrivalAtEpochMillis }
+        it.estimate.midpointArrivalAtEpochMillis() > now }.sortedBy { it.estimate.midpointArrivalAtEpochMillis() }
     val first = estimates.firstOrNull() ?: return null
     val next = estimates.drop(1).firstOrNull { it.arrival.identity.directionId == first.arrival.identity.directionId &&
         it.estimate.trainNo != first.estimate.trainNo &&
-        it.estimate.earliestArrivalAtEpochMillis > first.estimate.earliestArrivalAtEpochMillis }
+            it.estimate.midpointArrivalAtEpochMillis() > first.estimate.midpointArrivalAtEpochMillis() }
     return TimetableArrivalEvidence(first.arrival.identity, first.estimate, next?.estimate,
         estimates.drop(1).map { it.estimate }.filter { it.trainNo != first.estimate.trainNo })
 }
@@ -39,19 +39,19 @@ internal fun linkedSubwayEstimate(analysis: SubwayTimetableAnalysis?, arrival: O
     now: Long): OfficialTimetableEstimate? = analysis?.estimates?.filter {
         it.arrival.identity == arrival.identity && it.arrival.trainId == arrival.trainId &&
             it.arrival.officialSlot == arrival.officialSlot && it.estimate.validUntilEpochMillis >= now &&
-            it.estimate.latestArrivalAtEpochMillis > now
-    }?.minByOrNull { it.estimate.earliestArrivalAtEpochMillis }?.estimate ?: analysis?.estimates?.filter {
+            it.estimate.midpointArrivalAtEpochMillis() > now
+    }?.minByOrNull { it.estimate.midpointArrivalAtEpochMillis() }?.estimate ?: analysis?.estimates?.filter {
         it.estimate.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE &&
             it.arrival.identity.stopId == arrival.identity.stopId && it.arrival.identity.routeId == arrival.identity.routeId &&
             it.arrival.identity.directionId == arrival.identity.directionId && it.estimate.validUntilEpochMillis >= now &&
-            it.estimate.latestArrivalAtEpochMillis > now
-    }?.minByOrNull { it.estimate.earliestArrivalAtEpochMillis }?.estimate
+            it.estimate.midpointArrivalAtEpochMillis() > now
+    }?.minByOrNull { it.estimate.midpointArrivalAtEpochMillis() }?.estimate
 
 internal fun selectableSubwayArrivals(rows: List<OfficialSubwayArrival>, analysis: SubwayTimetableAnalysis?, now: Long): List<OfficialSubwayArrival> {
     val scheduled = analysis?.estimates.orEmpty().filter { it.estimate.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE &&
-        it.estimate.validUntilEpochMillis >= now && it.estimate.latestArrivalAtEpochMillis > now &&
+        it.estimate.validUntilEpochMillis >= now && it.estimate.midpointArrivalAtEpochMillis() > now &&
         rows.none { row -> row.identity.directionId == it.arrival.identity.directionId } }
-        .groupBy { it.arrival.identity.directionId }.values.flatMap { group -> group.sortedBy { it.estimate.earliestArrivalAtEpochMillis }.take(2) }
+        .groupBy { it.arrival.identity.directionId }.values.flatMap { group -> group.sortedBy { it.estimate.midpointArrivalAtEpochMillis() }.take(2) }
     return rows + scheduled.map { it.arrival }
 }
 
@@ -59,25 +59,21 @@ internal fun selectableSubwayArrivals(rows: List<OfficialSubwayArrival>, analysi
 internal fun stationSubwayArrivalInformation(analysis: SubwayTimetableAnalysis?, now: Long): String? {
     analysis ?: return null
     val live = analysis.matchingArrivals.filter { it.snapshot.hasUsableOfficialEta(now) }
-    val estimates = analysis.estimates.filter { it.estimate.validUntilEpochMillis >= now && it.estimate.latestArrivalAtEpochMillis > now }
+    val estimates = analysis.estimates.filter { it.estimate.validUntilEpochMillis >= now && it.estimate.midpointArrivalAtEpochMillis() > now }
     val directions = (live.map { it.identity.directionId } + estimates.map { it.arrival.identity.directionId }).distinct()
     return directions.mapNotNull { direction ->
         val real = live.filter { it.identity.directionId == direction }.minByOrNull { it.snapshot.firstArrivalAtEpochMillis }
         val candidates = estimates.filter { it.arrival.identity.directionId == direction }
         val estimated = candidates.filter { it.estimate.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION }
-            .ifEmpty { candidates }.minByOrNull { it.estimate.earliestArrivalAtEpochMillis }
-        val text = real?.let { "실시간 · " + officialEtaText(it.snapshot,now) }
+            .ifEmpty { candidates }.minByOrNull { it.estimate.midpointArrivalAtEpochMillis() }
+        val text = real?.let { officialEtaText(it.snapshot,now) }
             ?: estimated?.let { subwayEstimateText(it.estimate,now) } ?: return@mapNotNull null
         "$direction · $text"
     }.takeIf { it.isNotEmpty() }?.joinToString("\n")
 }
 
 internal fun subwayEstimateText(estimate: OfficialTimetableEstimate, now: Long): String {
-    if (estimate.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE) {
-        val minutes = ((estimate.scheduledTargetArrivalAtEpochMillis-now).coerceAtLeast(0L)+59_999L)/60_000L
-        return "시간표 기반 추정 · 약 ${minutes}분 후"
-    }
-    val minimum = ((estimate.earliestArrivalAtEpochMillis-now).coerceAtLeast(0)+59_999L)/60_000L
-    val maximum = ((estimate.latestArrivalAtEpochMillis-now).coerceAtLeast(0)+59_999L)/60_000L
-    return "열차 위치·시간표 기반 추정 · 약 " + if (minimum==maximum) "${minimum}분 후" else "${minimum}~${maximum}분 후"
+    val remaining = estimate.midpointArrivalAtEpochMillis()-now
+    val minutes = if (remaining <= 0L) 0L else ((remaining+30_000L)/60_000L).coerceAtLeast(1L)
+    return "약 ${minutes}분 후"
 }

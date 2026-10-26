@@ -233,7 +233,7 @@ class SubwayTimetableAnalyzer(
                         minOf(nowEpochMillis + 60_000L, at), table.source, day.sourceVersion,
                         OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE)
                     // Explicit schedule record: never a reliable realtime snapshot or observed train.
-                    val row = OfficialSubwayArrival(identity, trip.directionId, "시간표 운행 ${trip.trainNo}",
+                    val row = OfficialSubwayArrival(identity, trip.directionId, "${trip.stops.last().stopName}행",
                         trip.trainNo, RealtimeArrivalSnapshot(identity, 0, fetchedAtEpochMillis = 0,
                             validForMillis = 0, reliable = false, trustState = ArrivalTrustState.UNKNOWN),
                         statusMessage = estimate.label)

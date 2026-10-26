@@ -1,0 +1,28 @@
+{
+  "httpStatus": 200,
+  "gatewayFetchedAt": "2026-10-26T11:37:09.521Z",
+  "receivedAt": "2026-10-26T11:37:09.664Z",
+  "rowCount": 5,
+  "responseSha256": "fb1a7273b073f0dc6ac2e2ca9329e7f250572d3c2df91e8061dd74f88939dbcf",
+  "before": "상행 · 약 1분 후\n하행 · 약 3분 후",
+  "uiBeforeVisible": true,
+  "secondHttpStatus": 200,
+  "secondGatewayFetchedAt": "2026-10-26T11:37:43.388Z",
+  "secondReceivedAt": "2026-10-26T11:37:43.538Z",
+  "secondRowCount": 5,
+  "secondResponseSha256": "bce9650f3517a872a8d23d4e79c2dd70d71ea1d3f7dd00fa418c8b8760008dac",
+  "realPollIntervalMillis": 33874,
+  "refreshed": "하행 · 약 3분 후\n상행 · 약 1분 후",
+  "uiRefreshedVisible": true,
+  "after60SecondsClockInput": "하행 · 약 2분 후\n상행 · 약 3분 후",
+  "uiAfter60sVisible": true,
+  "verificationEnvironment": "Robolectric Android SDK35 actual AutomaticGuidanceCard; live HTTP input; not physical phone",
+  "movementLabelsVerified": [
+    "다음 차량을 기다리세요",
+    "뛰세요",
+    "걸으세요",
+    "여유 있어요"
+  ],
+  "rangePolicy": "earliest + (latest - earliest)/2; display rounded to nearest minute",
+  "relaxedMarginSeconds": 180
+}

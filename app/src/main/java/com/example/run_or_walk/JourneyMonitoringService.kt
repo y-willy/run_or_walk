@@ -155,7 +155,7 @@ class JourneyMonitoringService : Service() {
             try {
                 if (deferredPositionRefresh) {
                     failure = true
-                    message = "실시간 재조회 대기 · 마지막 위치와 시간표로 추정 중이에요."
+                    message = "도착정보를 확인하고 있어요."
                     val days = timetableCalendar.serviceDays(now)
                     if (days.isNotEmpty()) timetableAnalysis =
                         analyzeSubwayWithScheduleFallback(timetableAnalyzer, requireNotNull(request.subwayStation),
@@ -260,12 +260,12 @@ class JourneyMonitoringService : Service() {
                 subwayObservations, checkedAt, failure)
             val summary = if (assessment.unknownReason == AutoGuidanceUnknownReason.WALKING_OUTSIDE_RANGE)
                 WALKING_OUTSIDE_RANGE_MESSAGE else if (assessment.status == AutoGuidanceStatus.UNKNOWN)
-                evidence?.let { timetableArrivalText(it, checkedAt) } ?: operation?.message ?: message ?: "최신 위치·도보·도착정보를 확인하고 있어요."
+                evidence?.let { timetableArrivalText(it, checkedAt) } ?: operation?.let { movementGuidanceTitle(assessment,checkedAt) } ?: message ?: "최신 위치·도보·도착정보를 확인하고 있어요."
                 else (evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
                     ?.let { timetableArrivalText(it,checkedAt) + " · " } ?: "") +
                     if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
                         "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, checkedAt)
-                    else monitoringAssessmentMessage(assessment.status, request.isBus)
+                    else movementGuidanceTitle(assessment,checkedAt)
             JourneyMonitoringController.publish(JourneyMonitoringState(true, active, assessment,
                 location, walking, arrivals, summary, checkedAt, retryAt,
                 cachedWalk?.route?.distanceMeters.takeIf { walking != null },
@@ -281,7 +281,7 @@ class JourneyMonitoringService : Service() {
                     "확인된 ${if (request.isBus) "버스" else "열차"}가 1분 이내 도착 예정이에요. 신호와 승차 위치를 확인해 주세요."
                     else (evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
                         ?.let { timetableArrivalText(it,checkedAt) + " · " } ?: "") +
-                        monitoringAssessmentMessage(event.status, request.isBus) +
+                        movementGuidanceTitle(assessment,checkedAt) +
                         if (event.status == AutoGuidanceStatus.NEXT_VEHICLE) " " + nextVehicleGuidanceText(assessment,checkedAt) else ""
                 val visibleFor = arrivals?.let { monitoringAlertLifetimeMillis(event, it, checkedAt) }
                     ?: evidence?.let { (it.first.validUntilEpochMillis-checkedAt).coerceIn(0L,60_000L) } ?: 0L
@@ -404,8 +404,8 @@ class JourneyMonitoringService : Service() {
 }
 
 internal fun monitoringAssessmentMessage(status: AutoGuidanceStatus, isBus: Boolean): String = when (status) {
-    AutoGuidanceStatus.WALK -> "걸어가세요. 안전 여유시간을 포함해 확인했어요."
-    AutoGuidanceStatus.FAST_WALK -> "빠른 걸음으로 이동하세요. 신호와 안전한 보행을 우선하세요."
+    AutoGuidanceStatus.WALK -> "걸으세요"
+    AutoGuidanceStatus.FAST_WALK -> "뛰세요"
     AutoGuidanceStatus.NEXT_VEHICLE -> "다음 차량을 기다리세요."
     AutoGuidanceStatus.UNKNOWN -> "최신 정보를 확인하고 있어요."
 }
