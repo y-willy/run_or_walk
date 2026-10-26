@@ -106,6 +106,31 @@ class OfficialTimetableRepository private constructor(
         data.directionPaths(boardingStopId, targetStationName)
     }
 
+    /** Direct same-line destination linking stays available when the external route API fails. */
+    suspend fun directStationChoice(station: OfficialSubwayStation, targetName: String,
+        day: OfficialTimetableCalendarDay): KakaoTransitChoice? {
+        val table = timetableForStation(station.routeId,station.stopId,day.serviceDate,day.dayType,day.sourceVersion)
+            ?: return null
+        val target = timetableStationName(targetName)
+        data class Path(val trip: OfficialTimetableTrip, val target: OfficialTimetableStop, val seconds: Int)
+        val paths = table.trips.mapNotNull { trip ->
+            val boarding = trip.stops.withIndex().singleOrNull { it.value.stopId == station.stopId } ?: return@mapNotNull null
+            val end = trip.stops.drop(boarding.index+1).singleOrNull { timetableStationName(it.stopName) == target }
+                ?: return@mapNotNull null
+            val startAt = boarding.value.departureAtEpochMillis ?: boarding.value.arrivalAtEpochMillis ?: return@mapNotNull null
+            val endAt = end.arrivalAtEpochMillis ?: end.departureAtEpochMillis ?: return@mapNotNull null
+            val seconds = ((endAt-startAt)/1000L).takeIf { it in 1L..86400L }?.toInt() ?: return@mapNotNull null
+            Path(trip,end,seconds)
+        }
+        val direction = paths.map { it.trip.directionId }.distinct().singleOrNull() ?: return null
+        val targetId = paths.map { it.target.stopId }.distinct().singleOrNull() ?: return null
+        val seconds = paths.map { it.seconds }.sorted().let { it[it.size/2] }
+        return KakaoTransitChoice(seconds,0,station.lineName,station.name,null,firstTransitType="SUBWAY",
+            officialBoardingStopId=station.stopId,directionName=direction,
+            firstLegStopNames=listOf(station.name,paths.first { it.target.stopId == targetId }.target.stopName),
+            alightingStopName=paths.first().target.stopName)
+    }
+
     private suspend fun load(routeId: String, dayType: OfficialServiceDayType): IndexedOfficialTimetable? {
         if (!Regex("[0-9]{4}").matches(routeId)) return null
         val key = "${routeId}_${dayType.name}"

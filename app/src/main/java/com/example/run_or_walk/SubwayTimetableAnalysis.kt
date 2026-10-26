@@ -39,12 +39,14 @@ internal suspend fun analyzeSubwayWithScheduleFallback(
     route: KakaoTransitChoice?,
     arrivals: List<OfficialSubwayArrival>,
     nowEpochMillis: Long,
-    days: List<OfficialTimetableCalendarDay>
+    days: List<OfficialTimetableCalendarDay>,
+    selectedIdentity: OfficialBoardingIdentity? = null
 ): SubwayTimetableAnalysis? {
     val current = days.firstOrNull() ?: return null
     suspend fun analyze(scheduleOnly: Boolean = false) = analyzer.analyze(station, route, arrivals,
         nowEpochMillis, current.serviceDate, current.dayType, current.sourceVersion,
-        additionalServiceDays = days.drop(1), scheduleOnly = scheduleOnly)
+        additionalServiceDays = days.drop(1), scheduleOnly = scheduleOnly,
+        selectedDirectionId = selectedIdentity?.directionId)
     val live = try { analyze() }
     catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { null }
@@ -79,6 +81,71 @@ class SubwayTimetableAnalyzer(
         }
     )
 
+    /** Station searches do not need a Kakao itinerary to turn official positions into ETA. */
+    private suspend fun analyzeStation(station: OfficialSubwayStation, arrivals: List<OfficialSubwayArrival>,
+        now: Long, day: OfficialTimetableCalendarDay, extraDays: List<OfficialTimetableCalendarDay>,
+        policy: OfficialTimetableEstimationPolicy, scheduleOnly: Boolean, selectedDirection: String?): SubwayTimetableAnalysis {
+        val tables = (listOf(day)+extraDays).mapNotNull {
+            stationLoader?.invoke(station.routeId,station.stopId,it.serviceDate,it.dayType,it.sourceVersion,false)
+        }.filter { it.identityAuthority == "seoul" && it.isStructurallyValid() }
+        val rows = arrivals.filter { it.identity.authority == "seoul" && it.identity.stopId == station.stopId &&
+            it.identity.routeId == station.routeId && (selectedDirection == null || it.identity.directionId == selectedDirection) }
+        val linked = mutableListOf<LinkedSubwayTimetableEstimate>()
+        val matched = mutableListOf<OfficialSubwayArrival>()
+        // With no live rows, a selected official direction can still use the published schedule.
+        val subjects: List<OfficialSubwayArrival?> = if (rows.isEmpty()) listOf(null) else rows
+        for (row in subjects) {
+            val trips = tables.flatMap { it.trips }.filter { trip ->
+                trip.routeId == station.routeId && (selectedDirection == null || trip.directionId == selectedDirection) &&
+                    (row == null || trip.directionId == row.identity.directionId && trainOperationMatches(row.trainType,trip.operationType))
+            }
+            val declared = row?.destinationName?.takeIf {
+                it.isNotBlank() && timetableStationName(it) != timetableStationName(station.name)
+            }
+            val endpoints = if (declared != null && trips.any { trip ->
+                val index = trip.stops.indexOfFirst { it.stopId == station.stopId }
+                index >= 0 && trip.stops.drop(index+1).any { timetableStationName(it.stopName) == timetableStationName(declared) }
+            }) listOf(declared) else trips.mapNotNull { trip ->
+                val index = trip.stops.indexOfFirst { it.stopId == station.stopId }
+                trip.stops.getOrNull(index+1)?.stopName?.takeIf { index >= 0 }
+            }.distinct()
+            val results = endpoints.map { endpoint ->
+                val choice = KakaoTransitChoice(0,null,station.lineName,station.name,null,firstTransitType="SUBWAY",
+                    officialBoardingStopId=station.stopId,firstLegStopNames=listOf(station.name,endpoint),alightingStopName=endpoint)
+                analyze(station,choice,if (row == null) emptyList() else listOf(row),now,day.serviceDate,day.dayType,
+                    day.sourceVersion,policy,extraDays,scheduleOnly)
+            }
+            matched += results.flatMap { it.matchingArrivals }
+            val estimates = results.flatMap { it.estimates }.filter {
+                (row == null || it.arrival.identity.directionId == row.identity.directionId) &&
+                    (selectedDirection == null || it.arrival.identity.directionId == selectedDirection)
+            }
+            val positions = estimates.filter { it.estimate.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION }
+            val positionRanges = positions.groupBy { it.arrival.identity to (it.arrival.trainId to it.arrival.officialSlot) }
+                .values.map { candidates ->
+                    val first = candidates.minBy { it.estimate.earliestArrivalAtEpochMillis }
+                    val numbers = candidates.flatMap { it.estimate.candidateTrainNumbers.ifEmpty { listOf(it.estimate.trainNo) } }.distinct().sorted()
+                    first.copy(estimate=first.estimate.copy(
+                        earliestArrivalAtEpochMillis=candidates.minOf { it.estimate.earliestArrivalAtEpochMillis },
+                        latestArrivalAtEpochMillis=candidates.maxOf { it.estimate.latestArrivalAtEpochMillis },
+                        validUntilEpochMillis=candidates.maxOf { it.estimate.validUntilEpochMillis },
+                        candidateTrainNumbers=numbers.takeIf { it.size > 1 }.orEmpty(),
+                        candidateServiceDates=candidates.flatMap { it.estimate.candidateServiceDates.ifEmpty { listOf(it.estimate.serviceDate) } }.distinct()))
+                }
+            linked += positionRanges.ifEmpty { estimates }
+        }
+        val estimates = linked.distinctBy { listOf(it.arrival.identity,it.arrival.trainId,it.arrival.officialSlot,
+            it.estimate.trainNo,it.estimate.serviceDate,it.estimate.source,it.estimate.routePatternId) }
+            .sortedBy { it.estimate.earliestArrivalAtEpochMillis }
+        val actual = (matched + rows.filter { it.snapshot.hasUsableOfficialEta(now) }).distinct()
+            .filter { it.identity.directionId in setOf("상행","하행","내선","외선") &&
+                (selectedDirection == null || it.identity.directionId == selectedDirection) }
+        val directions = (actual.map { it.identity.directionId } + estimates.map { it.arrival.identity.directionId }).distinct()
+        return SubwayTimetableAnalysis(actual,estimates,directions.size == 1,
+            if (estimates.isNotEmpty()) "공식 역·방향·정차 순서와 시간표로 도착시간을 계산했어요."
+            else "이 역의 해당 운행일·방향에 사용할 공식 시간표가 없어요.",station.stopId,station.routeId,null)
+    }
+
     suspend fun analyze(
         station: OfficialSubwayStation,
         route: KakaoTransitChoice?,
@@ -90,14 +157,18 @@ class SubwayTimetableAnalyzer(
         policy: OfficialTimetableEstimationPolicy = OfficialTimetableEstimationPolicy(),
         /** Previous service dates must also have explicit calendar evidence, especially at 24:xx. */
         additionalServiceDays: List<OfficialTimetableCalendarDay> = emptyList(),
-        scheduleOnly: Boolean = false
+        scheduleOnly: Boolean = false,
+        selectedDirectionId: String? = null
     ): SubwayTimetableAnalysis {
         fun result(matching: List<OfficialSubwayArrival> = emptyList(),
             estimates: List<LinkedSubwayTimetableEstimate> = emptyList(),
             verified: Boolean = false, message: String?) =
             SubwayTimetableAnalysis(matching, estimates, verified, message,
                 station.stopId, station.routeId, route)
-        if (route == null || route.firstTransitType != "SUBWAY") {
+        if (route == null) return analyzeStation(station,arrivals,nowEpochMillis,
+            OfficialTimetableCalendarDay(serviceDate,dayType,calendarSourceVersion), additionalServiceDays,
+            policy,scheduleOnly,selectedDirectionId)
+        if (route.firstTransitType != "SUBWAY") {
             return result(message = "목적지나 하차역을 선택하면 공식 시간표로 진행 방향을 확인해요.")
         }
         if (resolveOfficialBoardingStation(listOf(station), route.boardingStopName, route.serviceName) == null ||
@@ -193,7 +264,7 @@ class SubwayTimetableAnalyzer(
             for (row in arrivals) {
                 if (row.identity.stopId != station.stopId || row.identity.routeId != station.routeId ||
                     row.identity.authority != "seoul" || !row.identity.isComplete || row.snapshot.identity != row.identity ||
-                    row.gatewayContract != SubwayGatewayContract.RAW_FIELDS ||
+                    row.gatewayContract == SubwayGatewayContract.UNKNOWN ||
                     row.arrivalCode in setOf("0", "1", "2") ||
                     row.snapshot.hasUsableOfficialEta(nowEpochMillis)) continue
                 if (row.sourceReceivedAtEpochMillis == null && row.gatewayFetchedAtEpochMillis == null) continue
@@ -312,7 +383,7 @@ class SubwayTimetableAnalyzer(
             // estimatePosition; uncertainty is retained as an interval below.
             val canUsePosition = !arrival.snapshot.hasUsableOfficialEta(nowEpochMillis) &&
                 arrival.arrivalCode !in setOf("0", "1", "2") &&
-                arrival.gatewayContract == SubwayGatewayContract.RAW_FIELDS &&
+                arrival.gatewayContract != SubwayGatewayContract.UNKNOWN &&
                 (validTimetableText(arrival.reportedStationName.orEmpty()) ||
                     reportedTimetableStationName(arrival.officialArrivalMessage) != null ||
                     reportedTimetableStationCount(arrival.officialArrivalMessage) != null) &&

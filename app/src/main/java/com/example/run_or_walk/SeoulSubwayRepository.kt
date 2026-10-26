@@ -283,7 +283,8 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
             val trainId = text("btrainNo").orEmpty()
             val trainType = text("btrainSttus")
             val destinationId = text("bstatnId")
-            val destinationName = text("bstatnNm")
+            val destinationName = text("bstatnNm") ?: service.substringBefore("행", "")
+                .trim().takeIf { it.isNotBlank() }
             val nextStationId = text("statnTid")
             val sourceTime = parseSeoulSourceTime(text("recptnDt", "receivedAt"))
             val rawEta = row.opt("barvlDt").takeUnless { it == null || it == JSONObject.NULL }

@@ -989,9 +989,18 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         target.directionMessage = "목적지로 가는 지하철 방향을 찾고 있어요."
         runRequest(target, "목적지 방면을 확인하고 있어요", "목적지 방면 경로를 확인하지 못했어요",
             request = {
-                val choices = kakaoRepository.searchPublicTransit(stop.point, destination.point)
                 val catalog = subwayRepository.searchStations(officialStationSearchQuery(stop.name))
-                choices.asSequence().filter { choice ->
+                val day = timetableCalendar.serviceDays(System.currentTimeMillis()).firstOrNull()
+                val direct = if (day == null) null else {
+                    val stations = catalog.filter { officialStationSearchQuery(it.name) == officialStationSearchQuery(stop.name) }
+                    val preferred = target.selectedStation?.takeIf { it in stations }
+                    val candidates = preferred?.let(::listOf) ?: stations
+                    candidates.mapNotNull { station ->
+                        timetableRepository.directStationChoice(station,officialStationSearchQuery(destination.name),day)
+                            ?.let { it to station }
+                    }.singleOrNull()
+                }
+                direct ?: kakaoRepository.searchPublicTransit(stop.point, destination.point).asSequence().filter { choice ->
                     choice.firstTransitType == "SUBWAY" && choice.boardingPoint?.let {
                         distanceBetweenMeters(it, stop.point) <= 300.0
                     } == true
@@ -1211,19 +1220,20 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         if (screen.mode == FeatureMode.STOP && screen.stop.selected != null && screen.destination.selected != null &&
             screen.stopDirectionRoute == null && screen.directionMessage == null && !screen.busy) connectStopDestination(screen)
     }
-    LaunchedEffect(screen, screen.selectedStation, screen.arrivalOptions, screen.subwayDirectionRoute, screen.revision, monitorKey, now / 30_000L) {
+    LaunchedEffect(screen, screen.selectedStation, screen.arrivalOptions, screen.subwayDirectionRoute,
+        screen.confirmedServiceIdentity?.directionId, screen.revision, monitorKey, now / 30_000L) {
         if (isMonitored(screen)) return@LaunchedEffect
         val station = screen.selectedStation ?: return@LaunchedEffect
-        val route = screen.subwayDirectionRoute ?: return@LaunchedEffect
+        val route = screen.subwayDirectionRoute
         val rows = screen.arrivalOptions
-        if (route.firstTransitType != "SUBWAY") return@LaunchedEffect
+        if (route != null && route.firstTransitType != "SUBWAY") return@LaunchedEffect
         val revision = screen.revision
         screen.timetableAnalysis = null
         val days = timetableCalendar.serviceDays(System.currentTimeMillis())
         if (days.isEmpty()) return@LaunchedEffect
         try {
             val analysis = analyzeSubwayWithScheduleFallback(timetableAnalyzer, station, route, rows,
-                System.currentTimeMillis(), days) ?: return@LaunchedEffect
+                System.currentTimeMillis(), days, screen.confirmedServiceIdentity) ?: return@LaunchedEffect
             if (latestScreen !== screen || screen.revision != revision || screen.selectedStation != station ||
                 screen.subwayDirectionRoute != route || screen.arrivalOptions != rows) return@LaunchedEffect
             screen.timetableAnalysis = analysis
@@ -1377,6 +1387,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             it.requestedRoute == (if (monitored) monitoring.request?.subwayRoute else screen.subwayDirectionRoute)
     }
     val estimatedArrivals = selectTimetableEvidence(analysis, now)
+    val stationArrivalInformation = stationSubwayArrivalInformation(analysis,now)
     val boarding = screen.boarding
     val identity = if (monitored) monitoring.arrivals?.identity ?: estimatedArrivals?.identity ?: monitoring.request?.identity
         else screen.activeArrivalIdentity ?: estimatedArrivals?.identity ?: screen.confirmedServiceIdentity
@@ -1460,6 +1471,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             "공식 시간표 기준 예정시각이에요. 실제 열차의 지연은 반영하지 않았어요. "
             else "공식 시간표와 현재 열차 위치로 도착 범위를 추정했어요. ") +
             unknownReasonText(assessment.unknownReason)
+        stationArrivalInformation != null -> "방향별 도착시간을 계산했어요. 목적지 방면 또는 탑승할 열차를 선택해 주세요."
         operationGuidance != null -> operationGuidance.message +
             if (assessment.unknownReason?.name?.startsWith("LOCATION_") == true)
                 "\n" + unknownReasonText(assessment.unknownReason) else ""
@@ -1491,6 +1503,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         walkingOutsideRange -> WALKING_OUTSIDE_RANGE_MESSAGE
         validArrival != null -> "이동 경로 확인 필요"
         estimatedArrivals != null -> "시간표 기반 도착 추정"
+        stationArrivalInformation != null -> "방향별 도착시간 안내"
         operationGuidance != null -> operationGuidance.title
         screen.boarding == null && screen.selectedRoute == null -> "이동 안내를 시작해 보세요"
         screen.busy || screen.liveLoading && !hasArrivalOptions -> "이동 정보를 확인하고 있어요"
@@ -1533,7 +1546,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 screen.guidanceWalkingRoute = null
                 screen.confirmedServiceIdentity = it.identity
                 screen.selectedArrival = chooseMatchingSubwayArrival(it.identity,
-                    screen.arrivalOptions, System.currentTimeMillis())
+                    screen.arrivalOptions, System.currentTimeMillis()) ?: it
                 screen.arrivalRequestFailed = false
                 screen.liveError = null
                 scope.launch { refreshWalkingSnapshot(screen) }
@@ -1671,6 +1684,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         vehicleLabel = if (isBus) "버스" else "열차",
                         movementHint = if (isBus) "정류장 접근과 횡단보도 신호를 확인해 주세요." else "역 내부 이동과 신호 대기는 확인해 주세요.",
                         arrivalInformation = if (validArrival != null) null else estimatedArrivals?.let { timetableArrivalText(it, now) }
+                            ?: stationArrivalInformation
                             ?: operationGuidance?.arrivalInformation
                             ?: screen.busArrivalOptions.firstOrNull {
                                 it.identity == screen.selectedBusRoute?.identity
@@ -2064,28 +2078,27 @@ private fun SelectionDetails(screen: JourneyScreenState, configured: Boolean, no
                         style = MaterialTheme.typography.bodyMedium)
                     if (configured) {
                         Text("탑승할 방향·행선지를 확인해 주세요", style = MaterialTheme.typography.labelMedium)
-                        var arrivalPage by remember(screen.arrivalOptions.map { it.identity to it.trainId }) {
+                        val arrivalChoices = selectableSubwayArrivals(screen.arrivalOptions,screen.timetableAnalysis,nowEpochMillis)
+                        var arrivalPage by remember(arrivalChoices.map { it.identity to it.trainId }) {
                             mutableIntStateOf(0)
                         }
                         val displayNow = nowEpochMillis
-                        screen.arrivalOptions.drop(arrivalPage * 3).take(3).forEachIndexed { rowIndex, arrival ->
+                        arrivalChoices.drop(arrivalPage * 3).take(3).forEachIndexed { rowIndex, arrival ->
                             key(arrival.identity, arrival.trainId, rowIndex) {
+                                val estimate = linkedSubwayEstimate(screen.timetableAnalysis,arrival,displayNow)
                                 PlaceOptionCard("${arrival.trainLabel} · ${arrival.directionLabel}",
-                                    listOf(arrival.officialArrivalMessage,
-                                        subwayArrivalDisplayStatus(arrival, displayNow))
+                                    listOf(sourceSubwayEstimate(arrival,displayNow)
+                                        ?: estimate?.let { subwayEstimateText(it,displayNow) }.orEmpty(),arrival.officialArrivalMessage,
+                                        if (estimate == null) subwayArrivalDisplayStatus(arrival, displayNow) else "")
                                         .filter(String::isNotBlank).joinToString("\n"),
                                     selected = screen.selectedArrival?.let {
                                         it.identity == arrival.identity && it.trainId == arrival.trainId
                                     } == true,
-                                    enabled = !screen.liveLoading && arrival.snapshot.reliable &&
-                                        displayNow - arrival.snapshot.fetchedAtEpochMillis in
-                                            0L..minOf(arrival.snapshot.validForMillis, 600_000L) &&
-                                        arrival.snapshot.firstArrivalAtEpochMillis > displayNow &&
-                                        arrival.snapshot.trustState == ArrivalTrustState.VALID &&
-                                        true) { onChooseArrival(arrival) }
+                                    enabled = !screen.liveLoading &&
+                                        (arrival.snapshot.hasUsableOfficialEta(displayNow) || estimate != null)) { onChooseArrival(arrival) }
                             }
                         }
-                        PageControls(arrivalPage, screen.arrivalOptions.size, { arrivalPage = it })
+                        PageControls(arrivalPage, arrivalChoices.size, { arrivalPage = it })
                         TextButton(onClick = onRefresh, enabled = !screen.liveLoading) { Text("도착정보 새로고침") }
                     }
                 }

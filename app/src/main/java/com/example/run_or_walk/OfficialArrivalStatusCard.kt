@@ -37,11 +37,12 @@ internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(row.directionLabel, style = MaterialTheme.typography.labelLarge)
                 val estimate = sourceSubwayEstimate(row, now)
-                    ?: analysis?.estimates?.firstOrNull { it.arrival == row }?.estimate
-                        ?.takeIf { now <= it.validUntilEpochMillis }?.let { subwayEstimateText(it,now) }
+                    ?: linkedSubwayEstimate(analysis,row,now)?.let { subwayEstimateText(it,now) }
                 Text(estimate ?: row.officialArrivalMessage.ifBlank { "초 단위 예정시간 미제공" },
                     style = MaterialTheme.typography.bodyLarge)
-                Text(subwayArrivalDisplayStatus(row, now), style = MaterialTheme.typography.bodySmall)
+                Text(if (estimate != null && !row.snapshot.hasUsableOfficialEta(now))
+                    "공식 시간표를 이용한 추정값이에요." else subwayArrivalDisplayStatus(row, now),
+                    style = MaterialTheme.typography.bodySmall)
             }
         }
         analysis?.estimates?.firstOrNull {
