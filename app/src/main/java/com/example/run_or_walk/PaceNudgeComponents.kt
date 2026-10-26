@@ -160,13 +160,14 @@ fun AutomaticGuidanceCard(
     informationReceived: Boolean = false,
     arrivalLabel: String = "차량 도착",
     arrivalPrecision: ArrivalTimePrecision = ArrivalTimePrecision.SECONDS,
-    estimateLabel: String? = null
+    estimateLabel: String? = null,
+    nextArrivalPrecision: ArrivalTimePrecision = arrivalPrecision
 ) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < .5f
     val (symbol, title, tint) = when (assessment.status) {
         AutoGuidanceStatus.WALK -> Triple("✓", "걸어가세요", if (dark) Color(0xFF86EFAC) else Color(0xFF23734C))
         AutoGuidanceStatus.FAST_WALK -> Triple("»", "빠른 걸음으로 이동하세요", if (dark) Color(0xFFFDBA74) else Color(0xFF9C5800))
-        AutoGuidanceStatus.NEXT_VEHICLE -> Triple("→", "확인된 다음 ${vehicleLabel}를 이용하세요", MaterialTheme.colorScheme.error)
+        AutoGuidanceStatus.NEXT_VEHICLE -> Triple("→", "다음 차량을 기다리세요", MaterialTheme.colorScheme.error)
         AutoGuidanceStatus.UNKNOWN -> Triple(if (informationReceived) "●" else "", unknownTitle,
             if (informationReceived) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -179,13 +180,16 @@ fun AutomaticGuidanceCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
             if (serviceLabel.isNotBlank()) Text(serviceLabel,
                 style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            Text(listOf(symbol, "시간표 추정 · ".takeIf { assessment.arrivalSource == GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION }.orEmpty() + title)
+            Text(listOf(symbol, "시간표 추정 · ".takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }.orEmpty() + title)
                 .filter(String::isNotBlank).joinToString(" "),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.ExtraBold, color = tint)
             if (assessment.status == AutoGuidanceStatus.UNKNOWN) {
                 Text(unknownMessage, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE) {
+                Text(nextVehicleGuidanceText(assessment, nowEpochMillis), style = MaterialTheme.typography.bodySmall)
             }
             boardingLabel?.let { Text("승차 위치 · " + it,
                 style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium) }
@@ -210,7 +214,7 @@ fun AutomaticGuidanceCard(
                 }
             }
             nextArrivalAtEpochMillis?.let {
-                Text("다음 " + vehicleLabel + " · " + arrivalText(it, nowEpochMillis, arrivalPrecision),
+                Text("다음 " + vehicleLabel + " · " + arrivalText(it, nowEpochMillis, nextArrivalPrecision),
                     style = MaterialTheme.typography.bodySmall)
             }
             arrivalFetchedAtEpochMillis?.let {

@@ -15,7 +15,8 @@ internal class JourneyMonitoringAlertGate {
         val decision = decideAutoGuidanceVibration(guidanceState, usable, identity, assessment.status,
             now, vehicleId = vehicleId)
         guidanceState = decision.state
-        if (usable && arrivals.firstArrivalAtEpochMillis - now in 1L..60_000L) {
+        if (usable && assessment.status != AutoGuidanceStatus.NEXT_VEHICLE &&
+            arrivals.firstArrivalAtEpochMillis - now in 1L..60_000L) {
             val key = identity to vehicleId
             if (approachedVehicles.add(key)) {
                 if (approachedVehicles.size > 64) approachedVehicles.remove(approachedVehicles.first())

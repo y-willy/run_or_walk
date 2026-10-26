@@ -37,7 +37,7 @@ data class OfficialTrainPositionObservation(
     val routePatternId: String? = null
 )
 
-enum class OfficialTimetableEstimateSource { OFFICIAL_TIMETABLE_POSITION }
+enum class OfficialTimetableEstimateSource { OFFICIAL_TIMETABLE_POSITION, OFFICIAL_TIMETABLE_SCHEDULE }
 
 /** A schedule-based interval, intentionally unrelated to RealtimeArrivalSnapshot. */
 data class OfficialTimetableEstimate(
@@ -59,13 +59,14 @@ data class OfficialTimetableEstimate(
     val observationAgeMillis: Long,
     val validUntilEpochMillis: Long,
     val timetableSource: OfficialTimetableSource,
-    val calendarSourceVersion: String
-) {
+    val calendarSourceVersion: String,
     val source: OfficialTimetableEstimateSource = OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION
+) {
     val isRealtime: Boolean = false
     val scheduleValidityUnconfirmed: Boolean =
         timetableSource.validFromServiceDate == null || timetableSource.validThroughServiceDate == null
-    val label: String = "공식 시간표·열차 위치 기반 추정 · " +
+    val label: String = (if (source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION)
+        "공식 시간표·열차 위치 기반 추정 · " else "공식 시간표 기준 · 실시간 위치 미확인 · ") +
         (timetableSource.scheduleAsOfDate ?: Instant.ofEpochMilli(timetableSource.publishedAtEpochMillis)
             .atZone(ZoneId.of(timetableSource.timeZone)).toLocalDate()) + " 기준" +
         if (scheduleValidityUnconfirmed) " · 유효기간 미확인" else ""

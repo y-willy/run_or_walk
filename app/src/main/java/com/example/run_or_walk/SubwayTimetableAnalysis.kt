@@ -83,6 +83,38 @@ class SubwayTimetableAnalyzer(
         if (calendarDays.distinctBy { it.serviceDate }.size != calendarDays.size) {
             return result(message = "운행일의 공식 요일·휴일 정보가 서로 달라 시간표를 대조할 수 없어요.")
         }
+        suspend fun scheduleFallback(): List<LinkedSubwayTimetableEstimate> {
+            val output = mutableListOf<LinkedSubwayTimetableEstimate>()
+            for (day in calendarDays) {
+                val table = stationLoader?.invoke(station.routeId, station.stopId, day.serviceDate,
+                    day.dayType, day.sourceVersion, false) ?: continue
+                if (!table.isStructurallyValid() || table.source.publishedAtEpochMillis > nowEpochMillis) continue
+                for (trip in table.trips) {
+                    if (!provesBoardingPath(trip, station.stopId, endpoint, waypointNames)) continue
+                    val stop = trip.stops.singleOrNull { it.stopId == station.stopId } ?: continue
+                    val at = stop.arrivalAtEpochMillis ?: stop.departureAtEpochMillis ?: continue
+                    if (at <= nowEpochMillis || at - nowEpochMillis > 3_600_000L) continue
+                    val identity = OfficialBoardingIdentity("seoul", station.stopId, station.routeId,
+                        trip.directionId, "schedule:${trip.routePatternId}")
+                    val estimate = OfficialTimetableEstimate(identity, trip.trainNo, trip.serviceDate,
+                        trip.dayType, trip.operationType, trip.routePatternId, "", stop.sequence,
+                        at, at, at, 0, 0, table.source.publishedAtEpochMillis, nowEpochMillis, 0,
+                        minOf(nowEpochMillis + 60_000L, at), table.source, day.sourceVersion,
+                        OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE)
+                    // Explicit schedule record: never a reliable realtime snapshot or observed train.
+                    val row = OfficialSubwayArrival(identity, trip.directionId, "시간표 운행 ${trip.trainNo}",
+                        trip.trainNo, RealtimeArrivalSnapshot(identity, 0, fetchedAtEpochMillis = 0,
+                            validForMillis = 0, reliable = false, trustState = ArrivalTrustState.UNKNOWN),
+                        statusMessage = estimate.label)
+                    output += LinkedSubwayTimetableEstimate(row, estimate)
+                }
+            }
+            val sorted = output.distinctBy { Triple(it.estimate.serviceDate, it.estimate.trainNo, it.estimate.routePatternId) }
+                .sortedBy { it.estimate.earliestArrivalAtEpochMillis }
+            // A branch/loop must be resolved by route waypoints, not by whichever train is first.
+            return sorted.takeIf { it.map { row -> row.estimate.identity.directionId }.distinct().size == 1 }
+                ?.take(6).orEmpty()
+        }
         val proofs = mutableListOf<ProvenTimetableArrival>()
         val realtimeMatches = mutableListOf<OfficialSubwayArrival>()
         for (arrival in arrivals.distinctBy { Triple(it.identity, it.trainId, it.officialSlot) }) {
@@ -131,6 +163,9 @@ class SubwayTimetableAnalyzer(
         }
         val matchingArrivals = (proofs.map { it.arrival } + realtimeMatches).distinct()
         if (matchingArrivals.isEmpty()) {
+            val scheduled = scheduleFallback()
+            if (scheduled.isNotEmpty()) return result(estimates = scheduled, verified = true,
+                message = scheduled.first().estimate.label)
             return result(message = "공식 시간표에서 열차 번호·정차 경로·하차역을 함께 확인하지 못했어요.")
         }
         if (matchingArrivals.map { it.identity.directionId }.distinct().size != 1) {
@@ -170,7 +205,9 @@ class SubwayTimetableAnalyzer(
             proofs.any { it.arrival.arrivalCode in setOf("0", "1") } -> "열차가 탑승역에 진입·도착 중이에요. 걷기 시간으로 탑승을 판단하지 않아요."
             else -> "진행 방향은 확인했어요. 현재 열차 위치와 시간표를 대조할 수 있는 관측을 기다려요."
         }
-        return result(matchingArrivals, estimates, true, message)
+        val selectedEstimates = estimates.ifEmpty { scheduleFallback() }
+        return result(matchingArrivals, selectedEstimates, true,
+            selectedEstimates.firstOrNull()?.estimate?.label ?: message)
     }
 }
 

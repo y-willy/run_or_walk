@@ -106,7 +106,9 @@ internal fun monitoringStateWithSettings(
     val identity = state.arrivals?.identity ?: evidence?.identity ?: request.identity
     val assessment = calculateAutoGuidance(AutoGuidanceInput(state.location,
         GuidanceBoarding(identity, request.boardingPoint, true), walking?.copy(boardingIdentity = identity), state.arrivals,
-        locationPermissionGranted, bufferSeconds = request.settings.bufferSeconds, timetableArrivals = evidence), nowEpochMillis,
+        locationPermissionGranted, bufferSeconds = request.settings.bufferSeconds, timetableArrivals = evidence,
+        furtherServiceEnded = state.assessment?.nextVehicleState == NextVehicleState.SERVICE_ENDED,
+        previousAssessment = state.assessment), nowEpochMillis,
         AutoGuidancePolicy(fastSpeedKmh = request.settings.fastSpeedKmh))
     val message = if (assessment.status == AutoGuidanceStatus.UNKNOWN) {
         val operation = subwayOperationGuidance(request.subwayStation, null, request.identity,
@@ -114,6 +116,8 @@ internal fun monitoringStateWithSettings(
         if (operation != null) operation.message
         else if (state.assessment?.status == AutoGuidanceStatus.UNKNOWN) state.message
         else "최신 위치·도보·도착정보가 확인될 때까지 판단을 보류해요."
-    } else monitoringAssessmentMessage(assessment.status, request.isBus)
+    } else if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
+        "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, nowEpochMillis)
+    else monitoringAssessmentMessage(assessment.status, request.isBus)
     return state.copy(request = request, walkingRoute = walking, assessment = assessment, message = message)
 }

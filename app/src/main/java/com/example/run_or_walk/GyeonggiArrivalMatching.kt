@@ -48,5 +48,6 @@ internal fun chooseMatchingGyeonggiArrival(
         etaPrecision = first.etaPrecision,
         sourceTimestampAvailable = first.sourceTimestampAvailable,
         receivedAtEpochMillis = first.fetchedAtMillis,
-        vehicleIdentityFallback = "official-slot:${first.sequence}".takeIf { first.vehicleId.isBlank() }))
+        vehicleIdentityFallback = "official-slot:${first.sequence}".takeIf { first.vehicleId.isBlank() },
+        nextArrivalPrecision = next?.etaPrecision))
 }

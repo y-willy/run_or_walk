@@ -11,7 +11,12 @@ internal fun selectDestinationSubwayArrival(analysis: SubwayTimetableAnalysis?, 
             (it.trainId.isBlank() || first.trainId.isBlank() || it.trainId != first.trainId) &&
             it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis
     }
-    return first.copy(snapshot = first.snapshot.copy(nextArrivalAtEpochMillis = next?.snapshot?.firstArrivalAtEpochMillis))
+    val later = rows.filter { it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis }
+        .distinctBy { it.trainId.ifBlank { "slot:${it.officialSlot}" } }
+        .filter { first.trainId.isBlank() || it.trainId != first.trainId }
+        .map { it.snapshot.firstArrivalAtEpochMillis }.distinct().sorted()
+    return first.copy(snapshot = first.snapshot.copy(nextArrivalAtEpochMillis = next?.snapshot?.firstArrivalAtEpochMillis,
+        laterArrivalAtEpochMillis = later))
 }
 
 internal fun selectTimetableEvidence(analysis: SubwayTimetableAnalysis?, now: Long): TimetableArrivalEvidence? {
@@ -22,7 +27,8 @@ internal fun selectTimetableEvidence(analysis: SubwayTimetableAnalysis?, now: Lo
     val next = estimates.drop(1).firstOrNull { it.arrival.identity.directionId == first.arrival.identity.directionId &&
         it.estimate.trainNo != first.estimate.trainNo &&
         it.estimate.earliestArrivalAtEpochMillis > first.estimate.earliestArrivalAtEpochMillis }
-    return TimetableArrivalEvidence(first.arrival.identity, first.estimate, next?.estimate)
+    return TimetableArrivalEvidence(first.arrival.identity, first.estimate, next?.estimate,
+        estimates.drop(1).map { it.estimate }.filter { it.trainNo != first.estimate.trainNo })
 }
 
 internal fun timetableArrivalText(evidence: TimetableArrivalEvidence, now: Long): String {

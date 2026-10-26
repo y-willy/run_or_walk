@@ -8,6 +8,11 @@ import kotlin.math.sqrt
 internal fun shouldSearchTransitAccess(error: Exception): Boolean =
     (error as? KakaoApiException)?.failure == KakaoFailure.NO_ROUTE
 
+/** Trigger before a walking API failure, including a geographically remote selected origin. */
+internal fun requiresTransitAccess(current: MapPoint, departure: MapPoint, walkingSeconds: Int? = null): Boolean =
+    accessDistanceMeters(current, departure) >= 30_000.0 ||
+        accessDistanceMeters(current, departure) > 3_000.0 || (walkingSeconds ?: 0) > 3_600
+
 /** Search estimates lose their context when GPS moves, ages, or the app resumes much later. */
 internal fun isAccessEstimateFresh(
     origin: MapPoint?, location: GuidanceLocation?, fetchedAtMillis: Long?, now: Long

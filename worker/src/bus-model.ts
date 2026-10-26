@@ -100,7 +100,7 @@ const integer = (value: unknown) => {
   return text !== null && /^\d+$/.test(text) && Number.isSafeInteger(Number(text)) ? Number(text) : null;
 };
 const booleanFlag = (value: unknown) => scalarText(value) === '0' ? false : scalarText(value) === '1' ? true : null;
-const supportedType = (type: string | null) => type !== null && ['2', '3', '4', '5', '6'].includes(type);
+const supportedType = (type: string | null) => !type || ['2', '3', '4', '5', '6'].includes(type);
 function canonicalArsId(value: unknown, key: string): string | null {
   const text = safeText(value, key);
   return text !== null && /^\d{1,5}$/.test(text) && Number(text) > 0 ? text.padStart(5, '0') : null;
@@ -197,8 +197,8 @@ export function normalizeBusPayload(operation: BusOperation, payload: unknown, f
     for (const row of rows) {
       if (scalarText(row.stId) !== operation.stopId || canonicalArsId(row.arsId, key) !== operation.arsId) continue;
       const routeId = safeText(row.busRouteId, key), name = safeText(row.rtNm ?? row.busRouteAbrv, key), stopOrder = canonicalBusOrder(row.staOrd);
-      const direction = safeText(row.adirection, key), routeType = safeText(row.routeType, key);
-      if (!officialId(routeId) || !name || stopOrder === null || !direction || routeType === null) continue;
+      const direction = safeText(row.adirection, key) ?? '', routeType = safeText(row.routeType, key) ?? '';
+      if (!officialId(routeId) || !name || stopOrder === null) continue;
       const route = { routeId: routeId!, name, stopOrder, direction, routeType, supported: supportedType(routeType) };
       const identity = `${routeId}:${stopOrder}`;
       const previous = routes.get(identity);

@@ -93,6 +93,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val subwayRepository = remember { SeoulSubwayRepository(context) }
     val timetableRepository = remember { OfficialTimetableRepository(context) }
     val timetableAnalyzer = remember { SubwayTimetableAnalyzer(timetableRepository) }
+    val arrivalHistory = remember { SubwayArrivalHistory(context) }
     val timetableCalendar = remember { OfficialServiceCalendar(context) }
     val busRepository = remember { SeoulBusRepository() }
     val gyeonggiRepository = remember { GyeonggiBusRepository() }
@@ -102,8 +103,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val settings = session.settings
     val monitoring by JourneyMonitoringController.state.collectAsState()
     val latestMonitoring by rememberUpdatedState(monitoring)
-    val screen = screens.getValue(mode)
+    val rootScreen = screens.getValue(mode)
+    var showingAccess by remember(mode) { mutableStateOf(false) }
+    val screen = if (showingAccess) rootScreen.accessJourney ?: rootScreen else rootScreen
     val latestScreen by rememberUpdatedState(screen)
+    val latestRootScreen by rememberUpdatedState(rootScreen)
+    fun isActiveTarget(target: JourneyScreenState) = latestScreen === target || latestRootScreen.accessJourney === target
     var currentPoint by remember { mutableStateOf<MapPoint?>(null) }
     var pendingLocation by remember { mutableStateOf<LocationRequest?>(null) }
     var mapExpanded by rememberSaveable { mutableStateOf(false) }
@@ -146,7 +151,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         scope.launch {
             try {
                 lifecycleOwner.lifecycle.withResumed {
-                    if (latestScreen === target && target.revision == revision &&
+                    if (isActiveTarget(target) && target.revision == revision &&
                         monitoringRequest(target)?.isSameJourney(request) == true) {
                         target.invalidateRequests()
                         if (!JourneyMonitoringController.start(context, request.copy(
@@ -200,14 +205,14 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         scope.launch {
             try {
                 val result = request()
-                if (target.acceptsResponse(generation) && latestScreen === target) {
+                if (target.acceptsResponse(generation) && isActiveTarget(target)) {
                     target.loading = false
                     onResult(result)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (target.acceptsResponse(generation) && latestScreen === target) {
+                if (target.acceptsResponse(generation) && isActiveTarget(target)) {
                     target.status = ""
                     target.error = friendlyFailure(error, failureMessage)
                     onFailure?.invoke(error)
@@ -238,10 +243,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
 
     fun startAccessTransitFallback(target: JourneyScreenState, location: GuidanceLocation) {
         // A feeder trip's scheduled duration is not proof of a catchable realtime vehicle.
-        if (target.mode != FeatureMode.ROUTE || target.selectedRoute == null ||
+        if (target.mode != FeatureMode.ROUTE ||
             location.accuracyMeters > 50.0 ||
             System.currentTimeMillis() - location.observedAtEpochMillis !in 0L..30_000L) return
-        val boarding = target.boarding ?: return
+        val boarding = target.departure.selected ?: target.boarding ?: return
         val now = System.currentTimeMillis()
         val previous = target.accessTransitAttemptAtMillis
         if (target.accessTransitLoading ||
@@ -254,15 +259,15 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         target.accessTransitLoading = true
         target.accessTransitRoutes = emptyList()
         target.accessTransitFetchedAtMillis = null
-        target.accessTransitMessage = "도보 경로가 제공되지 않아 현재 위치에서 실제 승차 지점까지 대중교통 대안을 찾고 있어요."
+        target.accessTransitMessage = "현재 위치에서 지정 출발지까지 접근 대중교통을 찾고 있어요."
         val route = target.selectedRoute
         val revision = target.revision
         val requestId = target.requestId
         val accessGeneration = target.beginAccessTransitRequest()
         scope.launch {
-            fun active() = latestScreen === target && target.revision == revision &&
+            fun active() = isActiveTarget(target) && target.revision == revision &&
                 target.requestId == requestId && target.accessTransitGeneration == accessGeneration &&
-                target.selectedRoute == route && target.boarding == boarding &&
+                target.selectedRoute == route && (target.departure.selected ?: target.boarding) == boarding &&
                 target.location?.let { distanceBetweenMeters(it.point, location.point) <= 25.0 } == true
             try {
                 val alternatives = kakaoRepository.searchPublicTransit(location.point, boarding.point)
@@ -272,8 +277,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         JourneyTransitRoute("access-$index", choice)
                     }
                     target.accessTransitMessage = if (alternatives.isEmpty())
-                        "승차 지점까지 확인된 대중교통 대안이 없어요. 현재 위치를 출발지로 경로를 다시 검색해 주세요."
-                    else "실제 승차 지점까지의 참고 경로예요. 예상 환승·대기시간은 변동될 수 있어 자동 이동 판단에 사용하지 않아요."
+                        "지정 출발지까지 조회된 접근 대중교통이 없어요. 검색을 다시 시도해 주세요."
+                    else "접근 경로를 선택하면 첫 승차점의 실시간 도착정보와 이동 안내를 연결해요. 본래 경로는 보관돼요."
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
@@ -299,7 +304,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             "위치·경로를 확인하지 못했어요",
             request = {
                 val location = getCurrentLocationSample(context)
-                if (target.revision != revision || latestScreen !== target) throw CancellationException()
+                if (target.revision != revision || !isActiveTarget(target)) throw CancellationException()
                 // A route provider failure must not discard a successful device fix.
                 target.location = location
                 currentPoint = location.point
@@ -310,8 +315,13 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     LocationAction.SET_DEPARTURE -> "현재 위치를 출발지로 설정하고 있어요."
                 }
                 when (action) {
-                    LocationAction.WALKING -> LocationWorkResult(location,
-                        walk = kakaoRepository.searchWalk(location.point, boarding!!.point))
+                    LocationAction.WALKING -> {
+                        val departure = target.departure.selected?.point ?: boarding!!.point
+                        if (target.mode == FeatureMode.ROUTE && requiresTransitAccess(location.point, departure)) {
+                            startAccessTransitFallback(target, location)
+                            LocationWorkResult(location)
+                        } else LocationWorkResult(location, walk = kakaoRepository.searchWalk(location.point, boarding!!.point))
+                    }
                     LocationAction.RECENTER, LocationAction.SET_DEPARTURE -> LocationWorkResult(location)
                 }
             },
@@ -360,7 +370,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             target.waitingForPermission = false
             val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-            if (target.revision == it.revision && latestScreen === target) {
+            if (target.revision == it.revision && isActiveTarget(target)) {
                 if (granted) performLocationAction(target, it.action)
                 else {
                     target.location = null
@@ -437,7 +447,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         scope.launch {
             try {
                 val routes = busRepository.routes(stop)
-                if (target.acceptsLiveResponse(generation) && latestScreen === target && target.selectedBusStop == stop) {
+                if (target.acceptsLiveResponse(generation) && isActiveTarget(target) && target.selectedBusStop == stop) {
                     target.busRouteOptions = routes
                     val matched = resolveOfficialSeoulBusRoute(routes, stop.stopId,
                         target.selectedRoute?.serviceName.orEmpty(), target.selectedRoute?.kakao?.directionName)
@@ -453,7 +463,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
-                if (target.acceptsLiveResponse(generation) && latestScreen === target) {
+                if (target.acceptsLiveResponse(generation) && isActiveTarget(target)) {
                     target.liveRetryAtEpochMillis = (error as? SeoulBusApiException)?.retryAfterEpochMillis
                     target.liveError = (error as? SeoulBusApiException)?.message ?: "정류장의 버스 노선을 확인하지 못했어요."
                 }
@@ -476,9 +486,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val generation = target.beginLiveRequest()
         scope.launch {
             try {
-                val stops = if (nearby) busRepository.nearbyStops(boarding.point)
+                val stops = if (nearby) busRepository.nearbyStops(boarding.point).ifEmpty { busRepository.searchStops(query) }
                     else busRepository.searchStops(query)
-                if (target.acceptsLiveResponse(generation) && latestScreen === target && target.boarding == boarding) {
+                if (target.acceptsLiveResponse(generation) && isActiveTarget(target) && target.boarding == boarding) {
                     target.busStopOptions = stops
                     target.busStopsSearched = true
                     val matched = if (automatic) resolveOfficialSeoulBusStop(stops, boarding) else null
@@ -489,10 +499,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
-                if (target.acceptsLiveResponse(generation) && latestScreen === target) {
+                if (target.acceptsLiveResponse(generation) && isActiveTarget(target)) {
                     target.liveRetryAtEpochMillis = (error as? SeoulBusApiException)?.retryAfterEpochMillis
                     target.liveError = if (automatic && target.selectedRoute?.kakao?.firstTransitType == "BUS")
-                        target.gyeonggiMessage ?: (error as? SeoulBusApiException)?.message
+                        (error as? SeoulBusApiException)?.message ?: target.gyeonggiMessage
                     else (error as? SeoulBusApiException)?.message ?: "공식 정류장을 확인하지 못했어요."
                 }
             } finally {
@@ -514,7 +524,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         scope.launch {
             try {
                 val stations = subwayRepository.searchStations(query)
-                if (target.acceptsLiveResponse(generation) && latestScreen === target) {
+                if (target.acceptsLiveResponse(generation) && isActiveTarget(target)) {
                     target.stationOptions = stations
                     target.stationsSearched = true
                     // A route already names its first subway boarding stop. Do not gate
@@ -548,11 +558,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val walkingRefreshes = remember { mutableSetOf<JourneyScreenState>() }
     suspend fun refreshWalkingSnapshot(target: JourneyScreenState) {
         val boarding = target.boarding ?: return
-        if (target.busy || latestScreen !== target || isMonitored(target) || !walkingRefreshes.add(target)) return
+        if (target.busy || !isActiveTarget(target) || isMonitored(target) || !walkingRefreshes.add(target)) return
         val revision = target.revision
         val requestId = target.requestId
         val identity = target.confirmedServiceIdentity
-        fun active() = target.revision == revision && latestScreen === target &&
+        fun active() = target.revision == revision && isActiveTarget(target) &&
             target.requestId == requestId && !target.busy &&
             target.boarding == boarding && target.confirmedServiceIdentity == identity
         try {
@@ -579,6 +589,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 target.guidanceWalkingRoute = null
                 target.walkRoute = null
                 target.walkingPoints = emptyList()
+                if (target.mode == FeatureMode.ROUTE && target.departure.selected?.point?.let {
+                        requiresTransitAccess(location.point, it)
+                    } == true) {
+                    startAccessTransitFallback(target, location)
+                    return
+                }
                 val refreshedWalk = kakaoRepository.searchWalk(location.point, boarding.point)
                 if (active()) storeWalking(target, location, boarding, identity, refreshedWalk)
             }
@@ -603,12 +619,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val stop = target.selectedBusStop ?: return
         val route = target.selectedBusRoute ?: return
         val boarding = target.boarding ?: return
-        if (target.liveLoading || latestScreen !== target || !busRepository.isConfigured) return
+        if (target.liveLoading || !isActiveTarget(target) || !busRepository.isConfigured) return
         if (target.liveRetryAtEpochMillis?.let { it > System.currentTimeMillis() } == true) return
         val binding = target.confirmedServiceIdentity
         if (binding != route.identity || route.stopId != stop.stopId || !route.supported) return
         val generation = target.beginLiveRequest()
-        fun active() = target.acceptsLiveResponse(generation) && latestScreen === target &&
+        fun active() = target.acceptsLiveResponse(generation) && isActiveTarget(target) &&
             target.selectedBusStop == stop && target.selectedBusRoute == route &&
             target.boarding == boarding && target.confirmedServiceIdentity == binding
         try {
@@ -644,13 +660,13 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
 
     suspend fun refreshGyeonggiLive(target: JourneyScreenState) {
         val match = target.selectedGyeonggiMatch ?: return
-        if (target.gyeonggiLoading || latestScreen !== target || target.selectedBusRoute != null) return
+        if (target.gyeonggiLoading || !isActiveTarget(target) || target.selectedBusRoute != null) return
         val route = target.selectedRoute
         val boarding = target.boarding
         val revision = target.revision
         val generation = target.beginGyeonggiRequest()
         fun active() = target.acceptsGyeonggiResponse(generation) &&
-            target.revision == revision && latestScreen === target &&
+            target.revision == revision && isActiveTarget(target) &&
             target.selectedGyeonggiMatch == match && target.selectedRoute == route &&
             target.boarding == boarding && target.selectedBusRoute == null
         try {
@@ -693,7 +709,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         target.gyeonggiMessage = "경기버스 공식 정류장·노선을 자동 검색하고 있어요."
         scope.launch {
             fun active() = target.acceptsGyeonggiResponse(generation) &&
-                target.revision == revision && latestScreen === target &&
+                target.revision == revision && isActiveTarget(target) &&
                 target.selectedRoute == selected && target.selectedBusRoute == null &&
                 target.boarding == boarding
             try {
@@ -743,7 +759,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         }
         val station = target.selectedStation ?: return
         val boarding = target.boarding ?: return
-        if (target.liveLoading || latestScreen !== target) return
+        if (target.liveLoading || !isActiveTarget(target)) return
         if (!subwayRepository.isConfigured) {
             target.liveError = "실시간 정보 연결 필요"
             return
@@ -757,7 +773,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val binding = target.confirmedServiceIdentity
         var expectedSelection = selected?.let { it.identity to it.trainId }
         val generation = target.beginLiveRequest()
-        fun active() = target.acceptsLiveResponse(generation) && latestScreen === target &&
+        fun active() = target.acceptsLiveResponse(generation) && isActiveTarget(target) &&
             target.selectedStation == station && target.boarding == boarding &&
             target.confirmedServiceIdentity == binding &&
             target.selectedArrival?.let { it.identity to it.trainId } == expectedSelection
@@ -995,7 +1011,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val generation = target.beginGyeonggiRequest()
         scope.launch {
             fun active() = target.acceptsGyeonggiResponse(generation) &&
-                latestScreen === target && target.revision == revision &&
+                isActiveTarget(target) && target.revision == revision &&
                 target.boarding == boarding && target.selectedRoute == route &&
                 target.gyeonggiStationId.trim() == stationId
             try {
@@ -1023,12 +1039,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         if (screen.mode == FeatureMode.STOP && screen.stop.selected != null && screen.destination.selected != null &&
             screen.stopDirectionRoute == null && screen.directionMessage == null && !screen.busy) connectStopDestination(screen)
     }
-    LaunchedEffect(screen, screen.selectedStation, screen.arrivalOptions, screen.subwayDirectionRoute, screen.revision, monitorKey) {
+    LaunchedEffect(screen, screen.selectedStation, screen.arrivalOptions, screen.subwayDirectionRoute, screen.revision, monitorKey, now / 30_000L) {
         if (isMonitored(screen)) return@LaunchedEffect
         val station = screen.selectedStation ?: return@LaunchedEffect
         val route = screen.subwayDirectionRoute ?: return@LaunchedEffect
         val rows = screen.arrivalOptions
-        if (route.firstTransitType != "SUBWAY" || rows.isEmpty()) return@LaunchedEffect
+        if (route.firstTransitType != "SUBWAY") return@LaunchedEffect
         val revision = screen.revision
         screen.timetableAnalysis = null
         val days = timetableCalendar.serviceDays(System.currentTimeMillis())
@@ -1039,6 +1055,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             if (latestScreen !== screen || screen.revision != revision || screen.selectedStation != station ||
                 screen.subwayDirectionRoute != route || screen.arrivalOptions != rows) return@LaunchedEffect
             screen.timetableAnalysis = analysis
+            arrivalHistory.record(station, rows, analysis.estimates, System.currentTimeMillis())
             val official = selectDestinationSubwayArrival(analysis, System.currentTimeMillis())
             val estimated = selectTimetableEvidence(analysis, System.currentTimeMillis())
             val selected = official ?: analysis.estimates.firstOrNull { it.estimate == estimated?.first }?.arrival
@@ -1084,10 +1101,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         it.stationStopId == (if (monitored) monitoring.request?.subwayStation?.stopId else screen.selectedStation?.stopId) &&
             it.requestedRoute == (if (monitored) monitoring.request?.subwayRoute else screen.subwayDirectionRoute)
     }
-    val estimatedArrivals = selectTimetableEvidence(analysis, now).takeUnless { !monitored && screen.arrivalRequestFailed }
+    val estimatedArrivals = selectTimetableEvidence(analysis, now)
     val boarding = screen.boarding
     val identity = if (monitored) monitoring.arrivals?.identity ?: estimatedArrivals?.identity ?: monitoring.request?.identity
-        else screen.activeArrivalIdentity ?: estimatedArrivals?.identity
+        else screen.activeArrivalIdentity ?: estimatedArrivals?.identity ?: screen.confirmedServiceIdentity
     val officialConnectionConfirmed = if (isBus) {
         val route = screen.selectedBusRoute
         (route != null && screen.selectedBusStop?.stopId == route.stopId && route.identity == identity) ||
@@ -1116,10 +1133,16 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         arrivals = activeSnapshot.takeIf { configured },
         locationPermissionGranted = hasLocationPermission(context),
         arrivalRequestFailed = !monitored && screen.arrivalRequestFailed,
-        bufferSeconds = settings.bufferSeconds, timetableArrivals = estimatedArrivals), now,
+        bufferSeconds = settings.bufferSeconds, timetableArrivals = estimatedArrivals,
+        furtherServiceEnded = if (monitored) monitoring.assessment?.nextVehicleState == NextVehicleState.SERVICE_ENDED
+            else screen.selectedBusArrival?.isLast == true && activeSnapshot?.nextArrivalAtEpochMillis == null,
+        previousAssessment = if (monitored) monitoring.assessment else screen.lastGuidanceAssessment), now,
         AutoGuidancePolicy(fastSpeedKmh = settings.fastSpeedKmh))
+    LaunchedEffect(screen, assessment) {
+        if (assessment.status != AutoGuidanceStatus.UNKNOWN) screen.lastGuidanceAssessment = assessment
+    }
     val validArrival = activeSnapshot?.takeIf {
-        configured && (monitored || !screen.arrivalRequestFailed) && it.hasUsableOfficialEta(now)
+        configured && it.hasUsableOfficialEta(now)
     }
     val operationGuidance = if (isBus || validArrival != null || estimatedArrivals != null) null else subwayOperationGuidance(
         if (monitored) monitoring.request?.subwayStation else screen.selectedStation,
@@ -1215,6 +1238,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     }
                 })
             }
+            if (screen !== rootScreen) {
+                SectionCard("출발지 접근 안내", "본래 경로: ${rootScreen.departure.selected?.name.orEmpty()} → ${rootScreen.destination.selected?.name.orEmpty()}") {
+                    Text("현재 위치에서 지정 출발지까지의 첫 교통수단을 안내해요.")
+                    OutlinedButton(onClick = { showingAccess = false }) { Text("본래 경로 보기") }
+                }
+            }
             // 2. Explicit trip origin and destination, independent from the phone's live GPS.
             SectionCard(title = if (mode == FeatureMode.ROUTE) "어디로 이동하시나요?" else "어느 정류장을 찾으세요?") {
             SearchContent(screen, onSearch = { searchPlaces(screen, it) },
@@ -1290,8 +1319,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis ?: estimatedArrivals?.first?.earliestArrivalAtEpochMillis,
                         nextArrivalAtEpochMillis = validArrival?.nextArrivalAtEpochMillis ?: estimatedArrivals?.next?.earliestArrivalAtEpochMillis,
                         arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis
-                            ?: estimatedArrivals?.first?.sourceTimestampEpochMillis ?: operationGuidance?.sourceAtEpochMillis,
+                            ?: estimatedArrivals?.first?.takeIf { it.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION }
+                                ?.sourceTimestampEpochMillis ?: operationGuidance?.sourceAtEpochMillis,
                         arrivalPrecision = validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
+                        nextArrivalPrecision = validArrival?.nextArrivalPrecision ?: validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
                         estimateLabel = estimatedArrivals?.first?.label.takeIf { validArrival == null },
                         walkingSeconds = if (monitored) personalizedWalk?.durationSeconds?.takeIf {
                             now - personalizedWalk.fetchedAtEpochMillis in 0L..120_000L &&
@@ -1324,7 +1355,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     }
                 }
                 if (screen.accessTransitMessage != null) {
-                    SectionCard(title = "승차 지점까지 대중교통 접근 대안") {
+                    SectionCard(title = "지정 출발지까지 접근 대중교통") {
                         Text(screen.accessTransitMessage.orEmpty(), style = MaterialTheme.typography.bodySmall)
                         if (screen.accessTransitLoading) LoadingStateCard("대중교통 연결 경로 조회 중")
                         screen.accessTransitRoutes.forEach { alternative ->
@@ -1335,20 +1366,27 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                                         alternative.durationMinutes + "분 · " + alternative.boardingName,
                                         style = MaterialTheme.typography.bodyMedium)
                                     Text(alternative.detail, style = MaterialTheme.typography.bodySmall)
+                                    OutlinedButton(onClick = {
+                                        val access = JourneyScreenState(FeatureMode.ROUTE)
+                                        val origin = screen.accessTransitOrigin ?: return@OutlinedButton
+                                        access.departure.selected = JourneyPlace("access-gps", "현재 위치", "접근 경로 출발", origin)
+                                        access.departure.query = "현재 위치"
+                                        access.destination.selected = screen.departure.selected ?: screen.boarding
+                                        access.destination.query = access.destination.selected?.name.orEmpty()
+                                        access.routes = screen.accessTransitRoutes
+                                        access.routeSearchCompleted = true
+                                        access.alertsEnabled = screen.alertsEnabled
+                                        rootScreen.accessJourney = access
+                                        showingAccess = true
+                                        selectRoute(access, alternative)
+                                    }, enabled = !screen.accessTransitLoading && isAccessEstimateFresh(
+                                        screen.accessTransitOrigin, screen.location, screen.accessTransitFetchedAtMillis, now)) {
+                                        Text("이 접근 경로로 실시간 안내")
+                                    }
                                     val fresh = isAccessEstimateFresh(screen.accessTransitOrigin, screen.location,
                                         screen.accessTransitFetchedAtMillis, now)
-                                    val margin = boarding?.point?.takeIf { fresh }?.let { board ->
-                                            provisionalAccessSlackSeconds(board, board,
-                                                alternative.kakao.totalSeconds,
-                                                validArrival?.firstArrivalAtEpochMillis,
-                                                now, settings.bufferSeconds)
-                                    }
                                     Text(if (!fresh) "이전 위치에서 검색한 참고 경로 · 현재 위치로 갱신이 필요해요."
-                                    else if (margin == null)
-                                        "실시간 환승 여유시간 확인 불가 · 대체 경로는 예상 소요시간이에요."
-                                    else if (margin >= 0)
-                                        "참고 예상 여유 약 " + (margin / 60) + "분 · 환승·승차 보장 아님"
-                                    else "참고 예상 여유 부족 약 " + ((-margin) / 60 + 1) + "분 · 재탐색 권장",
+                                    else "경로 소요시간은 예상값이에요. 선택 후 첫 승차 차량의 공식 ETA로 이동을 판단해요.",
                                         style = MaterialTheme.typography.bodySmall)
                                 }
                             }

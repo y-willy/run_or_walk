@@ -115,6 +115,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     }
 
     var confirmedServiceIdentity by mutableStateOf<OfficialBoardingIdentity?>(null)
+    var lastGuidanceAssessment by mutableStateOf<AutoGuidanceAssessment?>(null)
     var liveRetryAtEpochMillis by mutableStateOf<Long?>(null)
     var arrivalRequestFailed by mutableStateOf(false)
     var liveLoading by mutableStateOf(false)
@@ -129,6 +130,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var walkingPoints by mutableStateOf<List<MapPoint>>(emptyList())
     // A feeder alternative is display-only until its own realtime vehicle identity is verified.
     var accessTransitRoutes by mutableStateOf<List<JourneyTransitRoute>>(emptyList())
+    var accessJourney by mutableStateOf<JourneyScreenState?>(null)
     var accessTransitMessage by mutableStateOf<String?>(null)
     var accessTransitLoading by mutableStateOf(false)
     var accessTransitFetchedAtMillis by mutableStateOf<Long?>(null)
@@ -261,6 +263,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     fun clearAccessTransit() {
         accessTransitGeneration++
         accessTransitRoutes = emptyList()
+        accessJourney = null
         accessTransitMessage = null
         accessTransitLoading = false
         accessTransitFetchedAtMillis = null
@@ -278,6 +281,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     }
 
     fun clearOfficialSelection() {
+        lastGuidanceAssessment = null
         liveRequestId++
         selectedStation = null
         lastArrivalPollElapsedMillis = null

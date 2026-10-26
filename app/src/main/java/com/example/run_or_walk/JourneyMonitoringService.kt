@@ -42,6 +42,7 @@ class JourneyMonitoringService : Service() {
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
     private val subway by lazy { SeoulSubwayRepository(this) }
     private val timetableRepository by lazy { OfficialTimetableRepository(this) }
+    private val arrivalHistory by lazy { SubwayArrivalHistory(this) }
     private val timetableAnalyzer by lazy { SubwayTimetableAnalyzer(timetableRepository) }
     private val timetableCalendar by lazy { OfficialServiceCalendar(this) }
     private val bus by lazy { SeoulBusRepository() }
@@ -115,6 +116,8 @@ class JourneyMonitoringService : Service() {
         var cachedWalk: MonitoringWalk? = null
         var retryAt: Long? = null
         val alertGate = JourneyMonitoringAlertGate()
+        var lastArrivals: RealtimeArrivalSnapshot? = null
+        var lastVehicleId: String? = null
         while (scope.isActive && android.os.SystemClock.elapsedRealtime() - startedAt < MAX_SESSION_MILLIS) {
             val cycleStartedAt = android.os.SystemClock.elapsedRealtime()
             val request = currentRequest ?: break
@@ -124,7 +127,15 @@ class JourneyMonitoringService : Service() {
             }
             val now = System.currentTimeMillis()
             if (retryAt?.let { it > now } == true) {
-                publishUnknown(request, "도착정보 재조회 대기 중이에요. 서버 안내 시각 이후 다시 확인해요.", retryAt)
+                val previous = JourneyMonitoringController.state.value
+                if (previous.assessment?.status == AutoGuidanceStatus.NEXT_VEHICLE &&
+                    previous.arrivals?.hasUsableOfficialEta(now) == true) {
+                    val assessment = previous.assessment.copy(nextVehicleState = NextVehicleState.API_ERROR,
+                        recommendedArrivalAtEpochMillis = null)
+                    val detail = "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, now)
+                    JourneyMonitoringController.publish(previous.copy(assessment = assessment, message = detail, retryAtEpochMillis = retryAt))
+                    notifySafely(ONGOING_ID, ongoingNotification(request, detail, previous.arrivals, now))
+                } else publishUnknown(request, "도착정보 재조회 대기 중이에요. 서버 안내 시각 이후 다시 확인해요.", retryAt)
                 delay(minOf(POLL_INTERVAL_MILLIS, (requireNotNull(retryAt) - now).coerceAtLeast(1_000L)))
                 continue
             }
@@ -133,6 +144,7 @@ class JourneyMonitoringService : Service() {
             var location: GuidanceLocation? = null
             var walking: GuidanceWalkingRoute? = null
             var failure = false
+            var furtherServiceEnded = false
             var message: String? = null
             var subwayObservations = emptyList<OfficialSubwayArrival>()
             var timetableAnalysis: SubwayTimetableAnalysis? = null
@@ -150,6 +162,7 @@ class JourneyMonitoringService : Service() {
                     arrivals = selected?.snapshot
                     vehicleId = selected?.vehicleId
                     if (selected == null) message = "선택한 버스의 유효한 도착정보를 기다리고 있어요."
+                    furtherServiceEnded = selected?.isLast == true && selected.snapshot.nextArrivalAtEpochMillis == null
                 } else {
                     subwayObservations = subway.arrivals(requireNotNull(request.subwayStation))
                     val days = timetableCalendar.serviceDays(System.currentTimeMillis())
@@ -159,6 +172,8 @@ class JourneyMonitoringService : Service() {
                             subwayObservations, System.currentTimeMillis(), day.serviceDate, day.dayType, day.sourceVersion,
                             additionalServiceDays = days.drop(1))
                     }
+                    arrivalHistory.record(requireNotNull(request.subwayStation), subwayObservations,
+                        timetableAnalysis?.estimates.orEmpty(), System.currentTimeMillis())
                     val selected = selectDestinationSubwayArrival(timetableAnalysis, System.currentTimeMillis()) ?:
                         chooseMatchingSubwayArrival(request.identity, subwayObservations, System.currentTimeMillis())
                     arrivals = selected?.snapshot
@@ -169,12 +184,26 @@ class JourneyMonitoringService : Service() {
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 failure = true
+                arrivals = lastArrivals?.takeIf { it.hasUsableOfficialEta(System.currentTimeMillis()) }
+                vehicleId = lastVehicleId.takeIf { arrivals != null }
                 retryAt = (error as? SeoulBusApiException)?.retryAfterEpochMillis
                     ?: (error as? SeoulSubwayApiException)?.retryAfterEpochMillis
                     ?: (error as? GyeonggiApiException)?.retryAfterEpochMillis
                 message = (error as? SeoulBusApiException)?.message
                     ?: (error as? GyeonggiApiException)?.message
                     ?: (error as? SeoulSubwayApiException)?.message ?: "실시간 도착정보 연결을 다시 확인하고 있어요."
+                if (!request.isBus && request.subwayRoute != null) {
+                    val days = timetableCalendar.serviceDays(System.currentTimeMillis())
+                    val day = days.firstOrNull()
+                    if (day != null) {
+                        try {
+                            timetableAnalysis = timetableAnalyzer.analyze(requireNotNull(request.subwayStation),
+                                request.subwayRoute, emptyList(), System.currentTimeMillis(), day.serviceDate,
+                                day.dayType, day.sourceVersion, additionalServiceDays = days.drop(1))
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { /* Keep the original API failure visible. */ }
+                    }
+                }
             }
             try {
                 location = getCurrentLocationSample(this)
@@ -207,19 +236,23 @@ class JourneyMonitoringService : Service() {
                 return
             }
             val checkedAt = System.currentTimeMillis()
+            if (!failure) { lastArrivals = arrivals; lastVehicleId = vehicleId }
             val evidence = selectTimetableEvidence(timetableAnalysis, checkedAt)
             val currentIdentity = arrivals?.identity ?: evidence?.identity ?: request.identity
             walking = walking?.copy(boardingIdentity = currentIdentity)
             val assessment = calculateAutoGuidance(AutoGuidanceInput(location,
                 GuidanceBoarding(currentIdentity, request.boardingPoint, true), walking, arrivals,
-                hasLocationPermission(this), failure, active.settings.bufferSeconds, evidence), checkedAt,
+                hasLocationPermission(this), failure, active.settings.bufferSeconds, evidence, furtherServiceEnded,
+                JourneyMonitoringController.state.value.assessment), checkedAt,
                 AutoGuidancePolicy(fastSpeedKmh = active.settings.fastSpeedKmh))
             val operation = subwayOperationGuidance(request.subwayStation, null, request.identity,
                 subwayObservations, checkedAt, failure)
             val summary = if (assessment.status == AutoGuidanceStatus.UNKNOWN)
                 evidence?.let { timetableArrivalText(it, checkedAt) } ?: operation?.message ?: message ?: "최신 위치·도보·도착정보를 확인하고 있어요."
-                else (if (assessment.arrivalSource == GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION) "시간표 추정 · " else "") +
-                    monitoringAssessmentMessage(assessment.status, request.isBus)
+                else (if (assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME) "시간표 추정 · " else "") +
+                    if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
+                        "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, checkedAt)
+                    else monitoringAssessmentMessage(assessment.status, request.isBus)
             JourneyMonitoringController.publish(JourneyMonitoringState(true, active, assessment,
                 location, walking, arrivals, summary, checkedAt, retryAt,
                 cachedWalk?.route?.distanceMeters.takeIf { walking != null },
@@ -355,7 +388,7 @@ class JourneyMonitoringService : Service() {
 internal fun monitoringAssessmentMessage(status: AutoGuidanceStatus, isBus: Boolean): String = when (status) {
     AutoGuidanceStatus.WALK -> "걸어가세요. 안전 여유시간을 포함해 확인했어요."
     AutoGuidanceStatus.FAST_WALK -> "빠른 걸음으로 이동하세요. 신호와 안전한 보행을 우선하세요."
-    AutoGuidanceStatus.NEXT_VEHICLE -> "확인된 다음 ${if (isBus) "버스" else "열차"}를 이용하세요."
+    AutoGuidanceStatus.NEXT_VEHICLE -> "다음 차량을 기다리세요."
     AutoGuidanceStatus.UNKNOWN -> "최신 정보를 확인하고 있어요."
 }
 private fun clockTime(epochMillis: Long): String = DateTimeFormatter.ofPattern("HH:mm:ss")

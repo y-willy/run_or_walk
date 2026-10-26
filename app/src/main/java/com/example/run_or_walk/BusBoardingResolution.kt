@@ -38,13 +38,15 @@ internal fun resolveOfficialSeoulBusRoute(
 ): OfficialSeoulBusRoute? {
     val expected = normalizeBusRouteName(serviceName)
     if (stopId.isBlank() || expected.isBlank()) return null
-    return candidates.distinct().filter {
+    val matching = candidates.distinct().filter {
         it.stopId == stopId && it.stopId.matches(officialBusId) && it.supported &&
             it.routeId.matches(officialBusId) &&
             it.stopOrder.toIntOrNull()?.let { order -> order > 0 } == true &&
-            (directionName.isNullOrBlank() || normalizeBusDirection(it.direction) == normalizeBusDirection(directionName)) &&
             normalizeBusRouteName(it.name) == expected
-    }.singleOrNull()
+    }.distinctBy { Triple(it.stopId, it.routeId, it.stopOrder) }
+    if (matching.size == 1) return matching.single()
+    if (directionName.isNullOrBlank()) return null
+    return matching.filter { normalizeBusDirection(it.direction) == normalizeBusDirection(directionName) }.singleOrNull()
 }
 
 private fun normalizeBusDirection(value: String): String = normalizeBusRouteName(value)
