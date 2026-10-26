@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
+import java.io.FileNotFoundException
 import java.time.LocalDate
 import java.util.zip.GZIPInputStream
 
@@ -137,7 +138,11 @@ class OfficialTimetableRepository private constructor(
         return cacheMutex.withLock {
             cache[key]?.let { return@withLock it }
             if (key !in groups) return@withLock null
-            val parsed = GZIPInputStream(openAsset("timetables/$key.json.gz"))
+            // AAPT expands .gz assets and packages them without the .gz suffix.
+            // Filesystem tools still read the compressed source publication.
+            val stream = try { openAsset("timetables/$key.json") }
+                catch (_: FileNotFoundException) { GZIPInputStream(openAsset("timetables/$key.json.gz")) }
+            val parsed = stream
                 .bufferedReader(Charsets.UTF_8).use { parseIndexedOfficialTimetable(it.readText()) }
             require(parsed.routeId == routeId && parsed.dayType == dayType)
             cache[key] = parsed

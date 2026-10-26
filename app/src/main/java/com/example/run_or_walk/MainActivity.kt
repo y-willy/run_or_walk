@@ -1229,6 +1229,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         if (route != null && route.firstTransitType != "SUBWAY") return@LaunchedEffect
         val revision = screen.revision
         screen.timetableAnalysis = null
+        screen.timetableError = null
         val days = timetableCalendar.serviceDays(System.currentTimeMillis())
         if (days.isEmpty()) return@LaunchedEffect
         try {
@@ -1237,6 +1238,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             if (latestScreen !== screen || screen.revision != revision || screen.selectedStation != station ||
                 screen.subwayDirectionRoute != route || screen.arrivalOptions != rows) return@LaunchedEffect
             screen.timetableAnalysis = analysis
+            if (!screen.arrivalRequestFailed && (analysis.estimates.isNotEmpty() ||
+                    analysis.matchingArrivals.any { it.snapshot.hasUsableOfficialEta(System.currentTimeMillis()) }))
+                screen.liveError = null
             arrivalHistory.record(station, rows, analysis.estimates, System.currentTimeMillis())
             val official = selectDestinationSubwayArrival(analysis, System.currentTimeMillis())
             val estimated = selectTimetableEvidence(analysis, System.currentTimeMillis())
@@ -1247,7 +1251,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 screen.liveError = null
             }
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { screen.directionMessage = "공식 시간표를 확인하지 못했어요. 수신한 운행정보는 계속 안내해요." }
+        catch (error: Exception) {
+            screen.timetableError = "앱에 포함된 공식 시간표를 불러오지 못해 도착시간을 계산하지 못했어요."
+            // Only the exception category is logged; no response, URL or credentials.
+            android.util.Log.w("PaceNudgeEta",error.javaClass.simpleName)
+        }
     }
     LaunchedEffect(screen) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -1439,7 +1447,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val validArrival = activeSnapshot?.takeIf {
         configured && it.hasUsableOfficialEta(now)
     }
-    val operationGuidance = if (isBus || validArrival != null || estimatedArrivals != null) null else subwayOperationGuidance(
+    val operationGuidance = if (isBus || validArrival != null || estimatedArrivals != null || stationArrivalInformation != null) null else subwayOperationGuidance(
         if (monitored) monitoring.request?.subwayStation else screen.selectedStation,
         if (analysis?.directionVerified == true) null else screen.subwayDirectionRoute,
         if (analysis?.directionVerified == true) null else if (monitored) monitoring.request?.identity else screen.confirmedServiceIdentity,
@@ -1472,6 +1480,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             else "공식 시간표와 현재 열차 위치로 도착 범위를 추정했어요. ") +
             unknownReasonText(assessment.unknownReason)
         stationArrivalInformation != null -> "방향별 도착시간을 계산했어요. 목적지 방면 또는 탑승할 열차를 선택해 주세요."
+        !isBus && screen.timetableError != null -> screen.timetableError.orEmpty()
         operationGuidance != null -> operationGuidance.message +
             if (assessment.unknownReason?.name?.startsWith("LOCATION_") == true)
                 "\n" + unknownReasonText(assessment.unknownReason) else ""
@@ -1504,6 +1513,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         validArrival != null -> "이동 경로 확인 필요"
         estimatedArrivals != null -> "시간표 기반 도착 추정"
         stationArrivalInformation != null -> "방향별 도착시간 안내"
+        !isBus && screen.timetableError != null -> "도착시간 계산 오류"
         operationGuidance != null -> operationGuidance.title
         screen.boarding == null && screen.selectedRoute == null -> "이동 안내를 시작해 보세요"
         screen.busy || screen.liveLoading && !hasArrivalOptions -> "이동 정보를 확인하고 있어요"

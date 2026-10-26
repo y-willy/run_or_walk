@@ -73,6 +73,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     val subwayDirectionRoute: KakaoTransitChoice? get() = selectedRoute?.kakao ?: stopDirectionRoute
     var directionMessage by mutableStateOf<String?>(null)
     var timetableAnalysis by mutableStateOf<SubwayTimetableAnalysis?>(null)
+    var timetableError by mutableStateOf<String?>(null)
     var boarding by mutableStateOf<JourneyPlace?>(null)
     var boardingSource by mutableStateOf<BoardingPointSource?>(null)
     var boardingChosenByUser by mutableStateOf(false)
@@ -259,6 +260,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
         waitingForPermission = false
         liveLoading = false
         timetableAnalysis = null
+        timetableError = null
     }
 
     /** A new destination keeps the selected physical station, but retires its old direction. */
