@@ -45,8 +45,8 @@ internal data class JourneyMonitoringRequest(
             } == true
             "seoul-bus" -> gyeonggiMatch == null && subwayStation == null && busStop?.let { stop ->
                 busRoute?.let { route -> stop.stopId == route.stopId && route.identity == identity &&
-                    route.supported && route.routeType in setOf("2", "3", "4", "5", "6") &&
-                    route.name.isNotBlank() && route.direction.isNotBlank() &&
+                    route.supported && (route.routeType.isBlank() || route.routeType in setOf("2", "3", "4", "5", "6")) &&
+                    route.name.isNotBlank() && route.direction.length <= 512 && route.direction.none(Char::isISOControl) &&
                     stop.point == boardingPoint && stop.stopId.matches(Regex("[1-9][0-9]{8}")) &&
                     stop.arsId.matches(Regex("[0-9]{5}")) && stop.arsId != "00000" &&
                     route.routeId.matches(Regex("[1-9][0-9]{8}")) &&
@@ -92,6 +92,9 @@ internal object JourneyMonitoringRequestCodec {
         fun JSONObject.text(key: String): String = (opt(key) as? String)?.takeIf {
             it.isNotBlank() && it.length <= 512 && it.none(Char::isISOControl)
         } ?: error("Invalid journey field")
+        fun JSONObject.optionalText(key: String): String = if (!has(key) || isNull(key)) ""
+            else (opt(key) as? String)?.takeIf { it.length <= 512 && it.none(Char::isISOControl) }
+                ?: error("Invalid journey field")
         val point = MapPoint(root.getDouble("x"), root.getDouble("y"))
         val raw = root.getJSONObject("identity")
         val identity = OfficialBoardingIdentity(raw.text("authority"), raw.text("stopId"), raw.text("routeId"),
@@ -104,7 +107,7 @@ internal object JourneyMonitoringRequestCodec {
         }
         val route = root.optJSONObject("busRoute")?.let {
             OfficialSeoulBusRoute(it.text("stopId"), it.text("routeId"), it.text("name"), it.text("stopOrder"),
-                it.text("direction"), it.text("routeType"), it.opt("supported") == true)
+                it.optionalText("direction"), it.optionalText("routeType"), it.opt("supported") == true)
         }
         JourneyMonitoringRequest(root.text("boardingName"), point, identity, station, stop, route,
             JourneySettingsCodec.decode(root.optJSONObject("settings")?.toString()),

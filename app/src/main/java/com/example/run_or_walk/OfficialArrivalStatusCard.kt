@@ -36,7 +36,7 @@ internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
         subwayRows.take(2).forEach { row ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(row.directionLabel, style = MaterialTheme.typography.labelLarge)
-                val estimate = sourceSubwayEstimate(row, now).takeUnless { screen.arrivalRequestFailed }
+                val estimate = sourceSubwayEstimate(row, now)
                     ?: analysis?.estimates?.firstOrNull { it.arrival == row }?.estimate
                         ?.takeIf { now <= it.validUntilEpochMillis }?.let { subwayEstimateText(it,now) }
                 Text(estimate ?: row.officialArrivalMessage.ifBlank { "초 단위 예정시간 미제공" },
@@ -53,14 +53,14 @@ internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
         }
         busRows.take(2).forEach { row ->
             Text("${row.routeName} · ${row.directionLabel}", style = MaterialTheme.typography.labelLarge)
-            sourceBusEstimate(row, now)?.takeUnless { screen.arrivalRequestFailed }?.let {
+            sourceBusEstimate(row, now)?.let {
                 Text(it, style = MaterialTheme.typography.bodyLarge)
             }
             Text(seoulBusArrivalDisplayStatus(row, now), style = MaterialTheme.typography.bodyMedium)
         }
         gyeonggiRows.take(2).forEach { row ->
             Text("${row.routeName} · ${row.destination}", style = MaterialTheme.typography.labelLarge)
-            val usable = isUsableGyeonggiArrival(row, now) && !screen.arrivalRequestFailed
+            val usable = isUsableGyeonggiArrival(row, now)
             val remaining = row.seconds?.let { row.arrivalBasisMillis(now) + it * 1_000L - now }
             val text = if (usable && remaining != null) {
                 if (row.etaPrecision == ArrivalTimePrecision.MINUTES) "약 ${(remaining + 59_999L) / 60_000L}분 후 도착"

@@ -42,5 +42,5 @@ internal fun subwayEstimateText(estimate: OfficialTimetableEstimate, now: Long):
     }
     val minimum = ((estimate.earliestArrivalAtEpochMillis-now).coerceAtLeast(0)+59_999L)/60_000L
     val maximum = ((estimate.latestArrivalAtEpochMillis-now).coerceAtLeast(0)+59_999L)/60_000L
-    return "열차 위치·시간표 추정 · 약 " + if (minimum==maximum) "${minimum}분 후" else "${minimum}~${maximum}분 후"
+    return "열차 위치·시간표 기반 추정 · 약 " + if (minimum==maximum) "${minimum}분 후" else "${minimum}~${maximum}분 후"
 }

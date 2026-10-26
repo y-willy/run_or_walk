@@ -6,7 +6,8 @@ internal data class JourneyMonitoringAlert(val kind: JourneyMonitoringAlertKind,
 /** A changing countdown never causes repeated alerts. An actual vehicle gets one approach alert. */
 internal class JourneyMonitoringAlertGate {
     private var guidanceState = AutoVibrationState()
-    private val approachedVehicles = LinkedHashSet<Pair<OfficialBoardingIdentity, String>>()
+    private data class Approach(val arrivalAt: Long, val sourceAt: Long)
+    private val approachedVehicles = LinkedHashMap<Pair<OfficialBoardingIdentity, String>, Approach>()
 
     fun claim(identity: OfficialBoardingIdentity, vehicleId: String?, assessment: AutoGuidanceAssessment,
         arrivals: RealtimeArrivalSnapshot?, now: Long): JourneyMonitoringAlert? {
@@ -19,9 +20,16 @@ internal class JourneyMonitoringAlertGate {
         guidanceState = decision.state
         if (usable && assessment.status != AutoGuidanceStatus.NEXT_VEHICLE &&
             arrivals.firstArrivalAtEpochMillis - now in 1L..60_000L) {
-            val key = identity to vehicleId
-            if (approachedVehicles.add(key)) {
-                if (approachedVehicles.size > 64) approachedVehicles.remove(approachedVehicles.first())
+            val key = identity to requireNotNull(vehicleId)
+            val previous = approachedVehicles[key]
+            // A provider slot is not a vehicle ID. Rearm only after the earlier ETA has passed
+            // and a newer official observation places a later arrival at least a minute beyond it.
+            val laterSlotArrival = vehicleId.startsWith("official-slot:") && previous != null &&
+                now >= previous.arrivalAt && arrivals.fetchedAtEpochMillis > previous.sourceAt &&
+                arrivals.firstArrivalAtEpochMillis - previous.arrivalAt >= 60_000L
+            if (previous == null || laterSlotArrival) {
+                approachedVehicles[key] = Approach(arrivals.firstArrivalAtEpochMillis, arrivals.fetchedAtEpochMillis)
+                if (approachedVehicles.size > 64) approachedVehicles.remove(approachedVehicles.keys.first())
                 // This is arrival information; UNKNOWN never turns it into a catch recommendation.
                 return JourneyMonitoringAlert(JourneyMonitoringAlertKind.ARRIVING, assessment.status)
             }

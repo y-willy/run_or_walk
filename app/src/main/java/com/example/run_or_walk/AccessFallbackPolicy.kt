@@ -5,6 +5,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+internal const val WALKING_OUTSIDE_RANGE_MESSAGE = "도보 길찾기 범위를 벗어났습니다."
+
 internal fun shouldSearchTransitAccess(error: Exception): Boolean =
     (error as? KakaoApiException)?.failure == KakaoFailure.NO_ROUTE
 

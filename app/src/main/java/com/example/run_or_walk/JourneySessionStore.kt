@@ -252,13 +252,17 @@ private fun OfficialSeoulBusRoute.toJson() = JSONObject().put("stopId", stopId).
     .put("name", name).put("stopOrder", stopOrder).put("direction", direction).put("routeType", routeType)
     .put("supported", supported)
 private fun JSONObject.busRoute(): OfficialSeoulBusRoute? {
-    val type = text("routeType", 2)?.takeIf { it in setOf("2", "3", "4", "5", "6") } ?: return null
+    val type = optionalBusText("routeType", 2)?.takeIf { it.isBlank() || it in setOf("2", "3", "4", "5", "6") } ?: return null
     if (!flag("supported")) return null
     return OfficialSeoulBusRoute(text("stopId", 9)?.takeIf(::busId) ?: return null,
         text("routeId", 9)?.takeIf(::busId) ?: return null, text("name", 100) ?: return null,
         text("stopOrder", 4)?.takeIf { it.matches(Regex("[0-9]{1,4}")) && it.toInt() > 0 } ?: return null,
-        text("direction", 200) ?: return null, type, true)
+        optionalBusText("direction", 200) ?: return null, type, true)
 }
+private fun JSONObject.optionalBusText(key: String, limit: Int): String? =
+    if (!has(key) || isNull(key)) "" else (opt(key) as? String)?.takeIf {
+        it.length <= limit && it.none(Char::isISOControl)
+    }
 private fun OfficialBoardingIdentity.toJson() = JSONObject().put("authority", authority).put("stopId", stopId)
     .put("routeId", routeId).put("directionId", directionId).put("serviceVariant", serviceVariant)
 private fun JSONObject.identity(): OfficialBoardingIdentity? {

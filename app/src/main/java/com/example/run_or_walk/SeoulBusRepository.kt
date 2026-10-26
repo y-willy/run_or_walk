@@ -63,7 +63,14 @@ class SeoulBusRepository(
 
     suspend fun routeStops(routeId: String): List<OfficialSeoulBusRouteStop> {
         if (!routeId.isOfficialBusId()) throw busInvalidResponse()
-        return parseWorkerSeoulBusRouteStops(load("/bus/route-stops", linkedMapOf("routeId" to routeId)),routeId)
+        try {
+            return parseWorkerSeoulBusRouteStops(load("/bus/route-stops", linkedMapOf("routeId" to routeId)),routeId)
+        } catch (error: SeoulBusApiException) {
+            if (error.serverCode == "BUS_UPSTREAM_KEY_REJECTED") throw SeoulBusApiException(
+                "서울 버스 노선정보조회서비스 인증이 거절됐어요. Worker 키의 해당 서비스 이용 승인을 확인해 주세요.",
+                error.failure, error.retryAfterEpochMillis, error.serverCode)
+            throw error
+        }
     }
 
     suspend fun arrivals(stop: OfficialSeoulBusStop, route: OfficialSeoulBusRoute): List<OfficialSeoulBusArrival> {
@@ -278,7 +285,10 @@ internal fun parseWorkerSeoulBusArrivals(json: String, route: OfficialSeoulBusRo
     }
     // The official slots remain distinct without IDs. A repeated actual ID only removes next-bus evidence.
     val seenVehicles = mutableSetOf<String>()
-    val unique = arrivals.filter { it.vehicleId.isBlank() || seenVehicles.add(it.vehicleId) }
+    // Official slots can be out of ETA order (e.g. a dispatch-waiting bus after an approaching bus).
+    // Keep source slot identities, but choose the nearest usable official ETA first.
+    val unique = arrivals.sortedBy { it.snapshot.firstArrivalAtEpochMillis }
+        .filter { it.vehicleId.isBlank() || seenVehicles.add(it.vehicleId) }
     return unique.mapIndexed { firstIndex, first ->
         val next = if (first.isUsableBusArrival(nowEpochMillis)) unique.drop(firstIndex + 1).filter {
             it.identity == first.identity &&

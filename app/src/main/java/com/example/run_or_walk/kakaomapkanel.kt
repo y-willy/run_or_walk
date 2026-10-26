@@ -348,7 +348,7 @@ fun KakaoMapPanel(
         }
     }
 
-    LaunchedEffect(kakaoMap, routePoints, accessSegments, journeySegments) {
+    LaunchedEffect(kakaoMap, routePoints, accessSegments, journeySegments, departurePoint) {
         val map = kakaoMap ?: return@LaunchedEffect
         val layer = map.routeLineManager?.layer ?: return@LaunchedEffect
         layer.removeAll()

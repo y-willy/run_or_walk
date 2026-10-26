@@ -15,14 +15,16 @@ internal class WalkingPaceCalibrator {
     fun observe(location: GuidanceLocation?, nowEpochMillis: Long): Double? {
         if (location == null || nowEpochMillis - location.observedAtEpochMillis !in 0L..10_000L ||
             location.observedAtEpochMillis <= 0L) return current(nowEpochMillis)
+        if (!location.point.x.isFinite() || !location.point.y.isFinite() ||
+            location.point.x !in -180.0..180.0 || location.point.y !in -90.0..90.0) return current(nowEpochMillis)
         if (samples.lastOrNull()?.observedAtEpochMillis == location.observedAtEpochMillis) return current(nowEpochMillis)
         if (samples.lastOrNull()?.observedAtEpochMillis?.let { it > location.observedAtEpochMillis } == true) return current(nowEpochMillis)
         val speed = location.speedMetersPerSecond
-        val validSensor = location.accuracyMeters in 0.0..25.0 &&
-            speed != null && speed.isFinite() && speed in 0.65..2.4 &&
+        val accurateSensor = location.accuracyMeters in 0.0..25.0 &&
             location.speedAccuracyMetersPerSecond?.let { it.isFinite() && it in 0.0..0.75 } == true
+        val validSensor = accurateSensor && speed != null && speed.isFinite() && speed in 0.65..2.4
         if (!validSensor) {
-            if (speed != null && speed.isFinite() && speed < 0.45) {
+            if (accurateSensor && speed != null && speed.isFinite() && speed < 0.45) {
                 samples.clear() // Do not use a walking velocity after stopping.
                 smoothedMetersPerSecond = null
             }
@@ -30,11 +32,13 @@ internal class WalkingPaceCalibrator {
         }
         val measuredSpeed = speed ?: return current(nowEpochMillis)
         samples.addLast(location)
-        while (samples.firstOrNull()?.let { location.observedAtEpochMillis - it.observedAtEpochMillis > 30_000L } == true)
+        // Background location polls are 30 s apart plus provider/network scheduling jitter.
+        // Retain enough history for the same calibrator to work on both sides of a screen-off transition.
+        while (samples.firstOrNull()?.let { location.observedAtEpochMillis - it.observedAtEpochMillis > 90_000L } == true)
             samples.removeFirst()
         val first = samples.firstOrNull() ?: return current(nowEpochMillis)
         val elapsed = location.observedAtEpochMillis - first.observedAtEpochMillis
-        if (samples.size < 2 || elapsed !in 8_000L..30_000L) return current(nowEpochMillis)
+        if (samples.size < 2 || elapsed !in 8_000L..90_000L) return current(nowEpochMillis)
         val displacementSpeed = paceDistanceMeters(first.point, location.point) / (elapsed / 1_000.0)
         if (displacementSpeed !in 0.45..2.7 || abs(displacementSpeed - measuredSpeed) > 1.0) return current(nowEpochMillis)
         val recent = samples.mapNotNull(GuidanceLocation::speedMetersPerSecond)

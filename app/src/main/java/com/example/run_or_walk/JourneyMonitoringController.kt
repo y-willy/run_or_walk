@@ -25,7 +25,9 @@ internal data class JourneyMonitoringState(
     val providerWalkingSeconds: Int? = null,
     val walkingPoints: List<MapPoint> = emptyList(),
     val subwayObservations: List<OfficialSubwayArrival> = emptyList(),
-    val timetableAnalysis: SubwayTimetableAnalysis? = null
+    val timetableAnalysis: SubwayTimetableAnalysis? = null,
+    val calibratedSpeedMetersPerSecond: Double? = null,
+    val arrivalRequestFailed: Boolean = false
 ) {
     val isRunning: Boolean get() = running
 }
@@ -100,24 +102,30 @@ internal fun monitoringStateWithSettings(
         val distance = state.walkingDistanceMeters
         val providerSeconds = state.providerWalkingSeconds
         if (distance == null || providerSeconds == null || distance < 0 || providerSeconds < 0) null
-        else previous.copy(durationSeconds = request.settings.walkingSeconds(distance, providerSeconds))
+        else previous.copy(durationSeconds = request.settings.walkingSeconds(distance, providerSeconds,
+            state.calibratedSpeedMetersPerSecond.takeIf { state.location?.let { nowEpochMillis-it.observedAtEpochMillis in 0L..30_000L } == true }))
     }
     val evidence = selectTimetableEvidence(state.timetableAnalysis, nowEpochMillis)
     val identity = state.arrivals?.identity ?: evidence?.identity ?: request.identity
     val assessment = calculateAutoGuidance(AutoGuidanceInput(state.location,
         GuidanceBoarding(identity, request.boardingPoint, true), walking?.copy(boardingIdentity = identity), state.arrivals,
-        locationPermissionGranted, bufferSeconds = request.settings.bufferSeconds, timetableArrivals = evidence,
+        locationPermissionGranted, arrivalRequestFailed = state.arrivalRequestFailed,
+        bufferSeconds = request.settings.bufferSeconds, timetableArrivals = evidence,
         furtherServiceEnded = state.assessment?.nextVehicleState == NextVehicleState.SERVICE_ENDED,
         previousAssessment = state.assessment), nowEpochMillis,
         AutoGuidancePolicy(fastSpeedKmh = request.settings.fastSpeedKmh))
-    val message = if (assessment.status == AutoGuidanceStatus.UNKNOWN) {
+    val estimatePrefix = evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
+        ?.let { timetableArrivalText(it,nowEpochMillis) + " · " }.orEmpty()
+    val message = if (assessment.unknownReason == AutoGuidanceUnknownReason.WALKING_OUTSIDE_RANGE)
+        WALKING_OUTSIDE_RANGE_MESSAGE else if (assessment.status == AutoGuidanceStatus.UNKNOWN) {
         val operation = subwayOperationGuidance(request.subwayStation, null, request.identity,
             state.subwayObservations, nowEpochMillis)
-        if (operation != null) operation.message
+        if (evidence != null) timetableArrivalText(evidence,nowEpochMillis)
+        else if (operation != null) operation.message
         else if (state.assessment?.status == AutoGuidanceStatus.UNKNOWN) state.message
         else "최신 위치·도보·도착정보가 확인될 때까지 판단을 보류해요."
     } else if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
-        "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, nowEpochMillis)
-    else monitoringAssessmentMessage(assessment.status, request.isBus)
+        estimatePrefix + "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, nowEpochMillis)
+    else estimatePrefix + monitoringAssessmentMessage(assessment.status, request.isBus)
     return state.copy(request = request, walkingRoute = walking, assessment = assessment, message = message)
 }

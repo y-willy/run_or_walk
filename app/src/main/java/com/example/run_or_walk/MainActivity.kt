@@ -475,7 +475,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         matched == null && target.selectedRoute != null -> "서울 정류소는 확인했지만 선택한 노선·방향을 연결하지 못했어요. 아래 공식 노선에서 확인해 주세요."
                         else -> null
                     }
-                    if (matched == null && automatic && onNoMatchingRoute != null) {
+                    if (matched == null && automatic && onNoMatchingRoute != null && routes.none {
+                        it.supported && normalizeBusRouteName(it.name) ==
+                            normalizeBusRouteName(target.selectedRoute?.serviceName.orEmpty())
+                    }) {
                         target.liveLoading = false
                         onNoMatchingRoute()
                         return@launch
@@ -557,6 +560,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val generation = target.beginLiveRequest()
         scope.launch {
             fun active() = target.acceptsLiveResponse(generation) && isActiveTarget(target) && target.boarding == boarding
+            var seoulRouteFound = false
             try {
                 val stops = if (nearby) busRepository.nearbyStops(requireNotNull(nearbyPoint))
                     .ifEmpty { if (query.isBlank()) emptyList() else busRepository.searchStops(query) }
@@ -566,7 +570,22 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 val choice = target.selectedRoute?.kakao
                 val matched = if (automatic && boarding != null) resolveOfficialSeoulBusStop(stops,boarding) else null
                 val evidence = if (automatic && matched == null && choice != null && physical.size in 1..3)
-                    physical.map { it to busRepository.routes(it) } else emptyList()
+                    physical.map { stop ->
+                        val routes = busRepository.routes(stop)
+                        if (routes.any { it.supported && normalizeBusRouteName(it.name) == normalizeBusRouteName(choice.serviceName) })
+                            seoulRouteFound = true
+                        stop to routes
+                    } else emptyList()
+                val officialOptions = if (choice == null) emptyList() else evidence.mapNotNull { (stop, routes) ->
+                    resolveOfficialSeoulBusRoute(routes, stop.stopId, choice.serviceName)?.let { SeoulBusBoardingMatch(stop,it) }
+                }
+                // Keep a unique official tuple and receive ETA while downstream direction is checked separately.
+                if (officialOptions.size == 1 && active()) {
+                    val option = officialOptions.single()
+                    selectOfficialBusStop(target,option.stop,true,
+                        evidence.first { it.first.stopId == option.stop.stopId }.second,option.route)
+                    return@launch
+                }
                 val paths = mutableMapOf<String,List<OfficialSeoulBusRouteStop>>()
                 if (evidence.isNotEmpty() && choice != null) {
                     for ((stop,routes) in evidence) {
@@ -581,7 +600,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     routeMatch != null -> selectOfficialBusStop(target,routeMatch.stop,true,
                         evidence.first { it.first.stopId==routeMatch.stop.stopId }.second,routeMatch.route)
                     matched != null -> selectOfficialBusStop(target,matched,automatic=true,onNoMatchingRoute=onNoMatch)
-                    automatic && onNoMatch != null -> { target.liveLoading=false; onNoMatch() }
+                    automatic && onNoMatch != null && !seoulRouteFound -> { target.liveLoading=false; onNoMatch() }
                     else -> {
                         target.liveError = if (stops.isEmpty()) "서울 공식 조회에 해당 정류소가 없어요. 정류장 이름이나 ARS 번호를 확인해 주세요."
                             else if (automatic) "서울 공식 후보에서 승차 순서와 첫 하차역 방향을 하나로 연결하지 못했어요. 아래 정류소를 확인해 주세요." else null
@@ -594,7 +613,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     target.liveRetryAtEpochMillis = (error as? SeoulBusApiException)?.retryAfterEpochMillis
                     target.liveError = (error as? SeoulBusApiException)?.message ?: "서울 공식 정류소·노선 조회 중 오류가 발생했어요."
                     target.detailsExpanded = true
-                    if (automatic && onNoMatch != null) { target.liveLoading=false; onNoMatch() }
+                    if (automatic && onNoMatch != null && !seoulRouteFound) { target.liveLoading=false; onNoMatch() }
                 }
             } finally {
                 if (target.acceptsLiveResponse(generation)) target.liveLoading = false
@@ -1378,9 +1397,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         requiresTransitAccess(fix.point, boarding.point)
     } == true
     val paceCalibrator = remember(screen, monitored) { WalkingPaceCalibrator() }
-    val measuredPace = remember(displayedLocation, paceCalibrator) {
+    val measuredPace = (if (monitored) monitoring.calibratedSpeedMetersPerSecond else remember(displayedLocation, paceCalibrator) {
         paceCalibrator.observe(displayedLocation, System.currentTimeMillis())
-    }?.takeIf { displayedLocation?.let { now - it.observedAtEpochMillis in 0L..30_000L } == true }
+    })?.takeIf { displayedLocation?.let { now - it.observedAtEpochMillis in 0L..30_000L } == true }
     val effectivePace = measuredPace.takeIf { settings.gpsAutoCalibrationEnabled }
     val personalizedWalk = if (monitored) monitoring.walkingRoute?.let { walking ->
         val distance = monitoring.walkingDistanceMeters
@@ -1392,21 +1411,17 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             settings.walkingSeconds(raw.distanceMeters, raw.durationSeconds, effectivePace)) }
     }
     // Recheck source age each second even when the foreground service is between polls.
-    val computedAssessment = calculateAutoGuidance(AutoGuidanceInput(
+    val assessment = calculateAutoGuidance(AutoGuidanceInput(
         location = displayedLocation, boarding = guidanceBoarding,
         walkingRoute = personalizedWalk,
         arrivals = activeSnapshot.takeIf { configured },
         locationPermissionGranted = hasLocationPermission(context),
-        arrivalRequestFailed = !monitored && screen.arrivalRequestFailed,
+        arrivalRequestFailed = if (monitored) monitoring.arrivalRequestFailed else screen.arrivalRequestFailed,
         bufferSeconds = settings.bufferSeconds, timetableArrivals = estimatedArrivals,
         furtherServiceEnded = if (monitored) monitoring.assessment?.nextVehicleState == NextVehicleState.SERVICE_ENDED
             else screen.selectedBusArrival?.isLast == true && activeSnapshot?.nextArrivalAtEpochMillis == null,
         previousAssessment = if (monitored) monitoring.assessment else screen.lastGuidanceAssessment), now,
         AutoGuidancePolicy(fastSpeedKmh = settings.fastSpeedKmh))
-    val assessment = if (walkingOutsideRange) computedAssessment.copy(
-        status = AutoGuidanceStatus.UNKNOWN,
-        unknownReason = AutoGuidanceUnknownReason.WALKING_UNAVAILABLE
-    ) else computedAssessment
     LaunchedEffect(screen, assessment) {
         if (assessment.status != AutoGuidanceStatus.UNKNOWN) screen.lastGuidanceAssessment = assessment
     }
@@ -1473,7 +1488,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         else -> unknownReasonText(assessment.unknownReason)
     }
     val unknownTitle = when {
-        walkingOutsideRange -> "도보 길찾기 범위를 벗어났습니다."
+        walkingOutsideRange -> WALKING_OUTSIDE_RANGE_MESSAGE
         validArrival != null -> "이동 경로 확인 필요"
         estimatedArrivals != null -> "시간표 기반 도착 추정"
         operationGuidance != null -> operationGuidance.title
@@ -1675,7 +1690,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                             else if (settings.useProviderWalkingTime) "지도 도보시간 기준으로 계산 중"
                             else "설정한 걸음속도로 계산 중",
                         estimateLabel = estimatedArrivals?.first?.label.takeIf { validArrival == null },
-                        walkingSeconds = if (monitored) personalizedWalk?.durationSeconds?.takeIf {
+                        walkingSeconds = if (walkingOutsideRange) null else if (monitored) personalizedWalk?.durationSeconds?.takeIf {
                             now - personalizedWalk.fetchedAtEpochMillis in 0L..120_000L &&
                                 displayedLocation?.let { fix ->
                                     now - fix.observedAtEpochMillis in 0L..30_000L && fix.accuracyMeters <= 50.0 &&
@@ -1764,7 +1779,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
                         accessSegments = rootScreen.mapAccessSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
                         journeySegments = mapChoice?.pathSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
-                        departurePoint = mapDeparture, destinationPoint = mapDestination, journeyKey = mapDeparture to mapDestination,
+                        departurePoint = mapDeparture, destinationPoint = mapDestination,
+                        journeyKey = Triple(mapDeparture,mapDestination,mapChoice?.itineraryKey),
                         currentPoint = if (monitored) monitoring.location?.point else screen.location?.point ?: currentPoint,
                         boardingPoint = boarding?.point, recenterRequest = screen.recenterRequest,
                         onCurrentLocation = {
@@ -2137,6 +2153,7 @@ private fun unknownReasonText(reason: AutoGuidanceUnknownReason?): String = when
     AutoGuidanceUnknownReason.ARRIVAL_MISMATCH -> "선택한 역·방향과 도착정보가 달라요."
     AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN -> "차량 도착정보가 불확실해요."
     AutoGuidanceUnknownReason.WALKING_UNAVAILABLE -> "실제 도보 경로를 확인해야 해요."
+    AutoGuidanceUnknownReason.WALKING_OUTSIDE_RANGE -> WALKING_OUTSIDE_RANGE_MESSAGE
     AutoGuidanceUnknownReason.WALKING_STALE -> "도보시간 갱신이 필요해요."
     AutoGuidanceUnknownReason.WALKING_MISMATCH -> "현재 위치·승차 장소에 맞는 도보 경로가 필요해요."
     else -> "위치·경로·실시간 정보를 확인해 주세요."

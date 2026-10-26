@@ -146,6 +146,7 @@ class JourneyMonitoringService : Service() {
             var vehicleId: String? = null
             var location: GuidanceLocation? = null
             var walking: GuidanceWalkingRoute? = null
+            var measuredPace: Double? = null
             var failure = false
             var furtherServiceEnded = false
             var message: String? = null
@@ -216,7 +217,7 @@ class JourneyMonitoringService : Service() {
             }
             try {
                 location = getCurrentLocationSample(this)
-                val measuredPace = paceCalibrator.observe(location, System.currentTimeMillis())
+                measuredPace = paceCalibrator.observe(location, System.currentTimeMillis())
                 val old = cachedWalk
                 if (old == null || System.currentTimeMillis() - old.fetchedAt !in 0L..90_000L ||
                     monitoringDistance(old.origin, location.point) > 25.0) {
@@ -257,7 +258,8 @@ class JourneyMonitoringService : Service() {
                 AutoGuidancePolicy(fastSpeedKmh = active.settings.fastSpeedKmh))
             val operation = subwayOperationGuidance(request.subwayStation, null, request.identity,
                 subwayObservations, checkedAt, failure)
-            val summary = if (assessment.status == AutoGuidanceStatus.UNKNOWN)
+            val summary = if (assessment.unknownReason == AutoGuidanceUnknownReason.WALKING_OUTSIDE_RANGE)
+                WALKING_OUTSIDE_RANGE_MESSAGE else if (assessment.status == AutoGuidanceStatus.UNKNOWN)
                 evidence?.let { timetableArrivalText(it, checkedAt) } ?: operation?.message ?: message ?: "최신 위치·도보·도착정보를 확인하고 있어요."
                 else (evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
                     ?.let { timetableArrivalText(it,checkedAt) + " · " } ?: "") +
@@ -268,7 +270,8 @@ class JourneyMonitoringService : Service() {
                 location, walking, arrivals, summary, checkedAt, retryAt,
                 cachedWalk?.route?.distanceMeters.takeIf { walking != null },
                 cachedWalk?.route?.durationSeconds.takeIf { walking != null },
-                cachedWalk?.route?.points.orEmpty().takeIf { walking != null }.orEmpty(), subwayObservations, timetableAnalysis))
+                cachedWalk?.route?.points.orEmpty().takeIf { walking != null }.orEmpty(), subwayObservations, timetableAnalysis,
+                measuredPace, failure))
             notifySafely(ONGOING_ID, ongoingNotification(active, summary, arrivals, checkedAt))
             if (assessment.status == AutoGuidanceStatus.UNKNOWN) notifications.cancel(ARRIVAL_ID)
             val event = alertGate.claim(currentIdentity, vehicleId?.takeIf(String::isNotBlank) ?: arrivals?.vehicleIdentityFallback,
@@ -277,7 +280,9 @@ class JourneyMonitoringService : Service() {
                 val text = if (event.kind == JourneyMonitoringAlertKind.ARRIVING)
                     "확인된 ${if (request.isBus) "버스" else "열차"}가 1분 이내 도착 예정이에요. 신호와 승차 위치를 확인해 주세요."
                     else (evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
-                        ?.let { timetableArrivalText(it,checkedAt) + " · " } ?: "") + monitoringAssessmentMessage(event.status, request.isBus)
+                        ?.let { timetableArrivalText(it,checkedAt) + " · " } ?: "") +
+                        monitoringAssessmentMessage(event.status, request.isBus) +
+                        if (event.status == AutoGuidanceStatus.NEXT_VEHICLE) " " + nextVehicleGuidanceText(assessment,checkedAt) else ""
                 val visibleFor = arrivals?.let { monitoringAlertLifetimeMillis(event, it, checkedAt) }
                     ?: evidence?.let { (it.first.validUntilEpochMillis-checkedAt).coerceIn(0L,60_000L) } ?: 0L
                 if (visibleFor > 0L) notifySafely(ARRIVAL_ID, arrivalNotification(active, text, visibleFor, checkedAt))

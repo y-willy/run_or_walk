@@ -123,7 +123,7 @@ internal fun normalizeBusStopName(value: String): String {
     return if (compact == "경희의료원경희여중고") "경희의료원" else compact
 }
 
-private fun normalizeBusRouteName(value: String): String =
+internal fun normalizeBusRouteName(value: String): String =
     Normalizer.normalize(value, Normalizer.Form.NFC).trim()
         .replace(Regex("\\s+"), "").uppercase(Locale.ROOT)
 

@@ -75,10 +75,10 @@ internal fun chooseMatchingBusArrival(
 ): OfficialSeoulBusArrival? {
     if (verifiedIdentity == null || verifiedIdentity.authority != "seoul-bus" ||
         !verifiedIdentity.isComplete || nowEpochMillis < 0L) return null
-    return arrivals.firstOrNull {
+    return arrivals.filter {
         it.identity == verifiedIdentity && it.snapshot.identity == verifiedIdentity &&
             it.isUsableBusArrival(nowEpochMillis)
-    }
+    }.minByOrNull { it.snapshot.firstArrivalAtEpochMillis }
 }
 
 internal fun OfficialSeoulBusArrival.isUsableBusArrival(nowEpochMillis: Long): Boolean {

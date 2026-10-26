@@ -42,17 +42,18 @@ internal suspend fun analyzeSubwayWithScheduleFallback(
     days: List<OfficialTimetableCalendarDay>
 ): SubwayTimetableAnalysis? {
     val current = days.firstOrNull() ?: return null
-    suspend fun analyze(rows: List<OfficialSubwayArrival>) = analyzer.analyze(station, route, rows,
+    suspend fun analyze(scheduleOnly: Boolean = false) = analyzer.analyze(station, route, arrivals,
         nowEpochMillis, current.serviceDate, current.dayType, current.sourceVersion,
-        additionalServiceDays = days.drop(1))
-    val live = try { analyze(arrivals) }
+        additionalServiceDays = days.drop(1), scheduleOnly = scheduleOnly)
+    val live = try { analyze() }
     catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { null }
     if (live != null && live.directionVerified && (live.estimates.isNotEmpty() ||
         live.matchingArrivals.any { it.snapshot.hasUsableOfficialEta(nowEpochMillis) })) return live
     // Incomplete live identity or timetable-candidate ambiguity must not suppress
     // verified published departure times for this boarding -> alighting segment.
-    val scheduled = analyze(emptyList())
+    // Preserve observations that explicitly prove a train has already passed/arrived.
+    val scheduled = analyze(scheduleOnly = true)
     if (!scheduled.directionVerified || scheduled.estimates.isEmpty()) return live ?: scheduled
     return if (live == null) scheduled else live.copy(
         // The live rows failed direction verification. Do not promote them to
@@ -88,7 +89,8 @@ class SubwayTimetableAnalyzer(
         calendarSourceVersion: String,
         policy: OfficialTimetableEstimationPolicy = OfficialTimetableEstimationPolicy(),
         /** Previous service dates must also have explicit calendar evidence, especially at 24:xx. */
-        additionalServiceDays: List<OfficialTimetableCalendarDay> = emptyList()
+        additionalServiceDays: List<OfficialTimetableCalendarDay> = emptyList(),
+        scheduleOnly: Boolean = false
     ): SubwayTimetableAnalysis {
         fun result(matching: List<OfficialSubwayArrival> = emptyList(),
             estimates: List<LinkedSubwayTimetableEstimate> = emptyList(),
@@ -186,19 +188,25 @@ class SubwayTimetableAnalyzer(
          * This is an estimate, never a fabricated official realtime countdown.
          */
         fun positionFallback(): List<LinkedSubwayTimetableEstimate> {
+            if (scheduleOnly) return emptyList()
             val linked = mutableListOf<LinkedSubwayTimetableEstimate>()
             for (row in arrivals) {
                 if (row.identity.stopId != station.stopId || row.identity.routeId != station.routeId ||
-                    row.identity.authority != "seoul" || !row.identity.isComplete ||
+                    row.identity.authority != "seoul" || !row.identity.isComplete || row.snapshot.identity != row.identity ||
                     row.gatewayContract != SubwayGatewayContract.RAW_FIELDS ||
                     row.arrivalCode in setOf("0", "1", "2") ||
                     row.snapshot.hasUsableOfficialEta(nowEpochMillis)) continue
                 if (row.sourceReceivedAtEpochMillis == null && row.gatewayFetchedAtEpochMillis == null) continue
+                val received = row.gatewayFetchedAtEpochMillis ?: nowEpochMillis
+                if (received > nowEpochMillis + 60_000L ||
+                    row.sourceReceivedAtEpochMillis?.let { it > minOf(received,nowEpochMillis) + 60_000L } == true) continue
                 val observed = minOf(row.sourceReceivedAtEpochMillis ?: nowEpochMillis,
                     row.gatewayFetchedAtEpochMillis ?: nowEpochMillis, nowEpochMillis)
                 if (nowEpochMillis - observed !in 0L..policy.maxObservationAgeMillis) continue
-                val name = (row.reportedStationName ?: reportedTimetableStationName(row.officialArrivalMessage))
-                    ?.let(::timetableStationName)
+                val names = listOfNotNull(row.reportedStationName,reportedTimetableStationName(row.officialArrivalMessage))
+                    .filter(::validTimetableText).map(::timetableStationName).distinct()
+                if (names.size > 1) continue
+                val name = names.singleOrNull()
                 val count = reportedTimetableStationCount(row.officialArrivalMessage)
                 if (name == null && count == null) continue
                 data class Candidate(val trip: OfficialTimetableTrip, val source: OfficialTimetableSource,
@@ -207,9 +215,11 @@ class SubwayTimetableAnalyzer(
                 val candidates = mutableListOf<Candidate>()
                 for (day in calendarDays) {
                     val table = stationTables[day] ?: continue
-                    if (!table.isStructurallyValid() || table.source.publishedAtEpochMillis > nowEpochMillis) continue
+                    if (!table.isStructurallyValid() || table.identityAuthority != "seoul" ||
+                        table.source.publishedAtEpochMillis > nowEpochMillis) continue
                     for (trip in table.trips) {
-                        if (trip.directionId != row.identity.directionId || !verifiedRoutePath(trip, day) ||
+                        if (trip.routeId != station.routeId || trip.serviceDate != day.serviceDate || trip.dayType != day.dayType ||
+                            trip.directionId != row.identity.directionId || !verifiedRoutePath(trip, day) ||
                             !declaredDestinationMatches(row.destinationName, trip, station.stopId) ||
                             !trainOperationMatches(row.trainType, trip.operationType)) continue
                         val targetIndex = trip.stops.indexOfFirst { it.stopId == station.stopId }
@@ -245,8 +255,11 @@ class SubwayTimetableAnalyzer(
                 val trainNumbers = preferred.map { it.trip.trainNo }.distinct().sorted()
                 val estimate = OfficialTimetableEstimate(row.identity,
                     trainNumbers.singleOrNull() ?: "position-slot:${row.officialSlot ?: 0}",
-                    base.day.serviceDate, base.day.dayType, base.trip.operationType, base.trip.routePatternId,
-                    base.positionStopId, base.trip.stops.indexOfFirst { it.stopId == station.stopId },
+                    base.day.serviceDate, base.day.dayType,
+                    preferred.map { it.trip.operationType }.distinct().singleOrNull() ?: OfficialTrainOperationType.OTHER,
+                    preferred.map { it.trip.routePatternId }.distinct().singleOrNull() ?: "candidate-paths:${preferred.map { it.trip.routePatternId }.distinct().sorted().joinToString(",")}",
+                    preferred.map { it.positionStopId }.distinct().singleOrNull().orEmpty(),
+                    base.trip.stops.single { it.stopId == station.stopId }.sequence,
                     base.at, first, last, 0L, 0L, observed, minOf(nowEpochMillis,
                         row.gatewayFetchedAtEpochMillis ?: nowEpochMillis), nowEpochMillis - observed,
                     minOf(observed + policy.maxObservationAgeMillis, last), base.source,
@@ -260,7 +273,7 @@ class SubwayTimetableAnalyzer(
         }
         val proofs = mutableListOf<ProvenTimetableArrival>()
         val realtimeMatches = mutableListOf<OfficialSubwayArrival>()
-        for (arrival in arrivals.distinctBy { Triple(it.identity, it.trainId, it.officialSlot) }) {
+        for (arrival in arrivals.takeUnless { scheduleOnly }.orEmpty().distinctBy { Triple(it.identity, it.trainId, it.officialSlot) }) {
             if (arrival.identity.authority != "seoul" || arrival.identity.stopId != station.stopId ||
                 arrival.identity.routeId != station.routeId || arrival.snapshot.identity != arrival.identity ||
                 !arrival.identity.isComplete ||

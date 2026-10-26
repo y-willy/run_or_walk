@@ -19,7 +19,7 @@ enum class AutoGuidanceUnknownReason {
     BOARDING_UNCONFIRMED,
     ARRIVAL_UNAVAILABLE, ARRIVAL_FAILED, ARRIVAL_MISMATCH, ARRIVAL_STALE, ARRIVAL_UNCERTAIN,
     ARRIVAL_FUTURE_TIMESTAMP, ARRIVAL_INVALID_ETA, NEXT_ARRIVAL_UNAVAILABLE, NO_CATCHABLE_TRAIN,
-    WALKING_UNAVAILABLE, WALKING_STALE, WALKING_MISMATCH, INVALID_INPUT
+    WALKING_UNAVAILABLE, WALKING_OUTSIDE_RANGE, WALKING_STALE, WALKING_MISMATCH, INVALID_INPUT
 }
 
 /** Official provider IDs, never a station-name or coordinate-only match.
@@ -210,6 +210,8 @@ fun calculateAutoGuidance(
     ) {
         return unknown(AutoGuidanceUnknownReason.BOARDING_UNCONFIRMED)
     }
+    if (requiresTransitAccess(location.point, boarding.point))
+        return unknown(AutoGuidanceUnknownReason.WALKING_OUTSIDE_RANGE)
     // A refresh error does not erase a still-valid received ETA or a proved missed-vehicle decision.
     if (input.arrivalRequestFailed && input.arrivals?.hasUsableOfficialEta(nowEpochMillis) != true && input.timetableArrivals == null)
         return unknown(AutoGuidanceUnknownReason.ARRIVAL_FAILED)
