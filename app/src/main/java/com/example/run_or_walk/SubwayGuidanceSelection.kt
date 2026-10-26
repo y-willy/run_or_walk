@@ -39,7 +39,8 @@ internal fun subwayEstimateText(estimate: OfficialTimetableEstimate, now: Long):
     if (estimate.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE) {
         val clock = java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(
             java.time.Instant.ofEpochMilli(estimate.scheduledTargetArrivalAtEpochMillis).atZone(java.time.ZoneId.of("Asia/Seoul")))
-        return "시간표 기준: $clock 도착 예정"
+        val minutes = ((estimate.scheduledTargetArrivalAtEpochMillis-now).coerceAtLeast(0L)+59_999L)/60_000L
+        return "공식 시간표 기준 약 ${minutes}분 후 ($clock 예정 · 실시간 지연 미반영)"
     }
     val minimum = ((estimate.earliestArrivalAtEpochMillis-now).coerceAtLeast(0)+59_999L)/60_000L
     val maximum = ((estimate.latestArrivalAtEpochMillis-now).coerceAtLeast(0)+59_999L)/60_000L

@@ -23,7 +23,7 @@ internal fun officialEtaText(snapshot: RealtimeArrivalSnapshot, now: Long): Stri
 @Composable
 internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
     val analysis = screen.timetableAnalysis?.takeIf { it.requestedRoute == screen.subwayDirectionRoute && it.stationStopId == screen.selectedStation?.stopId }
-    val subwayRows = if (analysis?.directionVerified == true) analysis.matchingArrivals
+    val subwayRows = if (analysis?.directionVerified == true && analysis.matchingArrivals.isNotEmpty()) analysis.matchingArrivals
         else subwayDisplayArrivalRows(screen.subwayDirectionRoute, screen.arrivalOptions)
     val busRows = screen.busArrivalOptions.filter { it.identity == screen.selectedBusRoute?.identity }
     val match = screen.selectedGyeonggiMatch
@@ -43,6 +43,13 @@ internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
                     style = MaterialTheme.typography.bodyLarge)
                 Text(subwayArrivalDisplayStatus(row, now), style = MaterialTheme.typography.bodySmall)
             }
+        }
+        analysis?.estimates?.firstOrNull {
+            it.estimate.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE &&
+                now <= it.estimate.validUntilEpochMillis
+        }?.let { scheduled ->
+            Text("선택한 방향의 다음 시간표 운행 · ${subwayEstimateText(scheduled.estimate, now)}",
+                style = MaterialTheme.typography.bodyMedium)
         }
         busRows.take(2).forEach { row ->
             Text("${row.routeName} · ${row.directionLabel}", style = MaterialTheme.typography.labelLarge)

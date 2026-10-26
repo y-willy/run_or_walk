@@ -161,7 +161,8 @@ fun AutomaticGuidanceCard(
     arrivalLabel: String = "차량 도착",
     arrivalPrecision: ArrivalTimePrecision = ArrivalTimePrecision.SECONDS,
     estimateLabel: String? = null,
-    nextArrivalPrecision: ArrivalTimePrecision = arrivalPrecision
+    nextArrivalPrecision: ArrivalTimePrecision = arrivalPrecision,
+    walkingUnavailableLabel: String = "확인 필요"
 ) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < .5f
     val (symbol, title, tint) = when (assessment.status) {
@@ -208,7 +209,7 @@ fun AutomaticGuidanceCard(
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("승차점까지 도보", style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(walkingSeconds?.let { durationText(it.toLong()) } ?: "확인 필요",
+                        Text(walkingSeconds?.let { durationText(it.toLong()) } ?: walkingUnavailableLabel,
                             style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                     }
                 }

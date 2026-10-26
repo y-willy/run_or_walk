@@ -744,8 +744,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     } else target.busDirectionMessage = "공식 승차 순서 이후에 첫 버스 하차역이 있는지 확인해 주세요."
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) {
-                    if (active()) target.busDirectionMessage = "공식 경유 순서 확인이 필요해요. " +
-                        ((error as? SeoulBusApiException)?.message ?: "Worker 노선 경유정보를 확인해 주세요.")
+                    if (active()) target.busDirectionMessage =
+                        "도착시간은 수신했지만 첫 하차역 방향의 정차 순서는 확인하지 못했어요."
                 }
             }
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -1397,6 +1397,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val validArrival = activeSnapshot?.takeIf {
         configured && it.hasUsableOfficialEta(now)
     }
+    val walkingOutsideRange = boarding != null && displayedLocation?.let { location ->
+        requiresTransitAccess(location.point, boarding.point)
+    } == true
     val operationGuidance = if (isBus || validArrival != null || estimatedArrivals != null) null else subwayOperationGuidance(
         if (monitored) monitoring.request?.subwayStation else screen.selectedStation,
         if (analysis?.directionVerified == true) null else screen.subwayDirectionRoute,
@@ -1423,10 +1426,13 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         (screen.busArrivalOptions.isNotEmpty() || screen.gyeonggiArrivals.isNotEmpty())
         else screen.arrivalOptions.isNotEmpty()
     val unknownMessage = when {
-        validArrival != null -> "공식 도착예정시간을 수신했어요. " +
-            (screen.busDirectionMessage.takeIf { isBus && screen.confirmedServiceIdentity == null }
-                ?: unknownReasonText(assessment.unknownReason))
-        estimatedArrivals != null -> "공식 시간표와 현재 열차 위치로 도착 범위를 추정했어요. " + unknownReasonText(assessment.unknownReason)
+        validArrival != null -> if (walkingOutsideRange) "도보 길찾기 범위를 벗어났습니다. " +
+            "도착시간은 표시하지만 승차 가능 여부는 판단하지 않아요."
+            else unknownReasonText(assessment.unknownReason)
+        estimatedArrivals != null -> (if (estimatedArrivals.first.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE)
+            "공식 시간표 기준 예정시각이에요. 실제 열차의 지연은 반영하지 않았어요. "
+            else "공식 시간표와 현재 열차 위치로 도착 범위를 추정했어요. ") +
+            unknownReasonText(assessment.unknownReason)
         operationGuidance != null -> operationGuidance.message +
             if (assessment.unknownReason?.name?.startsWith("LOCATION_") == true)
                 "\n" + unknownReasonText(assessment.unknownReason) else ""
@@ -1454,7 +1460,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         else -> unknownReasonText(assessment.unknownReason)
     }
     val unknownTitle = when {
-        validArrival != null -> "공식 도착예정시간 수신"
+        validArrival != null -> "이동 경로 확인 필요"
         estimatedArrivals != null -> "시간표 기반 도착 추정"
         operationGuidance != null -> operationGuidance.title
         screen.boarding == null && screen.selectedRoute == null -> "이동 안내를 시작해 보세요"
@@ -1614,6 +1620,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                                 ?.sourceTimestampEpochMillis ?: operationGuidance?.sourceAtEpochMillis,
                         arrivalPrecision = validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
                         nextArrivalPrecision = validArrival?.nextArrivalPrecision ?: validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
+                        walkingUnavailableLabel = if (walkingOutsideRange) "도보 길찾기 범위를 벗어났습니다" else "확인 필요",
                         estimateLabel = estimatedArrivals?.first?.label.takeIf { validArrival == null },
                         walkingSeconds = if (monitored) personalizedWalk?.durationSeconds?.takeIf {
                             now - personalizedWalk.fetchedAtEpochMillis in 0L..120_000L &&

@@ -74,23 +74,23 @@ class SubwayTimetableAnalyzer(
         if (endpoint == null || endpoint == boardingName || !validTimetableText(calendarSourceVersion)) {
             return result(message = "첫 지하철 구간의 하차역을 확인해야 진행 방향을 판단할 수 있어요.")
         }
-        if (waypointNames.isNotEmpty() && (waypointNames.first() != boardingName ||
-                waypointNames.last() != endpoint)) {
-            return result(message = "경로의 첫 승차·하차역 정보가 서로 달라 진행 방향을 확인할 수 없어요.")
-        }
         val calendarDays = (listOf(OfficialTimetableCalendarDay(serviceDate, dayType, calendarSourceVersion)) +
             additionalServiceDays).distinct()
         if (calendarDays.distinctBy { it.serviceDate }.size != calendarDays.size) {
             return result(message = "운행일의 공식 요일·휴일 정보가 서로 달라 시간표를 대조할 수 없어요.")
         }
         suspend fun scheduleFallback(): List<LinkedSubwayTimetableEstimate> {
-            val output = mutableListOf<LinkedSubwayTimetableEstimate>()
+            val exactPath = mutableListOf<LinkedSubwayTimetableEstimate>()
+            val endpointPath = mutableListOf<LinkedSubwayTimetableEstimate>()
             for (day in calendarDays) {
                 val table = stationLoader?.invoke(station.routeId, station.stopId, day.serviceDate,
                     day.dayType, day.sourceVersion, false) ?: continue
                 if (!table.isStructurallyValid() || table.source.publishedAtEpochMillis > nowEpochMillis) continue
                 for (trip in table.trips) {
-                    if (!provesBoardingPath(trip, station.stopId, endpoint, waypointNames)) continue
+                    // The published boarding-to-alighting call sequence establishes direction.
+                    // Kakao's displayed intermediate names are useful when they match, but a
+                    // missing/abbreviated waypoint must not hide a published departure time.
+                    if (!provesBoardingPath(trip, station.stopId, endpoint, emptyList())) continue
                     if (arrivals.any { arrival -> arrival.trainId.isNotBlank() &&
                             decoratedTrainNumberMatches(arrival.trainId,trip.trainNo) &&
                             arrival.sourceReceivedAtEpochMillis?.let { nowEpochMillis-it in -60_000L..300_000L } == true &&
@@ -110,10 +110,16 @@ class SubwayTimetableAnalyzer(
                         trip.trainNo, RealtimeArrivalSnapshot(identity, 0, fetchedAtEpochMillis = 0,
                             validForMillis = 0, reliable = false, trustState = ArrivalTrustState.UNKNOWN),
                         statusMessage = estimate.label)
-                    output += LinkedSubwayTimetableEstimate(row, estimate)
+                    val candidate = LinkedSubwayTimetableEstimate(row, estimate)
+                    endpointPath += candidate
+                    if (provesBoardingPath(trip, station.stopId, endpoint, waypointNames)) exactPath += candidate
                 }
             }
-            val sorted = output.distinctBy { Triple(it.estimate.serviceDate, it.estimate.trainNo, it.estimate.routePatternId) }
+            // Prefer the complete provider path. If it cannot be reconciled with the
+            // published stop names, use the verified endpoint path only when ONE
+            // official travel direction remains. This is a timetable, not a train match.
+            val selected = exactPath.ifEmpty { endpointPath }
+            val sorted = selected.distinctBy { Triple(it.estimate.serviceDate, it.estimate.trainNo, it.estimate.routePatternId) }
                 .sortedBy { it.estimate.earliestArrivalAtEpochMillis }
             // A branch/loop must be resolved by route waypoints, not by whichever train is first.
             return sorted.takeIf { it.map { row -> row.estimate.identity.directionId }.distinct().size == 1 }
@@ -213,6 +219,9 @@ class SubwayTimetableAnalyzer(
             return result(message = "공식 시간표에서 열차 번호·정차 경로·하차역을 함께 확인하지 못했어요.")
         }
         if (matchingArrivals.map { it.identity.directionId }.distinct().size != 1) {
+            val scheduled = scheduleFallback()
+            if (scheduled.isNotEmpty()) return result(estimates = scheduled, verified = true,
+                message = scheduled.first().estimate.label)
             return result(message = "하차역에 도달하는 방향이 여러 개예요. 첫 구간의 경유역을 더 확인해 주세요.")
         }
         val estimates = proofs.groupBy { Triple(it.arrival.identity,it.arrival.trainId,it.arrival.officialSlot) }
