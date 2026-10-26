@@ -43,6 +43,9 @@ class OfficialTimetableRepository private constructor(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, IndexedOfficialTimetable>?): Boolean =
             size > 3
     }
+    private val stationCache = object : LinkedHashMap<String,OfficialTimetable>(4,.75f,true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String,OfficialTimetable>?): Boolean = size > 4
+    }
     private val groups: Set<String> by lazy {
         openAsset("timetables/manifest.json").bufferedReader(Charsets.UTF_8).use {
             val manifest = JSONObject(it.readText())
@@ -88,8 +91,12 @@ class OfficialTimetableRepository private constructor(
         calendarSourceVersion: String
     ): OfficialTimetable? = withContext(Dispatchers.IO) {
         if (!validTimetableText(stopId) || !validTimetableText(calendarSourceVersion)) return@withContext null
+        val key = "$routeId|$stopId|$serviceDate|${dayType.name}|$calendarSourceVersion"
+        cacheMutex.withLock { stationCache[key] }?.let { return@withContext it }
         val data = load(routeId, dayType) ?: return@withContext null
-        data.forServiceDate(data.indexesForStation(stopId), serviceDate, dayType, calendarSourceVersion)
+        val table = data.forServiceDate(data.indexesForStation(stopId), serviceDate, dayType, calendarSourceVersion)
+            ?: return@withContext null
+        cacheMutex.withLock { stationCache.getOrPut(key) { table } }
     }
 
     /**

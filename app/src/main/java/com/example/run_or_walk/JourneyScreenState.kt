@@ -91,6 +91,24 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var selectedStation by mutableStateOf<OfficialSubwayStation?>(null)
     var arrivalOptions by mutableStateOf<List<OfficialSubwayArrival>>(emptyList())
     var selectedArrival by mutableStateOf<OfficialSubwayArrival?>(null)
+    var subwayChoice by mutableStateOf<SubwayArrivalChoice?>(null)
+
+    fun chooseSubwayArrival(row: OfficialSubwayArrival) {
+        liveRequestId++
+        liveLoading = false
+        subwayChoice = SubwayArrivalChoice.from(row)
+        selectedArrival = row
+        confirmedServiceIdentity = row.identity
+        guidanceWalkingRoute = guidanceWalkingRoute?.copy(boardingIdentity=row.identity)
+            ?: walkRoute?.let { walk ->
+                val origin = walkOrigin ?: return@let null
+                val fetched = walkFetchedAtEpochMillis ?: return@let null
+                val point = boarding?.point ?: return@let null
+                GuidanceWalkingRoute(origin,point,row.identity,walk.durationSeconds,fetched,120_000L,walk.distanceMeters)
+            }
+        arrivalRequestFailed = false
+        liveError = null
+    }
     var busStopQuery by mutableStateOf("")
     var busStopOptions by mutableStateOf<List<OfficialSeoulBusStop>>(emptyList())
     var busStopsSearched by mutableStateOf(false)
@@ -270,6 +288,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
         directionMessage = null
         confirmedServiceIdentity = null
         selectedArrival = null
+        subwayChoice = null
         guidanceWalkingRoute = null
     }
 
@@ -301,6 +320,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     }
 
     fun clearOfficialSelection() {
+        subwayChoice = null
         busRoutePathVerified = false
         busDirectionMessage = null
         lastGuidanceAssessment = null
@@ -380,7 +400,6 @@ internal class JourneyScreenState(val mode: FeatureMode,
     fun beginLiveRequest(): Long {
         liveRequestId++
         liveLoading = true
-        liveError = null
         return liveRequestId
     }
 

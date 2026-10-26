@@ -19,7 +19,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import kotlinx.coroutines.delay
 
 /** Shows the supplied artwork once on a fresh activity, independent of API or GPS requests. */
 @Composable
@@ -29,9 +28,8 @@ fun BrandLaunchGate(showOnLaunch: Boolean, content: @Composable () -> Unit) {
 
     LaunchedEffect(showArtwork) {
         if (showArtwork) {
-            // Give the artwork a frame before starting its brief display interval.
+            // Show the artwork for the first frame, then allow interaction immediately.
             withFrameNanos { }
-            delay(650L)
             launchFinished = true
         }
     }

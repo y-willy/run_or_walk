@@ -13,7 +13,8 @@ internal data class JourneyMonitoringRequest(
     val settings: JourneySettings = JourneySettings(),
     val vibrationEnabled: Boolean = false,
     val gyeonggiMatch: GyeonggiOfficialMatch? = null,
-    val subwayRoute: KakaoTransitChoice? = null
+    val subwayRoute: KakaoTransitChoice? = null,
+    val subwayChoice: SubwayArrivalChoice? = null
 ) {
     val isGyeonggi: Boolean get() = identity.authority == "GBIS"
     val isBus: Boolean get() = identity.authority in setOf("seoul-bus", "GBIS")
@@ -28,9 +29,16 @@ internal data class JourneyMonitoringRequest(
     fun isSameJourney(other: JourneyMonitoringRequest): Boolean =
         identity == other.identity && boardingPoint == other.boardingPoint &&
             subwayStation == other.subwayStation && busStop == other.busStop && busRoute == other.busRoute &&
-            gyeonggiMatch == other.gyeonggiMatch && subwayRoute == other.subwayRoute
+            gyeonggiMatch == other.gyeonggiMatch && subwayRoute == other.subwayRoute && subwayChoice.sameSelectionAs(other.subwayChoice)
 
     fun isValid(): Boolean {
+        if (subwayChoice != null && (identity.authority != "seoul" || subwayChoice.identity.authority != "seoul" ||
+            !subwayChoice.identity.isComplete ||
+            subwayChoice.identity.stopId != identity.stopId || subwayChoice.identity.routeId != identity.routeId ||
+            subwayChoice.identity.directionId != identity.directionId || subwayChoice.trainId.length > 128 ||
+            subwayChoice.trainId.any(Char::isISOControl) ||
+            (subwayChoice.trainId.isBlank() && subwayChoice.slot == null) ||
+            (subwayChoice.slot != null && subwayChoice.slot !in 1..1000))) return false
         if (boardingName.isBlank() || boardingName.length > 200 || boardingName.any(Char::isISOControl) ||
             !boardingPoint.validMonitoringPoint() || !identity.isComplete ||
             listOf(identity.authority, identity.stopId, identity.routeId, identity.directionId, identity.serviceVariant)
@@ -70,6 +78,8 @@ internal object JourneyMonitoringRequestCodec {
             .put("vibrationEnabled", request.vibrationEnabled).apply {
                 request.gyeonggiMatch?.let { put("gyeonggiMatch", it.toSessionJson()) }
                 request.subwayRoute?.let { put("subwayRoute", JourneyTransitRoute("monitor-route", it).toJson()) }
+                request.subwayChoice?.let { put("subwayChoice",JSONObject().put("trainId",it.trainId)
+                    .put("slot",it.slot ?: JSONObject.NULL)) }
                 request.subwayStation?.let {
                     put("subwayStation", JSONObject().put("stopId", it.stopId).put("routeId", it.routeId)
                         .put("name", it.name).put("lineName", it.lineName))
@@ -113,7 +123,11 @@ internal object JourneyMonitoringRequestCodec {
             JourneySettingsCodec.decode(root.optJSONObject("settings")?.toString()),
             root.opt("vibrationEnabled") == true,
             decodeGyeonggiMatch(root.optJSONObject("gyeonggiMatch")),
-            root.optJSONObject("subwayRoute")?.route()?.kakao).takeIf { it.isValid() }
+            root.optJSONObject("subwayRoute")?.route()?.kakao,
+            root.optJSONObject("subwayChoice")?.let {
+                SubwayArrivalChoice(identity,it.optionalText("trainId"),
+                    if(it.isNull("slot")) null else it.getInt("slot"))
+            }).takeIf { it.isValid() }
     }.getOrNull()
 }
 

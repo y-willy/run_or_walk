@@ -1,6 +1,8 @@
 package com.example.run_or_walk
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 data class LinkedSubwayTimetableEstimate(
@@ -41,8 +43,8 @@ internal suspend fun analyzeSubwayWithScheduleFallback(
     nowEpochMillis: Long,
     days: List<OfficialTimetableCalendarDay>,
     selectedIdentity: OfficialBoardingIdentity? = null
-): SubwayTimetableAnalysis? {
-    val current = days.firstOrNull() ?: return null
+): SubwayTimetableAnalysis? = withContext(Dispatchers.Default) {
+    val current = days.firstOrNull() ?: return@withContext null
     suspend fun analyze(scheduleOnly: Boolean = false) = analyzer.analyze(station, route, arrivals,
         nowEpochMillis, current.serviceDate, current.dayType, current.sourceVersion,
         additionalServiceDays = days.drop(1), scheduleOnly = scheduleOnly,
@@ -51,13 +53,13 @@ internal suspend fun analyzeSubwayWithScheduleFallback(
     catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { null }
     if (live != null && live.directionVerified && (live.estimates.isNotEmpty() ||
-        live.matchingArrivals.any { it.snapshot.hasUsableOfficialEta(nowEpochMillis) })) return live
+        live.matchingArrivals.any { it.snapshot.hasUsableOfficialEta(nowEpochMillis) })) return@withContext live
     // Incomplete live identity or timetable-candidate ambiguity must not suppress
     // verified published departure times for this boarding -> alighting segment.
     // Preserve observations that explicitly prove a train has already passed/arrived.
     val scheduled = analyze(scheduleOnly = true)
-    if (!scheduled.directionVerified || scheduled.estimates.isEmpty()) return live ?: scheduled
-    return if (live == null) scheduled else live.copy(
+    if (!scheduled.directionVerified || scheduled.estimates.isEmpty()) return@withContext live ?: scheduled
+    if (live == null) scheduled else live.copy(
         // The live rows failed direction verification. Do not promote them to
         // officially matched arrivals merely because a schedule is available.
         matchingArrivals = emptyList(), estimates = scheduled.estimates,

@@ -5,6 +5,14 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/** Camera bounds only; missing route geometry never becomes a fabricated polyline. */
+internal fun walkingMapViewportPoints(route: List<MapPoint>, current: MapPoint?, boarding: MapPoint?,
+    otherSegments: List<List<MapPoint>>): List<MapPoint> {
+    val pins = listOfNotNull(current,boarding)
+    val points = if (boarding != null) route + pins else otherSegments.flatten() + pins
+    return points.filter { it.x.isFinite() && it.y.isFinite() && it.x in -180.0..180.0 && it.y in -90.0..90.0 }.distinct()
+}
+
 /** Vehicle ETA and destination edits are deliberately absent from the GPS-to-departure cache key. */
 internal fun shouldRefreshAccessMap(storedOrigin: MapPoint?, storedDeparture: MapPoint?,
     currentOrigin: MapPoint, departure: MapPoint, hasGeometry: Boolean): Boolean =

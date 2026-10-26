@@ -1,12 +1,14 @@
 package com.example.run_or_walk
 
 /** Only rows already proven to reach the requested alighting station may be combined. */
-internal fun selectDestinationSubwayArrival(analysis: SubwayTimetableAnalysis?, now: Long): OfficialSubwayArrival? {
+internal fun selectDestinationSubwayArrival(analysis: SubwayTimetableAnalysis?, now: Long,
+    choice: SubwayArrivalChoice? = null): OfficialSubwayArrival? {
     if (analysis?.directionVerified != true) return null
     val rows = analysis.matchingArrivals.filter { it.snapshot.hasUsableOfficialEta(now) }
         .sortedBy { it.snapshot.firstArrivalAtEpochMillis }
-    val first = rows.firstOrNull() ?: return null
-    val next = rows.drop(1).firstOrNull {
+    val first = if (choice == null) rows.firstOrNull() else rows.firstOrNull(choice::matches)
+    first ?: return null
+    val next = rows.firstOrNull {
         it.identity.directionId == first.identity.directionId &&
             (it.trainId.isBlank() || first.trainId.isBlank() || it.trainId != first.trainId) &&
             it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis
@@ -19,16 +21,19 @@ internal fun selectDestinationSubwayArrival(analysis: SubwayTimetableAnalysis?, 
         laterArrivalAtEpochMillis = later))
 }
 
-internal fun selectTimetableEvidence(analysis: SubwayTimetableAnalysis?, now: Long): TimetableArrivalEvidence? {
+internal fun selectTimetableEvidence(analysis: SubwayTimetableAnalysis?, now: Long,
+    choice: SubwayArrivalChoice? = null): TimetableArrivalEvidence? {
     if (analysis?.directionVerified != true) return null
     val estimates = analysis.estimates.filter { now <= it.estimate.validUntilEpochMillis &&
         it.estimate.midpointArrivalAtEpochMillis() > now }.sortedBy { it.estimate.midpointArrivalAtEpochMillis() }
-    val first = estimates.firstOrNull() ?: return null
-    val next = estimates.drop(1).firstOrNull { it.arrival.identity.directionId == first.arrival.identity.directionId &&
+    val first = if(choice == null) estimates.firstOrNull() else estimates.firstOrNull { choice.matches(it.arrival) }
+    first ?: return null
+    val later = estimates.filter { it.estimate.midpointArrivalAtEpochMillis() > first.estimate.midpointArrivalAtEpochMillis() }
+    val next = later.firstOrNull { it.arrival.identity.directionId == first.arrival.identity.directionId &&
         it.estimate.trainNo != first.estimate.trainNo &&
             it.estimate.midpointArrivalAtEpochMillis() > first.estimate.midpointArrivalAtEpochMillis() }
     return TimetableArrivalEvidence(first.arrival.identity, first.estimate, next?.estimate,
-        estimates.drop(1).map { it.estimate }.filter { it.trainNo != first.estimate.trainNo })
+        later.map { it.estimate }.filter { it.trainNo != first.estimate.trainNo })
 }
 
 internal fun timetableArrivalText(evidence: TimetableArrivalEvidence, now: Long): String {

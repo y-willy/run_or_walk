@@ -98,7 +98,7 @@ fun KakaoMapPanel(
     var mapFailure by remember(mapView) { mutableStateOf<MapLoadFailure?>(null) }
     var mapResumed by remember(mapView) { mutableStateOf(false) }
     var showAuthenticationHelp by remember { mutableStateOf(false) }
-    var userMovedCamera by remember(mapView) { mutableStateOf(false) }
+    var userMovedCamera by remember(mapView,boardingPoint,journeyKey) { mutableStateOf(false) }
     var recenterAfterLocation by remember(mapView) { mutableStateOf(false) }
     var lastFitKey by remember(mapView) { mutableStateOf<Any?>(null) }
     val markerBitmaps = remember(context) {
@@ -164,7 +164,7 @@ fun KakaoMapPanel(
                 ) { Text("−", style = MaterialTheme.typography.titleLarge) }
             }
             FilledTonalButton(
-                onClick = { recenterAfterLocation = true; onCurrentLocation() },
+                onClick = { userMovedCamera = true; recenterAfterLocation = true; onCurrentLocation() },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
                 shape = RoundedCornerShape(14.dp)
             ) { Text("◎ 현재 위치") }
@@ -342,7 +342,8 @@ fun KakaoMapPanel(
     LaunchedEffect(kakaoMap, center, recenterRequest) {
         val map = kakaoMap ?: return@LaunchedEffect
         val point = center ?: return@LaunchedEffect
-        if (recenterAfterLocation || !userMovedCamera && accessSegments.isEmpty() && journeySegments.isEmpty()) {
+        if (recenterAfterLocation || !userMovedCamera && boardingPoint == null && routePoints.isEmpty() &&
+            accessSegments.isEmpty() && journeySegments.isEmpty()) {
             map.moveCamera(CameraUpdateFactory.newCenterPosition(LatLng.from(point.y, point.x)))
             recenterAfterLocation = false
         }
@@ -363,13 +364,14 @@ fun KakaoMapPanel(
         }
     }
 
-    LaunchedEffect(kakaoMap, journeyKey, accessSegments, journeySegments, userMovedCamera) {
+    LaunchedEffect(kakaoMap, journeyKey, accessSegments, journeySegments, routePoints, currentPoint,boardingPoint,userMovedCamera) {
         val map = kakaoMap ?: return@LaunchedEffect
-        val points = (accessSegments + journeySegments).flatten()
+        val points = walkingMapViewportPoints(routePoints,currentPoint,boardingPoint,accessSegments+journeySegments)
         // Fit each newly available extent before a gesture. Never recenter on ETA ticks/GPS updates.
-        val fitKey = journeyKey to (accessSegments.isNotEmpty() to journeySegments.isNotEmpty())
-        if (!userMovedCamera && points.size >= 2 && lastFitKey != fitKey) {
-            map.moveCamera(CameraUpdateFactory.fitMapPoints(points.map { LatLng.from(it.y,it.x) }.toTypedArray(),72))
+        val fitKey = Triple(journeyKey,boardingPoint,routePoints.isNotEmpty() to (accessSegments.isNotEmpty() to journeySegments.isNotEmpty()))
+        if (!userMovedCamera && points.isNotEmpty() && lastFitKey != fitKey) {
+            map.moveCamera(if(points.size==1) CameraUpdateFactory.newCenterPosition(LatLng.from(points[0].y,points[0].x))
+                else CameraUpdateFactory.fitMapPoints(points.map { LatLng.from(it.y,it.x) }.toTypedArray(),48))
             lastFitKey = fitKey
         }
     }

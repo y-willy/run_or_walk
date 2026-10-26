@@ -90,6 +90,21 @@ internal object JourneyMonitoringController {
             PackageManager.PERMISSION_GRANTED) && NotificationManagerCompat.from(context).areNotificationsEnabled()
 }
 
+/** A tap on another train at the same platform reuses only the original, still-aged observations. */
+internal fun monitoringSelectionHandover(state: JourneyMonitoringState, request: JourneyMonitoringRequest,
+    now: Long, locationPermissionGranted: Boolean): JourneyMonitoringState? {
+    val old = state.request ?: return null
+    if (!state.running || old.isBus || request.isBus || old.boardingPoint != request.boardingPoint ||
+        old.subwayStation != request.subwayStation || old.subwayRoute != request.subwayRoute ||
+        old.identity.directionId != request.identity.directionId) return null
+    val arrivals = selectDestinationSubwayArrival(state.timetableAnalysis,now,request.subwayChoice)
+        ?: chooseMatchingSubwayArrival(request.identity,state.subwayObservations.filter {
+            request.subwayChoice?.matches(it) != false },now)
+    val seed = state.copy(request=request,arrivals=arrivals?.snapshot,assessment=null,
+        walkingRoute=state.walkingRoute?.copy(boardingIdentity=request.identity))
+    return monitoringStateWithSettings(seed,request,now,locationPermissionGranted)
+}
+
 /** Reuse actual walking distance while preserving every observation's original freshness. */
 internal fun monitoringStateWithSettings(
     state: JourneyMonitoringState,
@@ -105,7 +120,7 @@ internal fun monitoringStateWithSettings(
         else previous.copy(durationSeconds = request.settings.walkingSeconds(distance, providerSeconds,
             state.calibratedSpeedMetersPerSecond.takeIf { state.location?.let { nowEpochMillis-it.observedAtEpochMillis in 0L..30_000L } == true }))
     }
-    val evidence = selectTimetableEvidence(state.timetableAnalysis, nowEpochMillis)
+    val evidence = selectTimetableEvidence(state.timetableAnalysis, nowEpochMillis,request.subwayChoice)
     val identity = state.arrivals?.identity ?: evidence?.identity ?: request.identity
     val assessment = calculateAutoGuidance(AutoGuidanceInput(state.location,
         GuidanceBoarding(identity, request.boardingPoint, true), walking?.copy(boardingIdentity = identity), state.arrivals,

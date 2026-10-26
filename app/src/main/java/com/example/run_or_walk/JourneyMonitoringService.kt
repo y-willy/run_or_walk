@@ -101,7 +101,8 @@ class JourneyMonitoringService : Service() {
         while (refreshRequests.tryReceive().isSuccess) { /* a new journey drops old refresh intents */ }
         currentRequest = request
         finishMessage = "이동 안내를 종료했어요."
-        JourneyMonitoringController.publish(JourneyMonitoringState(running = true, request = request,
+        JourneyMonitoringController.publish(monitoringSelectionHandover(JourneyMonitoringController.state.value,
+            request,System.currentTimeMillis(),hasLocationPermission(this)) ?: JourneyMonitoringState(running = true, request = request,
             message = "화면이 꺼져도 이동 안내를 확인해요. 최대 60분 후 종료돼요."))
         monitoringJob = scope.launch { monitor() }
         timeoutJob = scope.launch {
@@ -185,8 +186,8 @@ class JourneyMonitoringService : Service() {
                     }
                     arrivalHistory.record(requireNotNull(request.subwayStation), subwayObservations,
                         timetableAnalysis?.estimates.orEmpty(), System.currentTimeMillis())
-                    val selected = selectDestinationSubwayArrival(timetableAnalysis, System.currentTimeMillis()) ?:
-                        chooseMatchingSubwayArrival(request.identity, subwayObservations, System.currentTimeMillis())
+                    val selected = selectDestinationSubwayArrival(timetableAnalysis, System.currentTimeMillis(),request.subwayChoice) ?:
+                        chooseMatchingSubwayArrival(request.identity, subwayObservations.filter { request.subwayChoice?.matches(it) != false }, System.currentTimeMillis())
                     arrivals = selected?.snapshot
                     vehicleId = selected?.trainId
                     if (selected == null) message = "선택한 방향의 유효한 열차 정보를 기다리고 있어요."
@@ -248,7 +249,7 @@ class JourneyMonitoringService : Service() {
             }
             val checkedAt = System.currentTimeMillis()
             if (!failure) { lastArrivals = arrivals; lastVehicleId = vehicleId }
-            val evidence = selectTimetableEvidence(timetableAnalysis, checkedAt)
+            val evidence = selectTimetableEvidence(timetableAnalysis, checkedAt,request.subwayChoice)
             val currentIdentity = arrivals?.identity ?: evidence?.identity ?: request.identity
             walking = walking?.copy(boardingIdentity = currentIdentity)
             val assessment = calculateAutoGuidance(AutoGuidanceInput(location,
