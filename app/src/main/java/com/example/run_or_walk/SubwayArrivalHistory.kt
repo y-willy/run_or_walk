@@ -34,6 +34,7 @@ internal class SubwayArrivalHistory(context: Context) {
         for (prediction in predictions) {
             val estimate = prediction.estimate
             if (estimate.source != OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION ||
+                estimate.candidateServiceDates.size > 1 ||
                 prediction.arrival.trainId.isBlank() || pending.has(key(prediction.arrival))) continue
             pending.put(key(prediction.arrival), JSONObject().put("predictedAt",now)
                 .put("earliest",estimate.earliestArrivalAtEpochMillis).put("latest",estimate.latestArrivalAtEpochMillis))

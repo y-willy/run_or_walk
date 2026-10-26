@@ -91,6 +91,10 @@ class SubwayTimetableAnalyzer(
                 if (!table.isStructurallyValid() || table.source.publishedAtEpochMillis > nowEpochMillis) continue
                 for (trip in table.trips) {
                     if (!provesBoardingPath(trip, station.stopId, endpoint, waypointNames)) continue
+                    if (arrivals.any { arrival -> arrival.trainId.isNotBlank() &&
+                            decoratedTrainNumberMatches(arrival.trainId,trip.trainNo) &&
+                            arrival.sourceReceivedAtEpochMillis?.let { nowEpochMillis-it in -60_000L..300_000L } == true &&
+                            (arrival.arrivalCode in setOf("0","1","2") || positionBeyondBoarding(arrival,trip,station.stopId)) }) continue
                     val stop = trip.stops.singleOrNull { it.stopId == station.stopId } ?: continue
                     val at = stop.arrivalAtEpochMillis ?: stop.departureAtEpochMillis ?: continue
                     if (at <= nowEpochMillis || at - nowEpochMillis > 3_600_000L) continue
@@ -122,32 +126,35 @@ class SubwayTimetableAnalyzer(
                 arrival.identity.routeId != station.routeId || arrival.snapshot.identity != arrival.identity ||
                 !arrival.identity.isComplete ||
                 arrival.identity.directionId !in setOf("상행", "하행", "내선", "외선") ||
-                arrival.gatewayContract != SubwayGatewayContract.RAW_FIELDS) continue
+                arrival.gatewayContract == SubwayGatewayContract.UNKNOWN) continue
             val destination = arrival.destinationName ?: arrival.directionLabel.substringAfter(" · ", "")
                 .takeIf { "행" in it }?.substringBefore("행")?.trim()
             val allCandidates = mutableListOf<ProvenTimetableArrival>()
             for (calendarDay in calendarDays) {
-                if (!validTimetableText(arrival.trainId)) continue
-                val exact = loader(station.routeId, arrival.trainId, calendarDay.serviceDate,
+                val hasTrainNumber = validTimetableText(arrival.trainId)
+                val exact = if (hasTrainNumber) loader(station.routeId, arrival.trainId, calendarDay.serviceDate,
                     calendarDay.dayType, calendarDay.sourceVersion, false)
+                    else stationLoader?.invoke(station.routeId, station.stopId, calendarDay.serviceDate,
+                        calendarDay.dayType, calendarDay.sourceVersion, false)
                 val exactRows = exact?.trips.orEmpty().filter { it.trainNo == arrival.trainId }
-                val table = if (exactRows.isNotEmpty()) exact else loader(station.routeId, arrival.trainId,
+                val table = if (!hasTrainNumber || exactRows.isNotEmpty()) exact else loader(station.routeId, arrival.trainId,
                     calendarDay.serviceDate, calendarDay.dayType, calendarDay.sourceVersion, true)
                 if (table == null || !table.isStructurallyValid() || table.identityAuthority != "seoul") continue
                 val candidates = table.trips.filter { trip ->
                     trip.routeId == station.routeId && trip.serviceDate == calendarDay.serviceDate &&
                         trip.dayType == calendarDay.dayType && trip.directionId == arrival.identity.directionId &&
-                        (if (exactRows.isNotEmpty()) trip.trainNo == arrival.trainId
-                        else decoratedTrainNumberMatches(arrival.trainId, trip.trainNo)) &&
+                        (!hasTrainNumber || (if (exactRows.isNotEmpty()) trip.trainNo == arrival.trainId
+                        else decoratedTrainNumberMatches(arrival.trainId, trip.trainNo))) &&
                         provesBoardingPath(trip, station.stopId, endpoint, waypointNames) &&
                         declaredDestinationMatches(destination, trip) &&
                         trainOperationMatches(arrival.trainType, trip.operationType)
+                        && !positionBeyondBoarding(arrival,trip,station.stopId) && arrival.arrivalCode != "2"
                 }
                 allCandidates += candidates.map { ProvenTimetableArrival(arrival, table, it, calendarDay) }
             }
             // A route/destination narrows a publisher-provided train record. It never turns a
             // repeated train number or unresolved branch into a choice by array order.
-            if (allCandidates.size == 1) proofs += allCandidates.single()
+            proofs += allCandidates
             // A sound official ETA needs a proven destination direction, not a timetable
             // vehicle-ID match. Missing optional train numbers must not erase that ETA.
             if (allCandidates.size != 1 && arrival.snapshot.hasUsableOfficialEta(nowEpochMillis)) {
@@ -157,7 +164,8 @@ class SubwayTimetableAnalyzer(
                         trip.directionId == arrival.identity.directionId &&
                             provesBoardingPath(trip, station.stopId, endpoint, waypointNames) &&
                             declaredDestinationMatches(destination, trip) &&
-                            trainOperationMatches(arrival.trainType, trip.operationType)
+                            trainOperationMatches(arrival.trainType, trip.operationType) &&
+                            !positionBeyondBoarding(arrival,trip,station.stopId)
                     }) realtimeMatches += arrival
             }
         }
@@ -171,34 +179,30 @@ class SubwayTimetableAnalyzer(
         if (matchingArrivals.map { it.identity.directionId }.distinct().size != 1) {
             return result(message = "하차역에 도달하는 방향이 여러 개예요. 첫 구간의 경유역을 더 확인해 주세요.")
         }
-        val estimates = proofs.mapNotNull { proof ->
-            val arrival = proof.arrival
-            // These codes describe the boarding station itself: do not promise a walking catch.
-            if (arrival.arrivalCode !in setOf("3", "4", "5", "99")) return@mapNotNull null
-            val positionName = arrival.reportedStationName?.takeIf(::validTimetableText)
-                ?: reportedTimetableStationName(arrival.officialArrivalMessage)
-                ?: return@mapNotNull null
-            val matchingPositions = proof.trip.stops.filter {
-                timetableStationName(it.stopName) == timetableStationName(positionName)
-            }
-            val position = matchingPositions.singleOrNull() ?: return@mapNotNull null
-            val sourceAt = arrival.sourceReceivedAtEpochMillis ?: return@mapNotNull null
-            val receivedAt = arrival.gatewayFetchedAtEpochMillis ?: return@mapNotNull null
-            // The exact official train/route/path is now proved; attach the live service identity
-            // without treating the publisher's GUBHANG/variant code as a live destination ID.
-            val contextualTrip = proof.trip.copy(serviceVariant = arrival.identity.serviceVariant)
-            val contextualTable = proof.table.copy(trips = listOf(contextualTrip))
-            val observation = OfficialTrainPositionObservation("seoul", contextualTrip.trainNo,
-                proof.day.serviceDate, proof.day.dayType, station.routeId, arrival.identity.directionId,
-                arrival.identity.serviceVariant, position.stopId, position.stopName,
-                OfficialTrainPositionKind.POSITION_REPORTED, sourceAt, receivedAt,
-                contextualTrip.routePatternId)
-            when (val estimated = estimateOfficialTimetableArrival(contextualTable, observation,
-                arrival.identity, nowEpochMillis, policy)) {
-                is OfficialTimetableEstimateResult.Estimated -> LinkedSubwayTimetableEstimate(arrival, estimated.estimate)
-                is OfficialTimetableEstimateResult.Unknown -> null
-            }
-        }.sortedBy { it.estimate.earliestArrivalAtEpochMillis }
+        val estimates = proofs.groupBy { Triple(it.arrival.identity,it.arrival.trainId,it.arrival.officialSlot) }
+            .values.mapNotNull { candidates ->
+                val possibilities = candidates.mapNotNull { proof -> estimatePosition(proof, station, nowEpochMillis, policy) }
+                    .distinctBy { listOf(it.serviceDate,it.trainNo,it.routePatternId,it.positionStopId) }
+                if (possibilities.isEmpty()) return@mapNotNull null
+                val first = possibilities.minBy { it.earliestArrivalAtEpochMillis }
+                val arrival = candidates.first().arrival
+                val names = possibilities.map { it.trainNo }.distinct().sorted()
+                val paths = possibilities.map { it.routePatternId }.distinct().sorted()
+                val combined = first.copy(
+                    trainNo = if (arrival.trainId.isBlank() && names.size > 1)
+                        "position-slot:${arrival.officialSlot}:${arrival.sourceReceivedAtEpochMillis}" else first.trainNo,
+                    routePatternId = paths.singleOrNull() ?: "candidate-paths:${paths.joinToString(",")}",
+                    operationType = possibilities.map { it.operationType }.distinct().singleOrNull() ?: OfficialTrainOperationType.OTHER,
+                    positionStopId = possibilities.map { it.positionStopId }.distinct().singleOrNull().orEmpty(),
+                    earliestArrivalAtEpochMillis = possibilities.minOf { it.earliestArrivalAtEpochMillis },
+                    latestArrivalAtEpochMillis = possibilities.maxOf { it.latestArrivalAtEpochMillis },
+                    validUntilEpochMillis = possibilities.maxOf { it.validUntilEpochMillis },
+                    minimumObservedDelayMillis = possibilities.minOf { it.minimumObservedDelayMillis },
+                    maximumObservedDelayMillis = possibilities.maxOf { it.maximumObservedDelayMillis },
+                    candidateTrainNumbers = if (possibilities.size > 1) names else emptyList(),
+                    candidateServiceDates = possibilities.map { it.serviceDate }.distinct().sorted())
+                LinkedSubwayTimetableEstimate(arrival, combined)
+            }.sortedBy { it.estimate.earliestArrivalAtEpochMillis }
         val message = when {
             estimates.isNotEmpty() -> estimates.first().estimate.label
             proofs.any { it.arrival.arrivalCode == "2" } -> "해당 열차는 탑승역을 출발했어요. 다음 열차 정보를 기다려 주세요."
@@ -220,7 +224,7 @@ private data class ProvenTimetableArrival(
 
 /** A complete named-position message is accepted; the bracketed count is never used as time. */
 internal fun reportedTimetableStationName(message: String): String? =
-    Regex("^\\[[0-9]+]번째\\s*전역\\s*\\(([^()\\r\\n]+)\\)$").matchEntire(message.trim())
+    Regex("^(?:\\[)?[0-9]+(?:])?\\s*번째\\s*전역\\s*\\(([^()\\r\\n]+)\\)$").matchEntire(message.trim())
         ?.groupValues?.get(1)?.trim()?.takeIf(::validTimetableText)
 
 private fun timetableStationName(value: String): String {
@@ -264,5 +268,48 @@ private fun decoratedTrainNumberMatches(realtime: String, scheduled: String): Bo
     val pattern = Regex("^(?:[KS])?([0-9]+)$")
     val liveDigits = pattern.matchEntire(realtime)?.groupValues?.get(1) ?: return false
     val scheduleDigits = pattern.matchEntire(scheduled)?.groupValues?.get(1) ?: return false
-    return liveDigits == scheduleDigits
+    return liveDigits.trimStart('0').ifEmpty { "0" } == scheduleDigits.trimStart('0').ifEmpty { "0" }
+}
+
+/** Named positions take priority. A station count resolves an actual call sequence, never a fixed minutes-per-stop value. */
+internal fun reportedTimetableStationCount(message: String): Int? =
+    Regex("(?:\\[)?([0-9]{1,3})(?:])?번째\\s*전역").find(message.trim())?.groupValues?.get(1)
+        ?.toIntOrNull()?.takeIf { it in 1..100 }
+
+private fun positionBeyondBoarding(arrival: OfficialSubwayArrival, trip: OfficialTimetableTrip, boardingId: String): Boolean {
+    val target = trip.stops.withIndex().singleOrNull { it.value.stopId == boardingId } ?: return false
+    val names = listOfNotNull(arrival.reportedStationName, reportedTimetableStationName(arrival.officialArrivalMessage))
+        .map(::timetableStationName)
+    return trip.stops.withIndex().filter { timetableStationName(it.value.stopName) in names }
+        .singleOrNull()?.let { it.index > target.index } == true
+}
+
+private fun estimatePosition(proof: ProvenTimetableArrival, station: OfficialSubwayStation,
+    now: Long, policy: OfficialTimetableEstimationPolicy): OfficialTimetableEstimate? {
+    val arrival = proof.arrival
+    if (arrival.arrivalCode in setOf("0", "1", "2")) return null
+    val trip = proof.trip
+    val target = trip.stops.withIndex().singleOrNull { it.value.stopId == station.stopId } ?: return null
+    val names = listOfNotNull(arrival.reportedStationName, reportedTimetableStationName(arrival.officialArrivalMessage))
+        .filter(::validTimetableText).map(::timetableStationName).distinct()
+    val named = trip.stops.withIndex().filter { timetableStationName(it.value.stopName) in names }
+    val position = if (named.isNotEmpty()) {
+        named.singleOrNull()?.takeIf { it.index < target.index }?.value ?: return null
+    } else {
+        if (trip.operationType != OfficialTrainOperationType.LOCAL && arrival.trainType != "일반") return null
+        val count = reportedTimetableStationCount(arrival.officialArrivalMessage) ?: return null
+        trip.stops.getOrNull(target.index-count) ?: return null
+    }
+    val original = arrival.sourceReceivedAtEpochMillis ?: return null
+    val received = arrival.gatewayFetchedAtEpochMillis ?: return null
+    if (original > received+60_000L || received > now+60_000L) return null
+    val source = minOf(original,received,now)
+    val receivedBasis = minOf(received,now)
+    val contextualTrip = trip.copy(serviceVariant = arrival.identity.serviceVariant)
+    val table = proof.table.copy(trips = listOf(contextualTrip))
+    val observation = OfficialTrainPositionObservation("seoul", trip.trainNo, proof.day.serviceDate,
+        proof.day.dayType, station.routeId, arrival.identity.directionId,arrival.identity.serviceVariant,
+        position.stopId,position.stopName,OfficialTrainPositionKind.POSITION_REPORTED,source,receivedBasis,trip.routePatternId)
+    return (estimateOfficialTimetableArrival(table,observation,arrival.identity,now,policy)
+        as? OfficialTimetableEstimateResult.Estimated)?.estimate?.copy(originalSourceTimestampEpochMillis = original)
 }

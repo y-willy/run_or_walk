@@ -30,18 +30,20 @@ internal fun seoulBusStopCandidates(candidates: List<OfficialSeoulBusStop>, boar
     }.distinctBy { it.stopId }
 }
 
-/** Lookup priority only; official stop/route/order must still be resolved from Seoul's API.
- * A is part of these published autonomous village route names, never an ignorable prefix.
- */
-internal fun preferSeoulBusLookup(serviceName: String): Boolean = normalizeBusRouteName(serviceName) in
-    setOf("동대문A01", "서대문A01", "동작A01")
+/** Prefer a previously verified provider; an unknown route starts with official Seoul discovery. */
+internal fun lookupGyeonggiFirst(confirmed: OfficialBoardingIdentity?): Boolean =
+    confirmed?.authority == "GBIS" && confirmed.isComplete
+
+internal fun verifiedBusLookupKey(choice: KakaoTransitChoice): Pair<String,MapPoint?> =
+    normalizeBusRouteName(choice.serviceName) to choice.boardingPoint
 
 internal data class SeoulBusBoardingMatch(val stop: OfficialSeoulBusStop, val route: OfficialSeoulBusRoute)
 
 /** Resolve opposite-side same-name stops using actual route occurrences and direction. */
 internal fun resolveSeoulBusBoarding(
     candidates: List<Pair<OfficialSeoulBusStop, List<OfficialSeoulBusRoute>>>,
-    boarding: JourneyPlace, choice: KakaoTransitChoice
+    boarding: JourneyPlace, choice: KakaoTransitChoice,
+    routeStops: Map<String,List<OfficialSeoulBusRouteStop>> = emptyMap()
 ): SeoulBusBoardingMatch? {
     val physical = seoulBusStopCandidates(candidates.map { it.first }, boarding)
     val options = candidates.filter { it.first in physical }.flatMap { (stop, routes) ->
@@ -50,10 +52,28 @@ internal fun resolveSeoulBusBoarding(
             it.routeId.matches(officialBusId) && it.stopOrder.toIntOrNull()?.let { n -> n > 0 } == true }
             .map { SeoulBusBoardingMatch(stop,it) }
     }.distinctBy { Triple(it.stop.stopId,it.route.routeId,it.route.stopOrder) }
-    if (options.size == 1) return options.single()
-    val direction = choice.directionName?.takeIf(String::isNotBlank) ?: choice.alightingStopName
-        ?: return null
-    return options.filter { normalizeBusDirection(it.route.direction) == normalizeBusDirection(direction) }.singleOrNull()
+    return options.filter { seoulBusRouteReachesAlighting(it.route,choice,routeStops[it.route.routeId].orEmpty()) }.singleOrNull()
+}
+
+/** Direction is the official occurrence and downstream first-leg stop sequence, not the terminal display string. */
+internal fun seoulBusRouteReachesAlighting(route: OfficialSeoulBusRoute, choice: KakaoTransitChoice,
+    stops: List<OfficialSeoulBusRouteStop>): Boolean {
+    val ordered = stops.filter { it.routeId == route.routeId }.sortedBy { it.stopOrder.toIntOrNull() ?: Int.MAX_VALUE }
+    if (ordered.isEmpty() || ordered.distinctBy { it.stopOrder.toIntOrNull() }.size != ordered.size) return false
+    val boarding = ordered.withIndex().singleOrNull { it.value.stopId == route.stopId &&
+        it.value.stopOrder.toIntOrNull() == route.stopOrder.toIntOrNull() } ?: return false
+    val alighting = choice.alightingStopName?.takeIf(String::isNotBlank)
+        ?: choice.firstLegStopNames.lastOrNull()?.takeIf { normalizeBusStopName(it) != normalizeBusStopName(choice.boardingStopName) }
+        ?: return false
+    val names = choice.firstLegStopNames.drop(1).ifEmpty { listOf(alighting) }
+    if (normalizeBusStopName(names.last()) != normalizeBusStopName(alighting)) return false
+    var previous = boarding.index
+    for (name in names) {
+        val next = (previous+1 until ordered.size).firstOrNull { normalizeBusStopName(ordered[it].name) == normalizeBusStopName(name) }
+            ?: return false
+        previous = next
+    }
+    return previous > boarding.index
 }
 
 /**
@@ -83,10 +103,13 @@ private fun normalizeBusDirection(value: String): String = normalizeBusRouteName
     .replace("경희대의료원", "경희의료원")
     .removeSuffix("방향").removeSuffix("방면").removeSuffix("행").removeSuffix("역")
 
-private fun normalizeBusStopName(value: String): String =
-    Normalizer.normalize(value, Normalizer.Form.NFC).trim()
-        .removeSuffix("버스정류장").trim()
-        .replace(Regex("\\s+"), "").replace('·', '.').replace('ㆍ', '.')
+internal fun normalizeBusStopName(value: String): String {
+    val compact = Normalizer.normalize(value, Normalizer.Form.NFC).trim()
+        .removeSuffix("버스정류장").removeSuffix("정류장").removeSuffix("정류소")
+        .replace(Regex("[\\s.,·ㆍ，．。]+"), "").replace("경희대의료원","경희의료원")
+    // Confirmed compound stop-name alias. Physical coordinates and official sequence are still required.
+    return if (compact == "경희의료원경희여중고") "경희의료원" else compact
+}
 
 private fun normalizeBusRouteName(value: String): String =
     Normalizer.normalize(value, Normalizer.Form.NFC).trim()

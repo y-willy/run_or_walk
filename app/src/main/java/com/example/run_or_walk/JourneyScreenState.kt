@@ -47,6 +47,11 @@ internal data class JourneyTransitRoute(val id: String, val kakao: KakaoTransitC
     ).joinToString(" · ")
 }
 
+/** Preserve official identity through the primary stop search; never reinterpret a Kakao place ID. */
+internal fun OfficialSeoulBusStop.toJourneyPlace(): JourneyPlace? = point?.let {
+    JourneyPlace("seoul-bus-$stopId",name,"서울 공식 정류소 · ARS $arsId",it,categoryName="버스정류장")
+}
+
 internal class JourneySearchState {
     var query by mutableStateOf("")
     var options by mutableStateOf<List<JourneyPlace>>(emptyList())
@@ -93,6 +98,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var selectedBusRoute by mutableStateOf<OfficialSeoulBusRoute?>(null)
     var busArrivalOptions by mutableStateOf<List<OfficialSeoulBusArrival>>(emptyList())
     var selectedBusArrival by mutableStateOf<OfficialSeoulBusArrival?>(null)
+    var busDirectionMessage by mutableStateOf<String?>(null)
+    var busRoutePathVerified by mutableStateOf(false)
     var selectedGyeonggiMatch by mutableStateOf<GyeonggiOfficialMatch?>(null)
     var gyeonggiStationId by mutableStateOf("")
     var gyeonggiArrivals by mutableStateOf<List<GyeonggiBusArrivalDisplay>>(emptyList())
@@ -147,6 +154,10 @@ internal class JourneyScreenState(val mode: FeatureMode,
         private set
     fun beginAccessTransitRequest(): Long = ++accessTransitGeneration
     var mapCenter by mutableStateOf<MapPoint?>(null)
+    var mapAccessSegments by mutableStateOf<List<List<MapPoint>>>(emptyList())
+    var mapAccessOrigin by mutableStateOf<MapPoint?>(null)
+    var mapAccessDestination by mutableStateOf<MapPoint?>(null)
+    var mapAccessMessage by mutableStateOf<String?>(null)
     var recenterRequest by mutableStateOf(0)
 
     var loading by mutableStateOf(false)
@@ -288,6 +299,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
     }
 
     fun clearOfficialSelection() {
+        busRoutePathVerified = false
+        busDirectionMessage = null
         lastGuidanceAssessment = null
         liveRequestId++
         selectedStation = null
@@ -319,6 +332,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
 
     /** A new bus route keeps the chosen physical stop but invalidates its old vehicle/identity. */
     fun clearSelectedBusRoute() {
+        busRoutePathVerified = false
+        busDirectionMessage = null
         liveRequestId++
         lastArrivalPollElapsedMillis = null
         selectedBusRoute = null
@@ -369,6 +384,14 @@ internal class JourneyScreenState(val mode: FeatureMode,
 
     fun acceptsResponse(generation: Long): Boolean = requestId == generation
     fun acceptsLiveResponse(generation: Long): Boolean = liveRequestId == generation
+
+    /** GPS/walking updates may finish while this lookup runs; only a newer lookup/selection retires it. */
+    fun applySeoulStopsResponse(generation: Long, expectedBoarding: JourneyPlace?, stops: List<OfficialSeoulBusStop>): Boolean {
+        if (!acceptsLiveResponse(generation) || boarding != expectedBoarding) return false
+        busStopOptions = stops
+        busStopsSearched = true
+        return true
+    }
 
     fun centerOn(point: MapPoint) {
         mapCenter = point

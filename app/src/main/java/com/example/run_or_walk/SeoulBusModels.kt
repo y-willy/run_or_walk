@@ -8,6 +8,8 @@ data class OfficialSeoulBusStop(
     val point: MapPoint? = null
 )
 
+data class OfficialSeoulBusRouteStop(val routeId: String, val stopId: String, val stopOrder: String, val name: String)
+
 /** The official stop sequence distinguishes a route's opposite direction and loop occurrences. */
 data class OfficialSeoulBusRoute(
     val stopId: String,

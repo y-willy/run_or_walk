@@ -83,7 +83,12 @@ fun KakaoMapPanel(
     currentPoint: MapPoint? = null,
     boardingPoint: MapPoint? = null,
     recenterRequest: Int = 0,
-    onCurrentLocation: () -> Unit = {}
+    onCurrentLocation: () -> Unit = {},
+    accessSegments: List<List<MapPoint>> = emptyList(),
+    journeySegments: List<List<MapPoint>> = emptyList(),
+    departurePoint: MapPoint? = null,
+    destinationPoint: MapPoint? = null,
+    journeyKey: Any? = null
 ) {
     val context = LocalContext.current
     var retryCount by remember { mutableIntStateOf(0) }
@@ -93,6 +98,9 @@ fun KakaoMapPanel(
     var mapFailure by remember(mapView) { mutableStateOf<MapLoadFailure?>(null) }
     var mapResumed by remember(mapView) { mutableStateOf(false) }
     var showAuthenticationHelp by remember { mutableStateOf(false) }
+    var userMovedCamera by remember(mapView) { mutableStateOf(false) }
+    var recenterAfterLocation by remember(mapView) { mutableStateOf(false) }
+    var lastFitKey by remember(mapView) { mutableStateOf<Any?>(null) }
     val markerBitmaps = remember(context) {
         val density = context.resources.displayMetrics.density
         createLocationMarker(density, false) to createLocationMarker(density, true)
@@ -108,7 +116,7 @@ fun KakaoMapPanel(
             AndroidView(
                 factory = { mapView },
                 modifier = Modifier.fillMaxSize().semantics {
-                    contentDescription = "승차 지점까지 도보 경로 지도. 파란 원은 현재 위치, 민트 핀은 승차 지점입니다."
+                    contentDescription = if (departurePoint != null) "파란 경로는 현재 위치에서 지정 출발지, 초록 경로는 지정 출발지에서 목적지입니다." else "현재 위치에서 승차 지점까지 도보 경로 지도입니다."
                 }
             )
         }
@@ -120,7 +128,8 @@ fun KakaoMapPanel(
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
             ) {
                 Text(
-                    "● 현재 위치  ·  ◆ 승차 지점",
+                    if (departurePoint != null) "파란색: 현위치 → 출발지\n초록색: 출발지 → 목적지"
+                    else "● 현재 위치  ·  ◆ 승차 지점",
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.labelSmall
                 )
@@ -131,6 +140,7 @@ fun KakaoMapPanel(
             ) {
                 FilledTonalButton(
                     onClick = {
+                        userMovedCamera = true
                         kakaoMap?.let { map ->
                             val level = (map.cameraPosition?.zoomLevel ?: 16) + 1
                             map.moveCamera(CameraUpdateFactory.zoomTo(level.coerceIn(1, 21)))
@@ -142,6 +152,7 @@ fun KakaoMapPanel(
                 ) { Text("+", style = MaterialTheme.typography.titleLarge) }
                 FilledTonalButton(
                     onClick = {
+                        userMovedCamera = true
                         kakaoMap?.let { map ->
                             val level = (map.cameraPosition?.zoomLevel ?: 16) - 1
                             map.moveCamera(CameraUpdateFactory.zoomTo(level.coerceIn(1, 21)))
@@ -153,7 +164,7 @@ fun KakaoMapPanel(
                 ) { Text("−", style = MaterialTheme.typography.titleLarge) }
             }
             FilledTonalButton(
-                onClick = onCurrentLocation,
+                onClick = { recenterAfterLocation = true; onCurrentLocation() },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
                 shape = RoundedCornerShape(14.dp)
             ) { Text("◎ 현재 위치") }
@@ -260,7 +271,7 @@ fun KakaoMapPanel(
                                 touchSurface?.setOnTouchListener { view, event ->
                                     when (event.actionMasked) {
                                         MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
-                                            view.parent?.requestDisallowInterceptTouchEvent(true)
+                                            { userMovedCamera = true; recenterAfterLocation = false; view.parent?.requestDisallowInterceptTouchEvent(true) }
                                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
                                             view.parent?.requestDisallowInterceptTouchEvent(false)
                                     }
@@ -331,18 +342,35 @@ fun KakaoMapPanel(
     LaunchedEffect(kakaoMap, center, recenterRequest) {
         val map = kakaoMap ?: return@LaunchedEffect
         val point = center ?: return@LaunchedEffect
-        map.moveCamera(CameraUpdateFactory.newCenterPosition(LatLng.from(point.y, point.x)))
+        if (recenterAfterLocation || !userMovedCamera && accessSegments.isEmpty() && journeySegments.isEmpty()) {
+            map.moveCamera(CameraUpdateFactory.newCenterPosition(LatLng.from(point.y, point.x)))
+            recenterAfterLocation = false
+        }
     }
 
-    LaunchedEffect(kakaoMap, routePoints) {
+    LaunchedEffect(kakaoMap, routePoints, accessSegments, journeySegments) {
         val map = kakaoMap ?: return@LaunchedEffect
         val layer = map.routeLineManager?.layer ?: return@LaunchedEffect
         layer.removeAll()
-        if (routePoints.size >= 2) {
-            val styles = RouteLineStyles.from(RouteLineStyle.from(12f, AndroidColor.rgb(20, 184, 166)))
-            val positions = routePoints.map { LatLng.from(it.y, it.x) }
+        val paths = if (departurePoint != null) accessSegments.map { it to AndroidColor.rgb(37,99,235) } +
+            journeySegments.map { it to AndroidColor.rgb(22,163,74) }
+            else listOf(routePoints to AndroidColor.rgb(20,184,166))
+        for ((path,color) in paths) if (path.size >= 2) {
+            val styles = RouteLineStyles.from(RouteLineStyle.from(12f, color))
+            val positions = path.map { LatLng.from(it.y, it.x) }
             val segment = RouteLineSegment.from(positions, styles)
             layer.addRouteLine(RouteLineOptions.from(segment))
+        }
+    }
+
+    LaunchedEffect(kakaoMap, journeyKey, accessSegments, journeySegments, userMovedCamera) {
+        val map = kakaoMap ?: return@LaunchedEffect
+        val points = (accessSegments + journeySegments).flatten()
+        // Fit each newly available extent before a gesture. Never recenter on ETA ticks/GPS updates.
+        val fitKey = journeyKey to (accessSegments.isNotEmpty() to journeySegments.isNotEmpty())
+        if (!userMovedCamera && points.size >= 2 && lastFitKey != fitKey) {
+            map.moveCamera(CameraUpdateFactory.fitMapPoints(points.map { LatLng.from(it.y,it.x) }.toTypedArray(),72))
+            lastFitKey = fitKey
         }
     }
 

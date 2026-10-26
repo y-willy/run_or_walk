@@ -41,10 +41,12 @@ class SeoulBusRepository(
     private val mutex = Mutex()
     private val cache = mutableMapOf<String, CachedBusResponse>()
     private val backoff = SeoulBusRequestBackoff()
+    private val routeInfoBackoff = SeoulBusRequestBackoff()
+    private val sharedRateBackoff = SeoulBusRequestBackoff()
     val isConfigured: Boolean get() = runCatching { validateSeoulBusGateway(baseUrl, accessToken) }.isSuccess
 
     suspend fun searchStops(query: String): List<OfficialSeoulBusStop> {
-        val text = query.trim()
+        val text = normalizeSeoulBusStopQuery(query)
         if (text.isBlank() || text.length > 40 || text.any(Char::isISOControl)) return emptyList()
         return parseWorkerSeoulBusStops(load("/bus/stops", linkedMapOf("query" to text)))
     }
@@ -57,6 +59,11 @@ class SeoulBusRepository(
     suspend fun routes(stop: OfficialSeoulBusStop): List<OfficialSeoulBusRoute> {
         if (!stop.stopId.isOfficialBusId() || !stop.arsId.isBusArsId()) throw busInvalidResponse()
         return parseWorkerSeoulBusRoutes(load("/bus/routes", linkedMapOf("stopId" to stop.stopId, "arsId" to stop.arsId)), stop)
+    }
+
+    suspend fun routeStops(routeId: String): List<OfficialSeoulBusRouteStop> {
+        if (!routeId.isOfficialBusId()) throw busInvalidResponse()
+        return parseWorkerSeoulBusRouteStops(load("/bus/route-stops", linkedMapOf("routeId" to routeId)),routeId)
     }
 
     suspend fun arrivals(stop: OfficialSeoulBusStop, route: OfficialSeoulBusRoute): List<OfficialSeoulBusArrival> {
@@ -73,9 +80,11 @@ class SeoulBusRepository(
         val base = validateSeoulBusGateway(baseUrl, accessToken)
         val query = params.entries.joinToString("&") { "${it.key}=${it.value.busQueryValue()}" }
         val key = "$path?$query"
+        val requestBackoff = if (path == "/bus/route-stops") routeInfoBackoff else backoff
         mutex.withLock {
             currentCoroutineContext().ensureActive()
-            backoff.check(System.currentTimeMillis())
+            sharedRateBackoff.check(System.currentTimeMillis())
+            requestBackoff.check(System.currentTimeMillis())
             val attempt = System.nanoTime()
             val previous = cache[key]
             if (previous != null && attempt - previous.attemptedAtNanos in 0L until BUS_REQUEST_INTERVAL_NANOS) {
@@ -90,7 +99,8 @@ class SeoulBusRepository(
                 cache[key] = CachedBusResponse(attempt, failure = busConnectionFailure())
                 throw cancelled
             } catch (failure: SeoulBusApiException) {
-                backoff.record(failure)
+                if (failure.serverCode in setOf("IP_RATE_LIMITED","BUS_GATEWAY_RATE_LIMITED","RATE_LIMITER_UNAVAILABLE"))
+                    sharedRateBackoff.record(failure) else requestBackoff.record(failure)
                 cache[key] = CachedBusResponse(attempt, failure = failure)
                 throw failure
             }
@@ -162,6 +172,15 @@ internal fun validateSeoulBusGateway(baseUrl: String, accessToken: String): URI 
     return base
 }
 
+internal fun normalizeSeoulBusStopQuery(query: String): String {
+    val trimmed = query.trim()
+    val ars = trimmed.replace(Regex("[\\s-]"), "")
+    return if (ars.matches(Regex("[0-9]{5}"))) ars else trimmed
+        .removeSuffix("버스정류장").removeSuffix("정류장").removeSuffix("정류소")
+        .replace(Regex("\\s+"), "").replace(Regex("[,·ㆍ，．。]+"), ".")
+        .replace("경희의료원", "경희대의료원")
+}
+
 internal fun parseWorkerSeoulBusStops(json: String): List<OfficialSeoulBusStop> {
     val root = busRoot(json)
     val rows = root.optJSONArray("stops") ?: throw busInvalidResponse()
@@ -176,6 +195,21 @@ internal fun parseWorkerSeoulBusStops(json: String): List<OfficialSeoulBusStop> 
             add(OfficialSeoulBusStop(id, row.busText("arsId").orEmpty(), name, point))
         }
     }.groupBy { it.stopId }.values.mapNotNull { it.distinct().singleOrNull() }
+}
+
+internal fun parseWorkerSeoulBusRouteStops(json: String, routeId: String): List<OfficialSeoulBusRouteStop> {
+    val root = busRoot(json)
+    if (root.busText("routeId") != routeId) throw busInvalidResponse()
+    val rows = root.optJSONArray("stops") ?: throw busInvalidResponse()
+    if (rows.length() > 1000) throw busInvalidResponse()
+    return (0 until rows.length()).mapNotNull { i ->
+        val row = rows.optJSONObject(i) ?: return@mapNotNull null
+        val stopId = row.busText("stopId")?.takeIf(String::isOfficialBusId) ?: return@mapNotNull null
+        val order = row.busText("stopOrder")?.takeIf(String::isBusStopOrder) ?: return@mapNotNull null
+        val name = row.busText("name") ?: return@mapNotNull null
+        OfficialSeoulBusRouteStop(routeId,stopId,order,name)
+    }.also { if (it.distinctBy { row -> row.stopOrder.toInt() }.size != it.size) throw busInvalidResponse() }
+        .sortedBy { it.stopOrder.toInt() }
 }
 
 internal fun parseWorkerSeoulBusRoutes(json: String, stop: OfficialSeoulBusStop): List<OfficialSeoulBusRoute> {

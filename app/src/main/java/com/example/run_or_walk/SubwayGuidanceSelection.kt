@@ -32,7 +32,16 @@ internal fun selectTimetableEvidence(analysis: SubwayTimetableAnalysis?, now: Lo
 }
 
 internal fun timetableArrivalText(evidence: TimetableArrivalEvidence, now: Long): String {
-    val minimum = ((evidence.first.earliestArrivalAtEpochMillis - now).coerceAtLeast(0) + 59_999L) / 60_000L
-    val maximum = ((evidence.first.latestArrivalAtEpochMillis - now).coerceAtLeast(0) + 59_999L) / 60_000L
-    return if (minimum == maximum) "시간표 추정 약 ${minimum}분" else "시간표 추정 약 ${minimum}~${maximum}분"
+    return subwayEstimateText(evidence.first,now)
+}
+
+internal fun subwayEstimateText(estimate: OfficialTimetableEstimate, now: Long): String {
+    if (estimate.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE) {
+        val clock = java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(
+            java.time.Instant.ofEpochMilli(estimate.scheduledTargetArrivalAtEpochMillis).atZone(java.time.ZoneId.of("Asia/Seoul")))
+        return "시간표 기준: $clock 도착 예정"
+    }
+    val minimum = ((estimate.earliestArrivalAtEpochMillis-now).coerceAtLeast(0)+59_999L)/60_000L
+    val maximum = ((estimate.latestArrivalAtEpochMillis-now).coerceAtLeast(0)+59_999L)/60_000L
+    return "열차 위치·시간표 추정: 약 " + if (minimum==maximum) "${minimum}분" else "${minimum}~${maximum}분"
 }

@@ -118,6 +118,7 @@ class JourneyMonitoringService : Service() {
         val alertGate = JourneyMonitoringAlertGate()
         var lastArrivals: RealtimeArrivalSnapshot? = null
         var lastVehicleId: String? = null
+        var lastSubwayObservations = emptyList<OfficialSubwayArrival>()
         while (scope.isActive && android.os.SystemClock.elapsedRealtime() - startedAt < MAX_SESSION_MILLIS) {
             val cycleStartedAt = android.os.SystemClock.elapsedRealtime()
             val request = currentRequest ?: break
@@ -126,7 +127,8 @@ class JourneyMonitoringService : Service() {
                 return
             }
             val now = System.currentTimeMillis()
-            if (retryAt?.let { it > now } == true) {
+            val deferredPositionRefresh = !request.isBus && lastSubwayObservations.isNotEmpty() && retryAt?.let { it > now } == true
+            if (retryAt?.let { it > now } == true && !deferredPositionRefresh) {
                 val previous = JourneyMonitoringController.state.value
                 if (previous.assessment?.status == AutoGuidanceStatus.NEXT_VEHICLE &&
                     previous.arrivals?.hasUsableOfficialEta(now) == true) {
@@ -146,10 +148,18 @@ class JourneyMonitoringService : Service() {
             var failure = false
             var furtherServiceEnded = false
             var message: String? = null
-            var subwayObservations = emptyList<OfficialSubwayArrival>()
+            var subwayObservations = lastSubwayObservations
             var timetableAnalysis: SubwayTimetableAnalysis? = null
             try {
-                if (request.isGyeonggi) {
+                if (deferredPositionRefresh) {
+                    failure = true
+                    message = "실시간 재조회 대기 · 마지막 위치와 시간표로 추정 중이에요."
+                    val days = timetableCalendar.serviceDays(now)
+                    val day = days.firstOrNull()
+                    if (day != null && request.subwayRoute != null) timetableAnalysis = timetableAnalyzer.analyze(
+                        requireNotNull(request.subwayStation), request.subwayRoute, lastSubwayObservations,now,
+                        day.serviceDate,day.dayType,day.sourceVersion,additionalServiceDays = days.drop(1))
+                } else if (request.isGyeonggi) {
                     val match = requireNotNull(request.gyeonggiMatch)
                     val selected = chooseMatchingGyeonggiArrival(match,
                         gyeonggi.arrivals(match.stationId), System.currentTimeMillis())
@@ -165,6 +175,7 @@ class JourneyMonitoringService : Service() {
                     furtherServiceEnded = selected?.isLast == true && selected.snapshot.nextArrivalAtEpochMillis == null
                 } else {
                     subwayObservations = subway.arrivals(requireNotNull(request.subwayStation))
+                    lastSubwayObservations = subwayObservations
                     val days = timetableCalendar.serviceDays(System.currentTimeMillis())
                     val day = days.firstOrNull()
                     if (day != null && request.subwayRoute != null) {
@@ -180,7 +191,7 @@ class JourneyMonitoringService : Service() {
                     vehicleId = selected?.trainId
                     if (selected == null) message = "선택한 방향의 유효한 열차 정보를 기다리고 있어요."
                 }
-                retryAt = null
+                if (!failure) retryAt = null
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 failure = true
@@ -198,7 +209,7 @@ class JourneyMonitoringService : Service() {
                     if (day != null) {
                         try {
                             timetableAnalysis = timetableAnalyzer.analyze(requireNotNull(request.subwayStation),
-                                request.subwayRoute, emptyList(), System.currentTimeMillis(), day.serviceDate,
+                                request.subwayRoute, lastSubwayObservations, System.currentTimeMillis(), day.serviceDate,
                                 day.dayType, day.sourceVersion, additionalServiceDays = days.drop(1))
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (_: Exception) { /* Keep the original API failure visible. */ }
@@ -249,7 +260,8 @@ class JourneyMonitoringService : Service() {
                 subwayObservations, checkedAt, failure)
             val summary = if (assessment.status == AutoGuidanceStatus.UNKNOWN)
                 evidence?.let { timetableArrivalText(it, checkedAt) } ?: operation?.message ?: message ?: "최신 위치·도보·도착정보를 확인하고 있어요."
-                else (if (assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME) "시간표 추정 · " else "") +
+                else (evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
+                    ?.let { timetableArrivalText(it,checkedAt) + " · " } ?: "") +
                     if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
                         "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, checkedAt)
                     else monitoringAssessmentMessage(assessment.status, request.isBus)
@@ -265,8 +277,10 @@ class JourneyMonitoringService : Service() {
             if (event != null) {
                 val text = if (event.kind == JourneyMonitoringAlertKind.ARRIVING)
                     "확인된 ${if (request.isBus) "버스" else "열차"}가 1분 이내 도착 예정이에요. 신호와 승차 위치를 확인해 주세요."
-                    else monitoringAssessmentMessage(event.status, request.isBus)
-                val visibleFor = arrivals?.let { monitoringAlertLifetimeMillis(event, it, checkedAt) } ?: 0L
+                    else (evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
+                        ?.let { timetableArrivalText(it,checkedAt) + " · " } ?: "") + monitoringAssessmentMessage(event.status, request.isBus)
+                val visibleFor = arrivals?.let { monitoringAlertLifetimeMillis(event, it, checkedAt) }
+                    ?: evidence?.let { (it.first.validUntilEpochMillis-checkedAt).coerceIn(0L,60_000L) } ?: 0L
                 if (visibleFor > 0L) notifySafely(ARRIVAL_ID, arrivalNotification(active, text, visibleFor, checkedAt))
             }
             val remaining = (POLL_INTERVAL_MILLIS - (android.os.SystemClock.elapsedRealtime() - cycleStartedAt)).coerceAtLeast(1_000L)

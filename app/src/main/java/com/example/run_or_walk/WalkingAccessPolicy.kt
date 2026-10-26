@@ -5,6 +5,12 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/** Vehicle ETA and destination edits are deliberately absent from the GPS-to-departure cache key. */
+internal fun shouldRefreshAccessMap(storedOrigin: MapPoint?, storedDeparture: MapPoint?,
+    currentOrigin: MapPoint, departure: MapPoint, hasGeometry: Boolean): Boolean =
+    !hasGeometry || storedDeparture != departure || storedOrigin == null ||
+        walkingAccessDistance(storedOrigin,currentOrigin) > 35.0
+
 /** Validate actual provider geometry before attaching GPS/boarding coordinates to its duration. */
 internal fun validWalkingAccess(route: KakaoWalkingRoute, origin: MapPoint, destination: MapPoint): Boolean {
     fun valid(point: MapPoint) = point.x.isFinite() && point.y.isFinite() &&

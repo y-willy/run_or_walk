@@ -202,7 +202,24 @@ internal fun parseTransitChoices(routes: JSONArray?): List<KakaoTransitChoice> =
                 if (transitStops != null) for (i in 0 until transitStops.length())
                     transitStops.optJSONObject(i)?.nonBlankString("name")?.let(::add)
             },
-            alightingStopName = transitStops?.optJSONObject(transitStops.length() - 1)?.nonBlankString("name")
+            alightingStopName = transitStops?.optJSONObject(transitStops.length() - 1)?.nonBlankString("name"),
+            itineraryKey = (0 until steps.length()).joinToString("|") { i ->
+                val p = steps.optJSONObject(i)?.optJSONObject("properties")
+                val vehicles = p?.optJSONArray("vehicles")
+                val stops = p?.optJSONArray("stops")
+                p?.optString("type").orEmpty() + ":" + (0 until (vehicles?.length() ?: 0)).joinToString(",") {
+                    val v = vehicles?.optJSONObject(it); v?.identifier("id") ?: v?.nonBlankString("name").orEmpty()
+                } + ":" + (0 until (stops?.length() ?: 0)).joinToString(",") {
+                    val stop = stops?.optJSONObject(it); stop?.identifier("id") ?: stop?.nonBlankString("name").orEmpty()
+                }
+            },
+            pathSegments = buildList {
+                for (i in 0 until steps.length()) {
+                    val coordinates = steps.optJSONObject(i)?.optJSONObject("path")?.optJSONArray("points") ?: continue
+                    val points = (0 until coordinates.length()).map { coordinates.optJSONArray(it)?.coordinate() }
+                    if (points.size >= 2 && points.all { it != null }) add(points.map { requireNotNull(it) })
+                }
+            }
         ))
     }
 }

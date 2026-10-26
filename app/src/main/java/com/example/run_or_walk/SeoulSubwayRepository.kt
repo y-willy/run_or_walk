@@ -291,6 +291,7 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
             val seconds = rawEta?.toString()?.toDoubleOrNull()
                 ?.takeIf { it.isFinite() && it >= 0.0 && it <= 86_400.0 && it % 1.0 == 0.0 }?.toLong()
             val code = text("arvlCd")
+            val slot = row.optInt("rowNum",index+1).takeIf { it > 0 } ?: index+1
             val complete = trainId.isNotBlank() && trainType != null && destinationId != null &&
                 destinationName != null && nextStationId != null
             val contract = when {
@@ -349,10 +350,10 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
                     validForMillis = SEOUL_ARRIVAL_VALIDITY_MILLIS,
                     reliable = trust == ArrivalTrustState.VALID, trustState = trust,
                     sourceTimestampAvailable = sourceTime != null, receivedAtEpochMillis = gatewayFetched,
-                    vehicleIdentityFallback = if (trainId.isBlank()) "official-slot:${row.optInt("rowNum", index + 1)}" else null),
+                    vehicleIdentityFallback = if (trainId.isBlank()) "official-slot:$slot" else null),
                 message, gatewayFetched,
                 text("arvlMsg2", "arrivalMessage").orEmpty(), sourceTime, contract, issues, seconds,
-                trainType, destinationName, text("arvlMsg3"), code, text("ordkey"), row.optInt("rowNum", index + 1)
+                trainType, destinationName, text("arvlMsg3"), code, text("ordkey"), slot
             ))
         }
     }

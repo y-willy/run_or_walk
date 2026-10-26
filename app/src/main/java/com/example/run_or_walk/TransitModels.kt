@@ -68,7 +68,10 @@ data class KakaoTransitChoice(
     val nextStopName: String? = null,
     /** Ordered stops in the first transit leg; a second listed stop is not proof of adjacency. */
     val firstLegStopNames: List<String> = emptyList(),
-    val alightingStopName: String? = null
+    val alightingStopName: String? = null,
+    /** Actual provider geometry, kept per step so absent transfer geometry never becomes a straight line. */
+    val pathSegments: List<List<MapPoint>> = emptyList(),
+    val itineraryKey: String = ""
 )
 
 /** Unknown or incomplete WALK segment times never become a zero-minute walk. */

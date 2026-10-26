@@ -12,7 +12,9 @@ internal class JourneyMonitoringAlertGate {
         arrivals: RealtimeArrivalSnapshot?, now: Long): JourneyMonitoringAlert? {
         val usable = arrivals != null && vehicleId?.isNotBlank() == true && arrivals.identity == identity &&
             arrivals.hasUsableOfficialEta(now)
-        val decision = decideAutoGuidanceVibration(guidanceState, usable, identity, assessment.status,
+        val estimatedGuidance = assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME &&
+            assessment.status != AutoGuidanceStatus.UNKNOWN && assessment.boardingIdentity == identity
+        val decision = decideAutoGuidanceVibration(guidanceState, usable || estimatedGuidance, identity, assessment.status,
             now, vehicleId = vehicleId)
         guidanceState = decision.state
         if (usable && assessment.status != AutoGuidanceStatus.NEXT_VEHICLE &&

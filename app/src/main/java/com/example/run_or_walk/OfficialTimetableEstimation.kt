@@ -60,12 +60,17 @@ data class OfficialTimetableEstimate(
     val validUntilEpochMillis: Long,
     val timetableSource: OfficialTimetableSource,
     val calendarSourceVersion: String,
-    val source: OfficialTimetableEstimateSource = OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION
+    val source: OfficialTimetableEstimateSource = OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION,
+    val candidateTrainNumbers: List<String> = emptyList(),
+    val originalSourceTimestampEpochMillis: Long? = null,
+    val candidateServiceDates: List<LocalDate> = emptyList()
 ) {
     val isRealtime: Boolean = false
     val scheduleValidityUnconfirmed: Boolean =
         timetableSource.validFromServiceDate == null || timetableSource.validThroughServiceDate == null
-    val label: String = (if (source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION)
+    val label: String = (if (candidateTrainNumbers.size > 1) "열차 후보 ${candidateTrainNumbers.size}개 · " else "") +
+        (if (candidateServiceDates.size > 1) "운행일 후보 ${candidateServiceDates.size}개 · " else "") +
+        (if (source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION)
         "공식 시간표·열차 위치 기반 추정 · " else "공식 시간표 기준 · 실시간 위치 미확인 · ") +
         (timetableSource.scheduleAsOfDate ?: Instant.ofEpochMilli(timetableSource.publishedAtEpochMillis)
             .atZone(ZoneId.of(timetableSource.timeZone)).toLocalDate()) + " 기준" +

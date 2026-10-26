@@ -38,7 +38,7 @@ function response(result: BusResult, headers: Record<string, string> = {}): Resp
 export async function handleBusRequest(request: Request, env: BusEnv): Promise<Response> {
   try {
     const url = new URL(request.url);
-    if (!['/bus/stops', '/bus/routes', '/bus/arrivals'].includes(url.pathname)) return response(fail('NOT_FOUND', 404));
+    if (!['/bus/stops', '/bus/routes', '/bus/route-stops', '/bus/arrivals'].includes(url.pathname)) return response(fail('NOT_FOUND', 404));
     if (!parseBusOperation(url)) return response(fail('BUS_INVALID_QUERY', 400));
     if (!env.SEOUL_BUS_KEY || !env.SEOUL_BUS_COORDINATOR || !env.IP_RATE_LIMITER) {
       return response(fail('SEOUL_BUS_NOT_CONFIGURED', 503));
@@ -100,7 +100,7 @@ export class SeoulBusCoordinator extends DurableObject<BusEnv> {
     const now = Date.now();
     // Station metadata and arrival APIs have distinct published service allocations.
     // This ledger covers this Worker only; another consumer of the same key is outside it.
-    const service = operation.kind === 'arrivals' ? 'arrivals' : 'stations';
+    const service = operation.kind === 'arrivals' ? 'arrivals' : operation.kind === 'route-stops' ? 'route-info' : 'stations';
     const retryAfter = this.ctx.storage.transactionSync(() => {
       const sql = this.ctx.storage.sql;
       sql.exec('DELETE FROM bus_upstream_attempts WHERE attempted_at <= ?', now - BUS_WINDOW_MS);

@@ -37,6 +37,8 @@ internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(row.directionLabel, style = MaterialTheme.typography.labelLarge)
                 val estimate = sourceSubwayEstimate(row, now).takeUnless { screen.arrivalRequestFailed }
+                    ?: analysis?.estimates?.firstOrNull { it.arrival == row }?.estimate
+                        ?.takeIf { now <= it.validUntilEpochMillis }?.let { subwayEstimateText(it,now) }
                 Text(estimate ?: row.officialArrivalMessage.ifBlank { "초 단위 예정시간 미제공" },
                     style = MaterialTheme.typography.bodyLarge)
                 Text(subwayArrivalDisplayStatus(row, now), style = MaterialTheme.typography.bodySmall)

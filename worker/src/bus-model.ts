@@ -11,6 +11,7 @@ export type BusOperation =
   | { kind: 'stops'; query: string }
   | { kind: 'nearby'; x: string; y: string }
   | { kind: 'routes'; stopId: string; arsId: string }
+  | { kind: 'route-stops'; routeId: string }
   | { kind: 'arrivals'; stopId: string; routeId: string; stopOrder: string };
 export type BusSourceRow = Record<string, unknown>;
 
@@ -39,6 +40,10 @@ export function parseBusOperation(url: URL): BusOperation | null {
       }
     }
     return null;
+  }
+  if (url.pathname === '/bus/route-stops' && only('routeId')) {
+    const routeId = params.get('routeId');
+    return officialId(routeId) ? { kind: 'route-stops', routeId: routeId! } : null;
   }
   const stopId = params.get('stopId');
   if (!officialId(stopId)) return null;
@@ -75,6 +80,8 @@ export function busSourceUrl(operation: BusOperation, key: string): string {
     params.set('tmX', operation.x); params.set('tmY', operation.y); params.set('radius', '500');
   } else if (operation.kind === 'routes') {
     endpoint = 'stationinfo/getStationByUid'; params.set('arsId', operation.arsId);
+  } else if (operation.kind === 'route-stops') {
+    endpoint = 'busRouteInfo/getStaionByRoute'; params.set('busRouteId', operation.routeId);
   } else {
     endpoint = 'arrive/getArrInfoByRoute';
     params.set('stId', operation.stopId); params.set('busRouteId', operation.routeId); params.set('ord', operation.stopOrder);
@@ -178,6 +185,17 @@ function arrivalTrust(row: BusArrivalRow, fetchedAt: number, now: number): BusTr
 export function normalizeBusPayload(operation: BusOperation, payload: unknown, fetchedAtMs: number, key: string): Record<string, unknown> {
   const rows = readBusSource(payload);
   const base = { provider: BUS_PROVIDER, fetchedAt: new Date(fetchedAtMs).toISOString() };
+  if (operation.kind === 'route-stops') {
+    if (rows.some(row => scalarText(row.busRouteId) !== null && scalarText(row.busRouteId) !== operation.routeId))
+      throw new BusSourceError('BUS_ROUTE_AMBIGUOUS',409);
+    const stops = rows.map(row => ({ stopId: safeText(row.station ?? row.stId, key),
+      name: safeText(row.stationNm ?? row.stNm, key), stopOrder: canonicalBusOrder(row.seq ?? row.staOrd),
+      arsId: canonicalArsId(row.arsId,key) }))
+      .filter(row => officialId(row.stopId) && row.name && row.stopOrder !== null)
+      .sort((a,b) => Number(a.stopOrder)-Number(b.stopOrder));
+    if (new Set(stops.map(row => row.stopOrder)).size !== stops.length) throw new BusSourceError('BUS_ROUTE_AMBIGUOUS',409);
+    return { ...base, routeId: operation.routeId, stops };
+  }
   if (operation.kind === 'stops' || operation.kind === 'nearby') {
     const stops = new Map<string, Record<string, unknown>>();
     for (const row of rows) {
