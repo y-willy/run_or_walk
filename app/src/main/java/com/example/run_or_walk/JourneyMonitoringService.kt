@@ -156,10 +156,9 @@ class JourneyMonitoringService : Service() {
                     failure = true
                     message = "실시간 재조회 대기 · 마지막 위치와 시간표로 추정 중이에요."
                     val days = timetableCalendar.serviceDays(now)
-                    val day = days.firstOrNull()
-                    if (day != null && request.subwayRoute != null) timetableAnalysis = timetableAnalyzer.analyze(
-                        requireNotNull(request.subwayStation), request.subwayRoute, lastSubwayObservations,now,
-                        day.serviceDate,day.dayType,day.sourceVersion,additionalServiceDays = days.drop(1))
+                    if (days.isNotEmpty() && request.subwayRoute != null) timetableAnalysis =
+                        analyzeSubwayWithScheduleFallback(timetableAnalyzer, requireNotNull(request.subwayStation),
+                            request.subwayRoute, lastSubwayObservations, now, days)
                 } else if (request.isGyeonggi) {
                     val match = requireNotNull(request.gyeonggiMatch)
                     val selected = chooseMatchingGyeonggiArrival(match,
@@ -178,11 +177,10 @@ class JourneyMonitoringService : Service() {
                     subwayObservations = subway.arrivals(requireNotNull(request.subwayStation))
                     lastSubwayObservations = subwayObservations
                     val days = timetableCalendar.serviceDays(System.currentTimeMillis())
-                    val day = days.firstOrNull()
-                    if (day != null && request.subwayRoute != null) {
-                        timetableAnalysis = timetableAnalyzer.analyze(requireNotNull(request.subwayStation), request.subwayRoute,
-                            subwayObservations, System.currentTimeMillis(), day.serviceDate, day.dayType, day.sourceVersion,
-                            additionalServiceDays = days.drop(1))
+                    if (days.isNotEmpty() && request.subwayRoute != null) {
+                        timetableAnalysis = analyzeSubwayWithScheduleFallback(timetableAnalyzer,
+                            requireNotNull(request.subwayStation), request.subwayRoute,
+                            subwayObservations, System.currentTimeMillis(), days)
                     }
                     arrivalHistory.record(requireNotNull(request.subwayStation), subwayObservations,
                         timetableAnalysis?.estimates.orEmpty(), System.currentTimeMillis())
@@ -206,12 +204,11 @@ class JourneyMonitoringService : Service() {
                     ?: (error as? SeoulSubwayApiException)?.message ?: "실시간 도착정보 연결을 다시 확인하고 있어요."
                 if (!request.isBus && request.subwayRoute != null) {
                     val days = timetableCalendar.serviceDays(System.currentTimeMillis())
-                    val day = days.firstOrNull()
-                    if (day != null) {
+                    if (days.isNotEmpty()) {
                         try {
-                            timetableAnalysis = timetableAnalyzer.analyze(requireNotNull(request.subwayStation),
-                                request.subwayRoute, lastSubwayObservations, System.currentTimeMillis(), day.serviceDate,
-                                day.dayType, day.sourceVersion, additionalServiceDays = days.drop(1))
+                            timetableAnalysis = analyzeSubwayWithScheduleFallback(timetableAnalyzer,
+                                requireNotNull(request.subwayStation), request.subwayRoute,
+                                lastSubwayObservations, System.currentTimeMillis(), days)
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (_: Exception) { /* Keep the original API failure visible. */ }
                     }

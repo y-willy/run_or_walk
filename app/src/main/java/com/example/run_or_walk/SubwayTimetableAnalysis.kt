@@ -1,5 +1,6 @@
 package com.example.run_or_walk
 
+import kotlinx.coroutines.CancellationException
 import java.time.LocalDate
 
 data class LinkedSubwayTimetableEstimate(
@@ -25,6 +26,40 @@ typealias OfficialTimetableTrainLoader = suspend (
     calendarSourceVersion: String,
     includeDecoratedTrainNumbers: Boolean
 ) -> OfficialTimetable?
+
+/**
+ * Realtime position matching can be inconclusive even when the published timetable
+ * proves a unique direction and a future stopping service. Always try that independent
+ * timetable path before reporting that no numeric arrival information is available.
+ * A schedule-only result remains an estimate; it never becomes a realtime snapshot.
+ */
+internal suspend fun analyzeSubwayWithScheduleFallback(
+    analyzer: SubwayTimetableAnalyzer,
+    station: OfficialSubwayStation,
+    route: KakaoTransitChoice?,
+    arrivals: List<OfficialSubwayArrival>,
+    nowEpochMillis: Long,
+    days: List<OfficialTimetableCalendarDay>
+): SubwayTimetableAnalysis? {
+    val current = days.firstOrNull() ?: return null
+    suspend fun analyze(rows: List<OfficialSubwayArrival>) = analyzer.analyze(station, route, rows,
+        nowEpochMillis, current.serviceDate, current.dayType, current.sourceVersion,
+        additionalServiceDays = days.drop(1))
+    val live = try { analyze(arrivals) }
+    catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { null }
+    if (live != null && live.directionVerified && (live.estimates.isNotEmpty() ||
+        live.matchingArrivals.any { it.snapshot.hasUsableOfficialEta(nowEpochMillis) })) return live
+    // Incomplete live identity or timetable-candidate ambiguity must not suppress
+    // verified published departure times for this boarding -> alighting segment.
+    val scheduled = analyze(emptyList())
+    if (!scheduled.directionVerified || scheduled.estimates.isEmpty()) return live ?: scheduled
+    return if (live == null) scheduled else live.copy(
+        // The live rows failed direction verification. Do not promote them to
+        // officially matched arrivals merely because a schedule is available.
+        matchingArrivals = emptyList(), estimates = scheduled.estimates,
+        directionVerified = true, message = scheduled.message)
+}
 
 /**
  * Bridges official position rows to the packaged official timetable. The loader is injectable;
@@ -69,8 +104,12 @@ class SubwayTimetableAnalyzer(
         }
         val waypointNames = route.firstLegStopNames.map(::timetableStationName).filter(String::isNotBlank)
         val boardingName = timetableStationName(station.name)
-        val endpoint = route.alightingStopName?.let(::timetableStationName)?.takeIf(String::isNotBlank)
+        val endpoint = route.alightingStopName?.let(::timetableStationName)?.takeIf { it.isNotBlank() && it != boardingName }
             ?: waypointNames.lastOrNull()?.takeIf { it != boardingName }
+            // Kakao sometimes returns only the next stop or omits the last stop
+            // of the first leg. An explicit next stop is still a real downstream
+            // direction witness; the timetable must prove its actual stop order.
+            ?: route.nextStopName?.let(::timetableStationName)?.takeIf { it.isNotBlank() && it != boardingName }
         if (endpoint == null || endpoint == boardingName || !validTimetableText(calendarSourceVersion)) {
             return result(message = "첫 지하철 구간의 하차역을 확인해야 진행 방향을 판단할 수 있어요.")
         }

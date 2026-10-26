@@ -112,7 +112,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     fun isActiveTarget(target: JourneyScreenState) = latestScreen === target || latestRootScreen.accessJourney === target
     var currentPoint by remember { mutableStateOf<MapPoint?>(null) }
     var pendingLocation by remember { mutableStateOf<LocationRequest?>(null) }
-    var mapExpanded by rememberSaveable { mutableStateOf(false) }
+    // Show the full route by default; the existing toggle keeps the compact option.
+    var mapExpanded by rememberSaveable { mutableStateOf(true) }
     var searchExpanded by rememberSaveable(mode) { mutableStateOf(false) }
     var alternativesExpanded by rememberSaveable(mode) { mutableStateOf(false) }
     var officialDetailsExpanded by rememberSaveable(mode) { mutableStateOf(false) }
@@ -1200,10 +1201,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val revision = screen.revision
         screen.timetableAnalysis = null
         val days = timetableCalendar.serviceDays(System.currentTimeMillis())
-        val day = days.firstOrNull() ?: return@LaunchedEffect
+        if (days.isEmpty()) return@LaunchedEffect
         try {
-            val analysis = timetableAnalyzer.analyze(station, route, rows, System.currentTimeMillis(),
-                day.serviceDate, day.dayType, day.sourceVersion, additionalServiceDays = days.drop(1))
+            val analysis = analyzeSubwayWithScheduleFallback(timetableAnalyzer, station, route, rows,
+                System.currentTimeMillis(), days) ?: return@LaunchedEffect
             if (latestScreen !== screen || screen.revision != revision || screen.selectedStation != station ||
                 screen.subwayDirectionRoute != route || screen.arrivalOptions != rows) return@LaunchedEffect
             screen.timetableAnalysis = analysis
