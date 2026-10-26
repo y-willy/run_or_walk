@@ -62,4 +62,44 @@ class WalkingAnalysisUiTest {
     compose.onNodeWithText("측정 신뢰도 부족",substring=true).assertIsDisplayed()
     controller.pause().stop().destroy()
  }
+ @Test fun runningSpeedCanBeEnteredSavedReloadedAndClearedThroughSettings() {
+    var settings by mutableStateOf(JourneySettings())
+    var changes=0
+    val controller=Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+    val activity=controller.get()
+    val store=JourneySettingsStore(activity)
+    activity.setContent { RUN_or_WALKTheme { Surface(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(20.dp)) {
+            JourneySettingsPanel(settings) { value ->
+                settings=value
+                store.save(value)
+                changes++
+            }
+        }
+    } } }
+    compose.onNodeWithText("설정").performClick()
+    compose.onNodeWithText("안전 여유·기존 지도 시간 설정").performScrollTo().performClick()
+    compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement("9.0")
+    compose.onNodeWithText("달리기 속도 저장").performScrollTo().assertIsEnabled().performClick()
+    compose.runOnIdle {
+        assertEquals(1,changes)
+        assertEquals(9.0,settings.measuredRunningSpeedKmh!!,0.0)
+        assertEquals(9.0,JourneySettingsStore(activity).load().measuredRunningSpeedKmh!!,0.0)
+    }
+    compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement("13.0")
+    compose.onNodeWithText("달리기 속도 저장").performScrollTo().assertIsNotEnabled()
+    compose.runOnIdle {
+        assertEquals(1,changes)
+        assertEquals(9.0,JourneySettingsStore(activity).load().measuredRunningSpeedKmh!!,0.0)
+    }
+    compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement("")
+    compose.onNodeWithText("달리기 속도 저장").performScrollTo().assertIsEnabled().performClick()
+    compose.runOnIdle {
+        assertEquals(2,changes)
+        assertNull(settings.measuredRunningSpeedKmh)
+        assertNull(JourneySettingsStore(activity).load().measuredRunningSpeedKmh)
+    }
+    controller.pause().stop().destroy()
+ }
+
 }

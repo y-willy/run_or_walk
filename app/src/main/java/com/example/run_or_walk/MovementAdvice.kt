@@ -28,15 +28,21 @@ internal fun calculateMovementGuidance(input: AutoGuidanceInput,now: Long,settin
 
 internal data class MovementTransition(val assessment: AutoGuidanceAssessment,val vibrationCount: Int)
 
-/** Two observations at least 3 s apart, a 10 s release margin, and a 30 s vibration cooldown. */
+/** UI updates after the release margin; only haptics wait for two observations >=3 s apart.
+ * Within 30 s, a newly higher urgency may alert once; repeated same-level oscillations stay silent.
+ */
 internal class MovementAdviceTransitions {
     private var identity: OfficialBoardingIdentity? = null
     private var established: AutoGuidanceStatus? = null
     private var candidate: AutoGuidanceStatus? = null
     private var candidateAt = 0L
     private var lastVibration: Long? = null
+    private var lastVibrationLevel = 0
     fun observe(raw: AutoGuidanceAssessment,now: Long,vibrationEnabled: Boolean): MovementTransition {
-        if (raw.boardingIdentity != null && raw.boardingIdentity != identity) { identity=raw.boardingIdentity; established=null; candidate=null }
+        if (raw.boardingIdentity != null && raw.boardingIdentity != identity) {
+            identity=raw.boardingIdentity; established=null; candidate=null
+            lastVibration=null; lastVibrationLevel=0
+        }
         if (raw.status == AutoGuidanceStatus.UNKNOWN) { candidate=null; return MovementTransition(raw,0) }
         val previous = established
         if (previous == null) { established=raw.status; return MovementTransition(raw,0) }
@@ -47,17 +53,22 @@ internal class MovementAdviceTransitions {
             available-(raw.fastTravelSeconds ?: 0)*1000L < 10_000L
         if (relaxToWalk || relaxToRun) { candidate=null; return MovementTransition(raw.copy(status=previous),0) }
         if (candidate != raw.status || now < candidateAt) {
-            candidate=raw.status; candidateAt=now; return MovementTransition(raw.copy(status=previous),0)
+            candidate=raw.status; candidateAt=now; return MovementTransition(raw,0)
         }
-        if (now-candidateAt < 3_000L) return MovementTransition(raw.copy(status=previous),0)
+        if (now-candidateAt < 3_000L) return MovementTransition(raw,0)
         established=raw.status; candidate=null
-        val pulse = if (!vibrationEnabled || lastVibration?.let { now-it < 30_000L } == true) 0 else when(raw.movementAdvice()) {
-            MovementAdvice.WALK -> 1
-            MovementAdvice.RUN -> 2
-            MovementAdvice.WAIT_NEXT -> 3
-            MovementAdvice.UNKNOWN -> 0
-        }
-        if (pulse > 0) lastVibration=now
+        val level = urgencyLevel(raw.status)
+        val inCooldown = lastVibration?.let { now-it < 30_000L } == true
+        val newEscalation = level > urgencyLevel(previous) && level > lastVibrationLevel
+        val pulse = if (vibrationEnabled && (!inCooldown || newEscalation)) level else 0
+        if (pulse > 0) { lastVibration=now; lastVibrationLevel=level }
         return MovementTransition(raw,pulse)
     }
+}
+
+private fun urgencyLevel(status: AutoGuidanceStatus): Int = when(status) {
+    AutoGuidanceStatus.WALK -> 1
+    AutoGuidanceStatus.FAST_WALK -> 2
+    AutoGuidanceStatus.NEXT_VEHICLE -> 3
+    AutoGuidanceStatus.UNKNOWN -> 0
 }

@@ -132,4 +132,92 @@ class MovementAdviceTest {
         assertEquals("정보 확인 중",movementGuidanceTitle(walk.copy(status=AutoGuidanceStatus.UNKNOWN),now))
     }
 
+    @Test fun escalationInsideCooldownAlertsAndChangesUiWithoutWaitingForVibrationConfirmation() {
+        val gate=MovementAdviceTransitions()
+        gate.observe(advice(AutoGuidanceStatus.WALK),now,true)
+        val runPending=gate.observe(advice(AutoGuidanceStatus.FAST_WALK,now+4000),now+4000,true)
+        assertEquals(AutoGuidanceStatus.FAST_WALK,runPending.assessment.status)
+        assertEquals(0,runPending.vibrationCount)
+        assertEquals(2,gate.observe(advice(AutoGuidanceStatus.FAST_WALK,now+8000),now+8000,true).vibrationCount)
+        val waitPending=gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+12000),now+12000,true)
+        assertEquals(AutoGuidanceStatus.NEXT_VEHICLE,waitPending.assessment.status)
+        assertEquals(0,waitPending.vibrationCount)
+        val waitConfirmed=gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+16000),now+16000,true)
+        assertEquals(AutoGuidanceStatus.NEXT_VEHICLE,waitConfirmed.assessment.status)
+        assertEquals(3,waitConfirmed.vibrationCount)
+    }
+    @Test fun higherUrgencyVibrationIsNotConsumedByTheNormalThirtySecondCooldown() {
+        val gate=MovementAdviceTransitions()
+        gate.observe(advice(AutoGuidanceStatus.WALK),now,true)
+        gate.observe(advice(AutoGuidanceStatus.FAST_WALK,now+4000),now+4000,true)
+        assertEquals(2,gate.observe(advice(AutoGuidanceStatus.FAST_WALK,now+8000),now+8000,true).vibrationCount)
+        gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+12000),now+12000,true)
+        assertEquals(3,gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+16000),now+16000,true).vibrationCount)
+    }
+
+    @Test fun sameLevelOscillationDoesNotRepeatUrgentAlertsInsideCooldown() {
+        val gate=MovementAdviceTransitions()
+        fun sample(status: AutoGuidanceStatus,seconds: Int)=gate.observe(advice(status,now+seconds*1000L),now+seconds*1000L,true)
+        sample(AutoGuidanceStatus.WALK,0)
+        sample(AutoGuidanceStatus.FAST_WALK,4)
+        assertEquals(2,sample(AutoGuidanceStatus.FAST_WALK,8).vibrationCount)
+        sample(AutoGuidanceStatus.NEXT_VEHICLE,12)
+        assertEquals(3,sample(AutoGuidanceStatus.NEXT_VEHICLE,16).vibrationCount)
+        assertEquals(AutoGuidanceStatus.FAST_WALK,sample(AutoGuidanceStatus.FAST_WALK,20).assessment.status)
+        assertEquals(0,sample(AutoGuidanceStatus.FAST_WALK,24).vibrationCount)
+        assertEquals(AutoGuidanceStatus.NEXT_VEHICLE,sample(AutoGuidanceStatus.NEXT_VEHICLE,28).assessment.status)
+        assertEquals(0,sample(AutoGuidanceStatus.NEXT_VEHICLE,32).vibrationCount)
+        // A suppressed same-level return is consumed, never replayed after cooldown ends.
+        assertEquals(0,sample(AutoGuidanceStatus.NEXT_VEHICLE,60).vibrationCount)
+        sample(AutoGuidanceStatus.FAST_WALK,64)
+        assertEquals(2,sample(AutoGuidanceStatus.FAST_WALK,68).vibrationCount)
+        sample(AutoGuidanceStatus.NEXT_VEHICLE,72)
+        assertEquals(3,sample(AutoGuidanceStatus.NEXT_VEHICLE,76).vibrationCount)
+    }
+    @Test fun walkRunWaitEachAlertOnceAsUrgencyRisesWithinThirtySeconds() {
+        val gate=MovementAdviceTransitions()
+        gate.observe(advice(AutoGuidanceStatus.FAST_WALK),now,true)
+        val changes=listOf(AutoGuidanceStatus.WALK to 1,AutoGuidanceStatus.FAST_WALK to 2,AutoGuidanceStatus.NEXT_VEHICLE to 3)
+        changes.forEachIndexed { index,(status,count) ->
+            val at=now+4000+index*8000
+            assertEquals(status,gate.observe(advice(status,at),at,true).assessment.status)
+            assertEquals(count,gate.observe(advice(status,at+4000),at+4000,true).vibrationCount)
+        }
+    }
+    @Test fun recoveryUiIsImmediateWhileItsOrdinaryVibrationStillRespectsCooldown() {
+        val gate=MovementAdviceTransitions()
+        gate.observe(advice(AutoGuidanceStatus.FAST_WALK),now,true)
+        gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+4000),now+4000,true)
+        assertEquals(3,gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+8000),now+8000,true).vibrationCount)
+        val recovery=gate.observe(advice(AutoGuidanceStatus.WALK,now+12000),now+12000,true)
+        assertEquals(AutoGuidanceStatus.WALK,recovery.assessment.status)
+        assertEquals(0,recovery.vibrationCount)
+        assertEquals(0,gate.observe(advice(AutoGuidanceStatus.WALK,now+16000),now+16000,true).vibrationCount)
+        assertEquals(0,gate.observe(advice(AutoGuidanceStatus.WALK,now+40000),now+40000,true).vibrationCount)
+    }
+    @Test fun disabledAndUnknownObservationsDoNotConsumeTheNextEnabledUrgentAlert() {
+        val gate=MovementAdviceTransitions()
+        gate.observe(advice(AutoGuidanceStatus.WALK),now,true)
+        gate.observe(advice(AutoGuidanceStatus.FAST_WALK,now+4000),now+4000,true)
+        assertEquals(2,gate.observe(advice(AutoGuidanceStatus.FAST_WALK,now+8000),now+8000,true).vibrationCount)
+        gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+12000),now+12000,false)
+        assertEquals(0,gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+16000),now+16000,false).vibrationCount)
+        assertEquals(0,gate.observe(advice(AutoGuidanceStatus.UNKNOWN,now+20000),now+20000,true).vibrationCount)
+        gate.observe(advice(AutoGuidanceStatus.FAST_WALK,now+24000),now+24000,true)
+        assertEquals(0,gate.observe(advice(AutoGuidanceStatus.FAST_WALK,now+28000),now+28000,true).vibrationCount)
+        gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+32000),now+32000,true)
+        assertEquals(3,gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+36000),now+36000,true).vibrationCount)
+    }
+    @Test fun anotherBoardingSelectionStartsSilentlyAndDoesNotInheritPreviousUrgencyLevel() {
+        val gate=MovementAdviceTransitions()
+        gate.observe(advice(AutoGuidanceStatus.FAST_WALK),now,true)
+        gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+4000),now+4000,true)
+        assertEquals(3,gate.observe(advice(AutoGuidanceStatus.NEXT_VEHICLE,now+8000),now+8000,true).vibrationCount)
+        val other=id.copy(stopId="other-station")
+        assertEquals(0,gate.observe(advice(AutoGuidanceStatus.FAST_WALK,now+12000).copy(boardingIdentity=other),now+12000,true).vibrationCount)
+        val wait=advice(AutoGuidanceStatus.NEXT_VEHICLE,now+16000).copy(boardingIdentity=other)
+        gate.observe(wait,now+16000,true)
+        assertEquals(3,gate.observe(wait,now+20000,true).vibrationCount)
+    }
+
 }
