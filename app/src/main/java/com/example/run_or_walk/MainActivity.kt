@@ -89,6 +89,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySessionViewModel) {
     val context = LocalContext.current
+    var showWalkingAnalysis by rememberSaveable { mutableStateOf(false) }
+    if (showWalkingAnalysis) {
+        androidx.activity.compose.BackHandler { showWalkingAnalysis=false }
+        WalkingAnalysisScreen(session.walkingAnalysis,lifecycleOwner,session.settings,onSettingsChange={
+            session.updateSettings(it)
+            JourneyMonitoringController.updateSettings(context,it,JourneyMonitoringController.state.value.request?.vibrationEnabled ?: false)
+        },onBack={ showWalkingAnalysis=false })
+        return
+    }
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val kakaoRepository = remember { KakaoApiRepository(BuildConfig.KAKAO_REST_KEY) }
@@ -305,7 +314,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val identity = target.confirmedServiceIdentity
         val revision = target.revision
         if (action == LocationAction.WALKING && boarding == null) return
-        if (action == LocationAction.WALKING) target.discardWalkingResults()
+        // A refresh replaces valid walking evidence only after the new route is ready.
         runRequest(target,
             if (action == LocationAction.WALKING) "현재 위치와 도보 경로를 확인하고 있어요"
                 else "현재 위치를 확인하고 있어요",
@@ -362,6 +371,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 }
             },
             onFailure = { error ->
+                if (error is SecurityException || error is DeviceLocationException && error.failure in
+                    setOf(LocationFailure.PERMISSION_REQUIRED,LocationFailure.SERVICES_DISABLED)) target.discardWalkingResults()
                 // A real GPS fix may succeed while Kakao cannot produce a walking route.
                 if (action == LocationAction.WALKING && shouldSearchTransitAccess(error)) {
                     target.location?.let { startAccessTransitFallback(target, it) }
@@ -699,12 +710,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         requireNotNull(walk).distanceMeters)
                 }
             } else {
-                target.guidanceWalkingRoute = null
-                target.walkRoute = null
-                target.walkingPoints = emptyList()
+                // Refresh in place: the calculator still checks the original route's age,
+                // identity and GPS origin distance while the replacement is in flight.
                 if (target.mode == FeatureMode.ROUTE && target.departure.selected?.point?.let {
                         requiresTransitAccess(location.point, it)
                     } == true) {
+                    target.discardWalkingResults()
                     startAccessTransitFallback(target, location)
                     return
                 }
@@ -716,8 +727,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             throw cancelled
         } catch (error: Exception) {
             if (active()) {
-                // Preserve an acquired GPS fix even when only the route request failed.
-                target.discardWalkingResults()
+                // A failed refresh does not erase still-valid walking proof. Its original
+                // timestamps and origin remain authoritative, including after this failure.
+                if (error is SecurityException || error is DeviceLocationException && error.failure in
+                    setOf(LocationFailure.PERMISSION_REQUIRED,LocationFailure.SERVICES_DISABLED)) target.discardWalkingResults()
                 target.error = friendlyFailure(error, "도보 경로를 다시 확인해 주세요")
                 if (shouldSearchTransitAccess(error)) {
                     target.location?.let { startAccessTransitFallback(target, it) }
@@ -817,9 +830,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             if (active()) {
-                target.gyeonggiArrivals = emptyList()
+                // Keep received rows with their original source/receipt times during retry.
                 target.arrivalRequestFailed = true
-                target.gyeonggiArrivals = emptyList()
                 target.liveRetryAtEpochMillis = (error as? GyeonggiApiException)?.retryAfterEpochMillis
                 target.gyeonggiMessage = (error as? java.io.IOException)?.message
                     ?: "경기버스 실시간 정보를 확인하지 못했어요."
@@ -1377,7 +1389,6 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { rootScreen.mapAccessMessage = "현재 위치에서 지정 출발지까지 지도 경로를 조회하지 못했어요." }
     }
-    val selectedTrainKey = screen.activeArrivalIdentity to screen.activeArrivalVehicleId
     LaunchedEffect(screen, screen.selectedStation, screen.selectedBusStop, screen.selectedBusRoute,
         screen.selectedGyeonggiMatch, screen.confirmedServiceIdentity, monitorKey) {
         if (screen.selectedStation != null && subwayRepository.isConfigured ||
@@ -1394,16 +1405,20 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val isBus = screen.isBusJourney
     val configured = if (isBus) (busRepository.isConfigured || gyeonggiRepository.isConfigured)
         else subwayRepository.isConfigured
-    val activeSnapshot = if (monitored) monitoring.arrivals else screen.activeArrivalSnapshot
+    val selectedSnapshot = if (monitored) monitoring.arrivals else screen.activeArrivalSnapshot
     val analysis = (if (monitored) monitoring.timetableAnalysis else screen.timetableAnalysis)?.takeIf {
         it.stationStopId == (if (monitored) monitoring.request?.subwayStation?.stopId else screen.selectedStation?.stopId) &&
             it.requestedRoute == (if (monitored) monitoring.request?.subwayRoute else screen.subwayDirectionRoute)
     }
     val estimatedArrivals = selectTimetableEvidence(analysis, now, if(monitored) monitoring.request?.subwayChoice else screen.subwayChoice)
+    val retainedArrival = if (!monitored && !isBus && estimatedArrivals == null && selectedSnapshot?.hasUsableOfficialEta(now) != true)
+        retainedSubwayArrivalDuringRefresh(analysis,screen.arrivalOptions,screen.confirmedServiceIdentity,screen.subwayChoice,now)
+        else null
+    val activeSnapshot = retainedArrival?.snapshot ?: selectedSnapshot
     val stationArrivalInformation = stationSubwayArrivalInformation(analysis,now)
     val boarding = screen.boarding
     val identity = if (monitored) monitoring.arrivals?.identity ?: estimatedArrivals?.identity ?: monitoring.request?.identity
-        else screen.activeArrivalIdentity ?: estimatedArrivals?.identity ?: screen.confirmedServiceIdentity
+        else activeSnapshot?.identity ?: screen.activeArrivalIdentity ?: estimatedArrivals?.identity ?: screen.confirmedServiceIdentity
     val officialConnectionConfirmed = if (isBus) {
         val route = screen.selectedBusRoute
         (route != null && screen.selectedBusStop?.stopId == route.stopId && route.identity == identity &&
@@ -1434,8 +1449,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         screen.walkRoute?.let { raw -> walking.copy(durationSeconds =
             settings.walkingSeconds(raw.distanceMeters, raw.durationSeconds, effectivePace)) }
     }
-    // Recheck source age each second even when the foreground service is between polls.
-    val assessment = calculateAutoGuidance(AutoGuidanceInput(
+    // Recheck source age on the UI clock even between provider polls.
+    val rawAssessment = calculateMovementGuidance(AutoGuidanceInput(
         location = displayedLocation, boarding = guidanceBoarding,
         walkingRoute = personalizedWalk,
         arrivals = activeSnapshot.takeIf { configured },
@@ -1445,7 +1460,18 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         furtherServiceEnded = if (monitored) monitoring.assessment?.nextVehicleState == NextVehicleState.SERVICE_ENDED
             else screen.selectedBusArrival?.isLast == true && activeSnapshot?.nextArrivalAtEpochMillis == null,
         previousAssessment = if (monitored) monitoring.assessment else screen.lastGuidanceAssessment), now,
-        AutoGuidancePolicy(fastSpeedKmh = settings.fastSpeedKmh))
+        settings)
+    val movementTransitions = remember(screen,screen.confirmedServiceIdentity,screen.subwayChoice,monitored) { MovementAdviceTransitions() }
+    var localAssessment by remember(screen,screen.confirmedServiceIdentity,screen.subwayChoice,monitored) { mutableStateOf(rawAssessment) }
+    val assessment = if(monitored) monitoring.assessment ?: rawAssessment else localAssessment
+    LaunchedEffect(rawAssessment,now,screen.alertsEnabled,monitored,movementTransitions) {
+        if(!monitored) {
+            val change=movementTransitions.observe(rawAssessment,now,screen.alertsEnabled)
+            localAssessment=change.assessment
+            if(change.vibrationCount > 0 && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+                playMovementVibration(context,change.vibrationCount)
+        }
+    }
     LaunchedEffect(screen, assessment) {
         if (assessment.status != AutoGuidanceStatus.UNKNOWN) screen.lastGuidanceAssessment = assessment
     }
@@ -1511,17 +1537,6 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         else -> unknownReasonText(assessment.unknownReason)
     }
     val unknownTitle = movementGuidanceTitle(assessment,now)
-    LaunchedEffect(screen, assessment.status, selectedTrainKey, screen.alertsEnabled) {
-        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
-            screen.claimAutomaticAlert(assessment.status, now) && !monitored && vibrationSupported) {
-            playVibration(context, when (assessment.status) {
-                AutoGuidanceStatus.WALK -> Urgency.LOW
-                AutoGuidanceStatus.FAST_WALK -> Urgency.HIGH
-                AutoGuidanceStatus.NEXT_VEHICLE -> Urgency.MEDIUM
-                AutoGuidanceStatus.UNKNOWN -> Urgency.NONE
-            })
-        }
-    }
 
     // The stop picker belongs next to the search that produced the candidates, not below the map.
     val selectionControls: @Composable () -> Unit = {
@@ -1558,7 +1573,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                     Box(Modifier.weight(1f)) { PaceNudgeHeader() }
-                    JourneySettingsPanel(settings) { value ->
+                    JourneySettingsPanel(settings, onWalkingAnalysis={ showWalkingAnalysis=true }) { value ->
                         session.updateSettings(value)
                         JourneyMonitoringController.updateSettings(context,value,
                             monitoring.request?.vibrationEnabled ?: screen.alertsEnabled)
@@ -1696,7 +1711,9 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         arrivalPrecision = validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
                         nextArrivalPrecision = validArrival?.nextArrivalPrecision ?: validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
                         walkingUnavailableLabel = if (walkingOutsideRange) "—" else "확인 필요",
+                        remainingDistanceMeters = if(monitored) monitoring.walkingDistanceMeters else screen.walkRoute?.distanceMeters,
                         paceStatus = if (effectivePace != null) "내 걸음속도로 자동 계산 중"
+                            else if (settings.usePersonalWalkingSpeed && settings.personalWalkingSpeedKmh != null) "내 걷기 분석 기준 · 개인화 도보시간"
                             else if (settings.useProviderWalkingTime) "지도 도보시간 기준으로 계산 중"
                             else "설정한 걸음속도로 계산 중",
                         estimateLabel = null,
@@ -1883,7 +1900,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                                 pendingMonitoring == null && !startingMonitoring,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                             Text(if (startingMonitoring) "이동 안내 시작 중" else if (monitoring.running)
-                                "이 선택으로 이동 안내 변경" else "화면 꺼짐 이동 안내 시작")
+                                "이 선택으로 이동 안내 변경" else "이동 안내 시작")
                         }
                         if (!canMonitor) NoticeCard(if (screen.selectedGyeonggiMatch != null)
                             "공식 정류장·노선·방향 연결을 확인하면 화면 꺼짐 안내를 시작할 수 있어요."
@@ -2145,6 +2162,7 @@ private fun unknownReasonText(reason: AutoGuidanceUnknownReason?): String = when
     AutoGuidanceUnknownReason.NO_CATCHABLE_TRAIN -> "확인된 차량들의 탑승 여유가 부족해요. 정보를 다시 확인해 주세요."
     AutoGuidanceUnknownReason.ARRIVAL_MISMATCH -> "선택한 역·방향과 도착정보가 달라요."
     AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN -> "차량 도착정보가 불확실해요."
+    AutoGuidanceUnknownReason.RUNNING_SPEED_UNAVAILABLE -> "직접 측정한 달리기 속도가 없어 탑승 가능 여부를 확정할 수 없어요."
     AutoGuidanceUnknownReason.WALKING_UNAVAILABLE -> "실제 도보 경로를 확인해야 해요."
     AutoGuidanceUnknownReason.WALKING_OUTSIDE_RANGE -> WALKING_OUTSIDE_RANGE_MESSAGE
     AutoGuidanceUnknownReason.WALKING_STALE -> "도보시간 갱신이 필요해요."
@@ -2255,4 +2273,16 @@ internal fun SubwayArrivalPicker(screen: JourneyScreenState, station: OfficialSu
         }
         PageControls(visiblePage, arrivalChoices.size, { arrivalPage = it })
     }
+}
+
+internal fun movementVibrationPattern(count: Int): LongArray =
+    if(count !in 1..3) longArrayOf() else LongArray(count*2) { index -> if(index == 0) 0 else if(index%2 == 0) 150 else 100 }
+
+@Suppress("DEPRECATION")
+internal fun playMovementVibration(context: Context,count: Int) {
+    val pattern=movementVibrationPattern(count)
+    if(pattern.isEmpty()) return
+    val vibrator=if(Build.VERSION.SDK_INT >= 31) context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+        else context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    if(vibrator?.hasVibrator() == true) runCatching { vibrator.vibrate(VibrationEffect.createWaveform(pattern,-1)) }
 }

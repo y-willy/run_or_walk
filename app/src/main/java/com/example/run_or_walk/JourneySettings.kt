@@ -8,9 +8,14 @@ data class JourneySettings(
     val useProviderWalkingTime: Boolean = false,
     val speedKmh: Double = 4.68,
     val bufferSeconds: Int = 120,
-    val gpsAutoCalibrationEnabled: Boolean = true
+    val gpsAutoCalibrationEnabled: Boolean = true,
+    val personalWalkingSpeedKmh: Double? = null,
+    val usePersonalWalkingSpeed: Boolean = false,
+    val measuredRunningSpeedKmh: Double? = null
 ) {
     init {
+        require(personalWalkingSpeedKmh == null || personalWalkingSpeedKmh.isFinite() && personalWalkingSpeedKmh in 2.0..7.0)
+        require(measuredRunningSpeedKmh == null || measuredRunningSpeedKmh.isFinite() && measuredRunningSpeedKmh in 3.0..12.0)
         require(speedKmh.isFinite() && speedKmh in MIN_SPEED_KMH..MAX_SPEED_KMH &&
             supportedSpeedKmh(speedKmh)) { "Walking speed must be a supported pace" }
         require(bufferSeconds in MIN_BUFFER_SECONDS..MAX_BUFFER_SECONDS && bufferSeconds % 30 == 0) {
@@ -24,11 +29,12 @@ data class JourneySettings(
     fun walkingSeconds(distanceMeters: Int, providerDurationSeconds: Int,
         calibratedSpeedMetersPerSecond: Double? = null): Int {
         require(distanceMeters >= 0 && providerDurationSeconds >= 0) { "Walking route values must not be negative" }
+        val personal = personalWalkingSpeedKmh?.takeIf { usePersonalWalkingSpeed }
         val calibrated = calibratedSpeedMetersPerSecond?.takeIf {
             gpsAutoCalibrationEnabled && it.isFinite() && it in 0.65..2.4
         }
-        if ((useProviderWalkingTime && calibrated == null) || distanceMeters == 0) return providerDurationSeconds
-        return ceil(distanceMeters.toDouble() * 3.6 / (calibrated?.times(3.6) ?: speedKmh))
+        if ((useProviderWalkingTime && calibrated == null && personal == null) || distanceMeters == 0) return providerDurationSeconds
+        return ceil(distanceMeters.toDouble() * 3.6 / (calibrated?.times(3.6) ?: personal ?: speedKmh))
             .coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
     }
 
@@ -53,13 +59,16 @@ data class JourneySettings(
 
 /** Small, versioned private preference payload. It contains no key, position or live ETA. */
 internal object JourneySettingsCodec {
-    private const val VERSION = 2
+    private const val VERSION = 3
     fun encode(settings: JourneySettings): String = JSONObject()
         .put("version", VERSION)
         .put("useProviderWalkingTime", settings.useProviderWalkingTime)
         .put("speedKmh", settings.speedKmh)
         .put("bufferSeconds", settings.bufferSeconds)
         .put("gpsAutoCalibrationEnabled", settings.gpsAutoCalibrationEnabled)
+        .put("personalWalkingSpeedKmh", settings.personalWalkingSpeedKmh)
+        .put("usePersonalWalkingSpeed", settings.usePersonalWalkingSpeed)
+        .put("measuredRunningSpeedKmh", settings.measuredRunningSpeedKmh)
         .toString()
 
     fun decode(payload: String?): JourneySettings {
@@ -78,9 +87,12 @@ internal object JourneySettingsCodec {
                 it in JourneySettings.MIN_BUFFER_SECONDS.toDouble()..JourneySettings.MAX_BUFFER_SECONDS.toDouble() &&
                 it % 30.0 == 0.0
         }?.toInt() ?: defaults.bufferSeconds
-        val auto = if (version == VERSION)
+        val auto = if (version >= 2)
             (root.opt("gpsAutoCalibrationEnabled") as? Boolean) ?: defaults.gpsAutoCalibrationEnabled
         else defaults.gpsAutoCalibrationEnabled
-        return JourneySettings(mode, speed, buffer, auto)
+        fun optionalSpeed(key: String,range: ClosedFloatingPointRange<Double>) = (root.opt(key) as? Number)?.toDouble()?.takeIf { it.isFinite() && it in range }
+        return JourneySettings(mode, speed, buffer, auto,
+            optionalSpeed("personalWalkingSpeedKmh",2.0..7.0),root.optBoolean("usePersonalWalkingSpeed",false),
+            optionalSpeed("measuredRunningSpeedKmh",3.0..12.0))
     }
 }

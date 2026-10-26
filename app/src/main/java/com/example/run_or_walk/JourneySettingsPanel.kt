@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun JourneySettingsPanel(settings: JourneySettings, onSettingsChange: (JourneySettings) -> Unit) {
+fun JourneySettingsPanel(settings: JourneySettings, onWalkingAnalysis: () -> Unit = {}, onSettingsChange: (JourneySettings) -> Unit) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -41,12 +41,13 @@ fun JourneySettingsPanel(settings: JourneySettings, onSettingsChange: (JourneySe
         if (expanded) ModalBottomSheet(onDismissRequest={ expanded=false },containerColor=MaterialTheme.colorScheme.surface) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding()) {
             SectionCard("내 걸음속도", "변경사항은 저장되고 이동 안내에도 반영돼요.") {
+                TextButton(onClick={ expanded=false; onWalkingAnalysis() }) { Text("내 걷기 분석") }
                 Text("평소 걸음속도", style = MaterialTheme.typography.labelLarge)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("느린 편", "보통", "빠른 편").forEachIndexed { index, label ->
                         val preset = JourneySettings.PRESET_SPEED_KMH[index]
                         OutlinedButton(onClick = { onSettingsChange(settings.copy(
-                            useProviderWalkingTime = false, speedKmh = preset)) },
+                            useProviderWalkingTime = false, usePersonalWalkingSpeed = false, speedKmh = preset)) },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                             Text(if (kotlin.math.abs(settings.speedKmh - preset) < 0.01 &&
                                 !settings.useProviderWalkingTime) "✓ $label" else label)
@@ -68,10 +69,26 @@ fun JourneySettingsPanel(settings: JourneySettings, onSettingsChange: (JourneySe
                     Text(if (advanced) "세부 설정 접기" else "안전 여유·기존 지도 시간 설정")
                 }
                 if (advanced) {
+                    var runningText by androidx.compose.runtime.remember(settings.measuredRunningSpeedKmh) {
+                        mutableStateOf(settings.measuredRunningSpeedKmh?.toString().orEmpty())
+                    }
+                    androidx.compose.material3.OutlinedTextField(value=runningText,onValueChange={ runningText=it },
+                        label={ Text("직접 측정한 달리기 속도 (km/h · 선택)") },singleLine=true,
+                        keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal),
+                        supportingText={ Text("측정값이 없으면 비워 두세요. 임의의 속도로 뛰기를 안내하지 않아요.") },modifier=Modifier.fillMaxWidth())
+                    val runningValue=runningText.toDoubleOrNull()?.takeIf { it.isFinite() && it in 3.0..12.0 }
+                    TextButton(onClick={ onSettingsChange(settings.copy(measuredRunningSpeedKmh=runningValue)) },
+                        enabled=runningText.isBlank() || runningValue != null) { Text("달리기 속도 저장") }
+                    if(settings.personalWalkingSpeedKmh != null) {
+                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                            Text("분석한 내 걷기 속도 사용",Modifier.weight(1f))
+                            Switch(checked=settings.usePersonalWalkingSpeed,onCheckedChange={ onSettingsChange(settings.copy(usePersonalWalkingSpeed=it)) })
+                        }
+                    }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("지도 도보시간 우선", modifier = Modifier.weight(1f))
                         Switch(checked = settings.useProviderWalkingTime,
-                            onCheckedChange = { onSettingsChange(settings.copy(useProviderWalkingTime = it)) })
+                            onCheckedChange = { onSettingsChange(settings.copy(useProviderWalkingTime = it,usePersonalWalkingSpeed = if(it) false else settings.usePersonalWalkingSpeed)) })
                     }
                     SettingStepper("안전 여유시간", settingsBufferLabel(settings.bufferSeconds),
                         canDecrease = settings.bufferSeconds > JourneySettings.MIN_BUFFER_SECONDS,

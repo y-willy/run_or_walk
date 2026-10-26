@@ -59,6 +59,16 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+            providers.gradleProperty("proofDir").orNull?.let { directory ->
+                it.systemProperty("pacenudge.proofDir", directory)
+            }
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -66,6 +76,11 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
 
     implementation("com.kakao.maps.open:android:2.15.2")
     implementation(platform(libs.androidx.compose.bom))

@@ -82,3 +82,40 @@ internal fun subwayEstimateText(estimate: OfficialTimetableEstimate, now: Long):
     val minutes = if (remaining <= 0L) 0L else ((remaining+30_000L)/60_000L).coerceAtLeast(1L)
     return "약 ${minutes}분 후"
 }
+
+/** Bridge only a same-train position update while its new timetable result is being prepared.
+ * The previous official countdown keeps every original timestamp and expiry. A missing,
+ * departed, contradictory or stale latest observation never prolongs it.
+ */
+internal fun retainedSubwayArrivalDuringRefresh(
+    previousAnalysis: SubwayTimetableAnalysis?,
+    latestRows: List<OfficialSubwayArrival>,
+    identity: OfficialBoardingIdentity?,
+    choice: SubwayArrivalChoice?,
+    now: Long
+): OfficialSubwayArrival? {
+    if (identity == null || !identity.isComplete || identity.authority != "seoul" ||
+        previousAnalysis?.stationStopId != identity.stopId || previousAnalysis.routeId != identity.routeId) return null
+    val previous = selectDestinationSubwayArrival(previousAnalysis,now,choice)
+        ?.takeIf { it.identity == identity && it.trainId.isNotBlank() } ?: return null
+    // Anonymous API slots can be reassigned to another train, so they cannot establish this handoff.
+    val latest = latestRows.singleOrNull { it.identity == identity && it.trainId == previous.trainId }
+        ?: return null
+    if (latest.snapshot.identity != identity || latest.sourceEtaSeconds != 0L ||
+        latest.snapshot.trustState != ArrivalTrustState.UNKNOWN ||
+        latest.arrivalCode !in setOf("3","4","5","99") ||
+        latest.gatewayContract == SubwayGatewayContract.UNKNOWN ||
+        latest.issues.any { it in setOf(SubwayArrivalIssue.INVALID_ETA,SubwayArrivalIssue.SOURCE_FUTURE,
+            SubwayArrivalIssue.DEVICE_CLOCK_BEHIND,SubwayArrivalIssue.SOURCE_STALE) }) return null
+    val positionMessage = latest.officialArrivalMessage
+    if (reportedTimetableStationCount(positionMessage) == null &&
+        reportedTimetableStationName(positionMessage) == null &&
+        !positionMessage.contains("전역")) return null
+    val received = latest.gatewayFetchedAtEpochMillis ?: latest.snapshot.receivedAtEpochMillis ?: return null
+    val observed = latest.sourceReceivedAtEpochMillis ?: latest.snapshot.fetchedAtEpochMillis
+    if (received <= 0L || observed <= 0L || now-received !in 0L..60_000L ||
+        now-observed !in 0L..600_000L || observed > received ||
+        latest.snapshot.fetchedAtEpochMillis <= 0L || now-latest.snapshot.fetchedAtEpochMillis !in 0L..600_000L ||
+        latest.snapshot.receivedAtEpochMillis?.let { now-it !in 0L..60_000L } == true) return null
+    return previous
+}

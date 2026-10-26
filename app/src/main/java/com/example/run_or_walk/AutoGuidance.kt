@@ -19,7 +19,7 @@ enum class AutoGuidanceUnknownReason {
     BOARDING_UNCONFIRMED,
     ARRIVAL_UNAVAILABLE, ARRIVAL_FAILED, ARRIVAL_MISMATCH, ARRIVAL_STALE, ARRIVAL_UNCERTAIN,
     ARRIVAL_FUTURE_TIMESTAMP, ARRIVAL_INVALID_ETA, NEXT_ARRIVAL_UNAVAILABLE, NO_CATCHABLE_TRAIN,
-    WALKING_UNAVAILABLE, WALKING_OUTSIDE_RANGE, WALKING_STALE, WALKING_MISMATCH, INVALID_INPUT
+    RUNNING_SPEED_UNAVAILABLE, WALKING_UNAVAILABLE, WALKING_OUTSIDE_RANGE, WALKING_STALE, WALKING_MISMATCH, INVALID_INPUT
 }
 
 /** Official provider IDs, never a station-name or coordinate-only match.
@@ -363,10 +363,8 @@ internal fun OfficialTimetableEstimate.midpointArrivalAtEpochMillis(): Long =
 internal fun movementGuidanceTitle(assessment: AutoGuidanceAssessment, now: Long): String = when (assessment.status) {
     AutoGuidanceStatus.NEXT_VEHICLE -> "다음 차량을 기다리세요"
     AutoGuidanceStatus.FAST_WALK -> "뛰세요"
-    AutoGuidanceStatus.WALK -> if (assessment.firstArrivalAtEpochMillis?.let {
-        it-now-((assessment.walkingSeconds ?: 0).toLong()+assessment.bufferSeconds)*1000L >= 180_000L
-    } == true) "여유 있어요" else "걸으세요"
-    AutoGuidanceStatus.UNKNOWN -> "도착정보를 확인하고 있어요"
+    AutoGuidanceStatus.WALK -> "걸으세요"
+    AutoGuidanceStatus.UNKNOWN -> "정보 확인 중"
 }
 
 /** ETA availability changes the detail, never the decision that the first vehicle is too soon. */

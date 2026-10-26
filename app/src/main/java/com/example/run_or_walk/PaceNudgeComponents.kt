@@ -168,7 +168,8 @@ fun AutomaticGuidanceCard(
     estimateLabel: String? = null,
     nextArrivalPrecision: ArrivalTimePrecision = arrivalPrecision,
     walkingUnavailableLabel: String = "확인 필요",
-    paceStatus: String? = null
+    paceStatus: String? = null,
+    remainingDistanceMeters: Int? = null
 ) {
     var detailsExpanded by rememberSaveable { mutableStateOf(false) }
     val title = movementGuidanceTitle(assessment,nowEpochMillis)
@@ -208,6 +209,7 @@ fun AutomaticGuidanceCard(
                     GuidanceMetric("승차점까지 도보",walk,Modifier.weight(1f).fillMaxHeight(),Color.White)
                 }
             }
+            remainingDistanceMeters?.let { Text("승차점까지 ${it}m",style=MaterialTheme.typography.bodySmall,color=muted) }
             if (assessment.status==AutoGuidanceStatus.NEXT_VEHICLE) {
                 Text(nextVehicleGuidanceText(assessment,nowEpochMillis),style=MaterialTheme.typography.bodySmall,color=muted)
             } else nextArrivalAtEpochMillis?.let {

@@ -13,6 +13,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.tasks.Task
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -114,7 +115,7 @@ private suspend fun Task<Location>.awaitLocation(): Location? = suspendCancellab
     addOnCanceledListener { if (continuation.isActive) continuation.resume(null) }
 }
 
-private fun Location.asGuidanceSample(): GuidanceLocation {
+internal fun Location.asGuidanceSample(): GuidanceLocation {
     val elapsed = SystemClock.elapsedRealtimeNanos()
     // Future/absent monotonic timestamps are invalid observations, not fresh fixes.
     val ageMillis = if (elapsedRealtimeNanos in 1L..elapsed)
@@ -128,3 +129,29 @@ private fun Location.asGuidanceSample(): GuidanceLocation {
 }
 
 suspend fun getCurrentPoint(context: Context): MapPoint = getCurrentLocationSample(context).point
+
+/** Callback removal is tied to coroutine cancellation, including service stop and permission revocation. */
+@Suppress("MissingPermission")
+internal fun liveLocationSamples(context: Context): kotlinx.coroutines.flow.Flow<GuidanceLocation> =
+    kotlinx.coroutines.flow.callbackFlow {
+        if (!hasLocationPermission(context)) {
+            close(DeviceLocationException(LocationFailure.PERMISSION_REQUIRED)); return@callbackFlow
+        }
+        val manager=context.getSystemService(LocationManager::class.java)
+        if(manager == null || !LocationManagerCompat.isLocationEnabled(manager)) {
+            close(DeviceLocationException(LocationFailure.SERVICES_DISABLED)); return@callbackFlow
+        }
+        val client = LocationServices.getFusedLocationProviderClient(context)
+        val callback = object : com.google.android.gms.location.LocationCallback() {
+            override fun onLocationResult(result: com.google.android.gms.location.LocationResult) {
+                result.locations.forEach { trySend(it.asGuidanceSample()) }
+            }
+        }
+        val request = com.google.android.gms.location.LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY,4_000L)
+            .setMinUpdateIntervalMillis(2_000L).setMaxUpdateDelayMillis(4_000L).setMaxUpdateAgeMillis(0L).build()
+        try {
+            client.requestLocationUpdates(request,callback,android.os.Looper.getMainLooper())
+                .addOnFailureListener { close(it) }
+        } catch (error: Exception) { close(error) }
+        awaitClose { client.removeLocationUpdates(callback) }
+    }

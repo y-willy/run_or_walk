@@ -20,21 +20,25 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlin.math.asin
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 /** Only an explicit, foreground user action starts this bounded location session. */
 class JourneyMonitoringService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var monitoringJob: Job? = null
     private var timeoutJob: Job? = null
+    private var locationJob: Job? = null
+    private var walkingJob: Job? = null
+    private var routeTracker: WalkingRouteTracker? = null
+    private var lastWalkingRequestAt = 0L
+    private var generation = 0L
+    private var transitions = MovementAdviceTransitions()
+    private var livePaceCalibrator = WalkingPaceCalibrator()
     private var currentRequest: JourneyMonitoringRequest? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val refreshRequests = Channel<Unit>(Channel.CONFLATED)
@@ -67,9 +71,7 @@ class JourneyMonitoringService : Service() {
                 currentRequest = request
                 val old = JourneyMonitoringController.state.value
                 val updated = monitoringStateWithSettings(old, request, System.currentTimeMillis(), hasLocationPermission(this))
-                JourneyMonitoringController.publish(updated)
-                notifySafely(ONGOING_ID, ongoingNotification(request, updated.message, updated.arrivals,
-                    updated.lastUpdatedEpochMillis))
+                publishMovement(updated)
             } else if (currentRequest == null) stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -96,14 +98,18 @@ class JourneyMonitoringService : Service() {
             finishSession("화면 꺼짐 안내를 시작하지 못했어요. 위치·알림 권한과 기기의 위치 설정을 확인해 주세요.")
             return START_NOT_STICKY
         }
+        stopLocationTracking()
         monitoringJob?.cancel()
         timeoutJob?.cancel()
+        transitions=MovementAdviceTransitions()
+        livePaceCalibrator=WalkingPaceCalibrator()
         while (refreshRequests.tryReceive().isSuccess) { /* a new journey drops old refresh intents */ }
         currentRequest = request
         finishMessage = "이동 안내를 종료했어요."
         JourneyMonitoringController.publish(monitoringSelectionHandover(JourneyMonitoringController.state.value,
             request,System.currentTimeMillis(),hasLocationPermission(this)) ?: JourneyMonitoringState(running = true, request = request,
             message = "화면이 꺼져도 이동 안내를 확인해요. 최대 60분 후 종료돼요."))
+        startLocationTracking(request)
         monitoringJob = scope.launch { monitor() }
         timeoutJob = scope.launch {
             delay(MAX_SESSION_MILLIS)
@@ -114,14 +120,13 @@ class JourneyMonitoringService : Service() {
 
     private suspend fun monitor() {
         val startedAt = android.os.SystemClock.elapsedRealtime()
-        val paceCalibrator = WalkingPaceCalibrator()
-        var cachedWalk: MonitoringWalk? = null
+        val sessionGeneration=generation
         var retryAt: Long? = null
         val alertGate = JourneyMonitoringAlertGate()
-        var lastArrivals: RealtimeArrivalSnapshot? = null
-        var lastVehicleId: String? = null
-        var lastSubwayObservations = emptyList<OfficialSubwayArrival>()
-        while (scope.isActive && android.os.SystemClock.elapsedRealtime() - startedAt < MAX_SESSION_MILLIS) {
+        var lastArrivals = JourneyMonitoringController.state.value.arrivals
+        var lastVehicleId = currentRequest?.subwayChoice?.trainId
+        var lastSubwayObservations = JourneyMonitoringController.state.value.subwayObservations
+        while (sessionGeneration == generation && scope.isActive && android.os.SystemClock.elapsedRealtime() - startedAt < MAX_SESSION_MILLIS) {
             val cycleStartedAt = android.os.SystemClock.elapsedRealtime()
             val request = currentRequest ?: break
             if (!hasLocationPermission(this) || !JourneyMonitoringController.notificationsAllowed(this)) {
@@ -139,7 +144,11 @@ class JourneyMonitoringService : Service() {
                     val detail = "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, now)
                     JourneyMonitoringController.publish(previous.copy(assessment = assessment, message = detail, retryAtEpochMillis = retryAt))
                     notifySafely(ONGOING_ID, ongoingNotification(request, detail, previous.arrivals, now))
-                } else publishUnknown(request, "도착정보 재조회 대기 중이에요. 서버 안내 시각 이후 다시 확인해요.", retryAt)
+                } else {
+                    val old=JourneyMonitoringController.state.value
+                    publishMovement(monitoringStateWithSettings(old.copy(arrivalRequestFailed=true,retryAtEpochMillis=retryAt),
+                        request,now,hasLocationPermission(this)))
+                }
                 delay(minOf(POLL_INTERVAL_MILLIS, (requireNotNull(retryAt) - now).coerceAtLeast(1_000L)))
                 continue
             }
@@ -187,7 +196,10 @@ class JourneyMonitoringService : Service() {
                     arrivalHistory.record(requireNotNull(request.subwayStation), subwayObservations,
                         timetableAnalysis?.estimates.orEmpty(), System.currentTimeMillis())
                     val selected = selectDestinationSubwayArrival(timetableAnalysis, System.currentTimeMillis(),request.subwayChoice) ?:
-                        chooseMatchingSubwayArrival(request.identity, subwayObservations.filter { request.subwayChoice?.matches(it) != false }, System.currentTimeMillis())
+                        chooseMatchingSubwayArrival(request.identity, subwayObservations.filter { request.subwayChoice?.matches(it) != false }, System.currentTimeMillis()) ?:
+                        if(selectTimetableEvidence(timetableAnalysis,System.currentTimeMillis(),request.subwayChoice) == null)
+                            retainedSubwayArrivalDuringRefresh(JourneyMonitoringController.state.value.timetableAnalysis,
+                                subwayObservations,request.identity,request.subwayChoice,System.currentTimeMillis()) else null
                     arrivals = selected?.snapshot
                     vehicleId = selected?.trainId
                     if (selected == null) message = "선택한 방향의 유효한 열차 정보를 기다리고 있어요."
@@ -216,31 +228,11 @@ class JourneyMonitoringService : Service() {
                     }
                 }
             }
-            try {
-                location = getCurrentLocationSample(this)
-                measuredPace = paceCalibrator.observe(location, System.currentTimeMillis())
-                val old = cachedWalk
-                if (old == null || System.currentTimeMillis() - old.fetchedAt !in 0L..90_000L ||
-                    monitoringDistance(old.origin, location.point) > 25.0) {
-                    cachedWalk = null
-                    val route = kakao.searchWalk(location.point, request.boardingPoint)
-                    if (!validWalkingAccess(route, location.point, request.boardingPoint)) {
-                        throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
-                    }
-                    cachedWalk = MonitoringWalk(location.point, route, System.currentTimeMillis())
-                }
-                val activeSettings = currentRequest?.settings ?: request.settings
-                walking = cachedWalk?.let {
-                    GuidanceWalkingRoute(it.origin, request.boardingPoint, request.identity,
-                        activeSettings.walkingSeconds(it.route.distanceMeters, it.route.durationSeconds, measuredPace),
-                        it.fetchedAt, 120_000L, it.route.distanceMeters)
-                }
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) {
-                walking = null
-                message = message ?: friendlyLocationFailure(error) ?: friendlyKakaoFailure(error)
-                    ?: "현재 위치·도보 경로를 다시 확인하고 있어요."
-            }
+            val live = JourneyMonitoringController.state.value
+            location=live.location
+            walking=live.walkingRoute
+            measuredPace=live.calibratedSpeedMetersPerSecond
+            if(sessionGeneration != generation) return
             val active = currentRequest ?: break
             if (!active.isSameJourney(request)) continue
             if (!hasLocationPermission(this) || !JourneyMonitoringController.notificationsAllowed(this)) {
@@ -252,11 +244,11 @@ class JourneyMonitoringService : Service() {
             val evidence = selectTimetableEvidence(timetableAnalysis, checkedAt,request.subwayChoice)
             val currentIdentity = arrivals?.identity ?: evidence?.identity ?: request.identity
             walking = walking?.copy(boardingIdentity = currentIdentity)
-            val assessment = calculateAutoGuidance(AutoGuidanceInput(location,
+            val assessment = calculateMovementGuidance(AutoGuidanceInput(location,
                 GuidanceBoarding(currentIdentity, request.boardingPoint, true), walking, arrivals,
                 hasLocationPermission(this), failure, active.settings.bufferSeconds, evidence, furtherServiceEnded,
                 JourneyMonitoringController.state.value.assessment), checkedAt,
-                AutoGuidancePolicy(fastSpeedKmh = active.settings.fastSpeedKmh))
+                active.settings)
             val operation = subwayOperationGuidance(request.subwayStation, null, request.identity,
                 subwayObservations, checkedAt, failure)
             val summary = if (assessment.unknownReason == AutoGuidanceUnknownReason.WALKING_OUTSIDE_RANGE)
@@ -267,22 +259,23 @@ class JourneyMonitoringService : Service() {
                     if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
                         "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, checkedAt)
                     else movementGuidanceTitle(assessment,checkedAt)
-            JourneyMonitoringController.publish(JourneyMonitoringState(true, active, assessment,
+            publishMovement(JourneyMonitoringState(true, active, assessment,
                 location, walking, arrivals, summary, checkedAt, retryAt,
-                cachedWalk?.route?.distanceMeters.takeIf { walking != null },
-                cachedWalk?.route?.durationSeconds.takeIf { walking != null },
-                cachedWalk?.route?.points.orEmpty().takeIf { walking != null }.orEmpty(), subwayObservations, timetableAnalysis,
+                live.walkingDistanceMeters.takeIf { walking != null },
+                live.providerWalkingSeconds.takeIf { walking != null },
+                live.walkingPoints.takeIf { walking != null }.orEmpty(), subwayObservations, timetableAnalysis,
                 measuredPace, failure))
-            notifySafely(ONGOING_ID, ongoingNotification(active, summary, arrivals, checkedAt))
-            if (assessment.status == AutoGuidanceStatus.UNKNOWN) notifications.cancel(ARRIVAL_ID)
+
+            val displayedAssessment=JourneyMonitoringController.state.value.assessment ?: assessment
+            if (displayedAssessment.status == AutoGuidanceStatus.UNKNOWN) notifications.cancel(ARRIVAL_ID)
             val event = alertGate.claim(currentIdentity, vehicleId?.takeIf(String::isNotBlank) ?: arrivals?.vehicleIdentityFallback,
-                assessment, arrivals, checkedAt)
+                displayedAssessment, arrivals, checkedAt)
             if (event != null) {
                 val text = if (event.kind == JourneyMonitoringAlertKind.ARRIVING)
                     "확인된 ${if (request.isBus) "버스" else "열차"}가 1분 이내 도착 예정이에요. 신호와 승차 위치를 확인해 주세요."
                     else (evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
                         ?.let { timetableArrivalText(it,checkedAt) + " · " } ?: "") +
-                        movementGuidanceTitle(assessment,checkedAt) +
+                        movementGuidanceTitle(displayedAssessment,checkedAt) +
                         if (event.status == AutoGuidanceStatus.NEXT_VEHICLE) " " + nextVehicleGuidanceText(assessment,checkedAt) else ""
                 val visibleFor = arrivals?.let { monitoringAlertLifetimeMillis(event, it, checkedAt) }
                     ?: evidence?.let { (it.first.validUntilEpochMillis-checkedAt).coerceIn(0L,60_000L) } ?: 0L
@@ -295,13 +288,93 @@ class JourneyMonitoringService : Service() {
         finishSession("60분 이동 안내가 끝났어요. 계속 필요하면 앱에서 다시 시작해 주세요.")
     }
 
-    private fun publishUnknown(request: JourneyMonitoringRequest, message: String, retryAt: Long?) {
-        val now = System.currentTimeMillis()
-        JourneyMonitoringController.publish(JourneyMonitoringState(true, request,
-            AutoGuidanceAssessment(AutoGuidanceStatus.UNKNOWN, bufferSeconds = request.settings.bufferSeconds),
-            message = message, lastUpdatedEpochMillis = now, retryAtEpochMillis = retryAt))
-        notifySafely(ONGOING_ID, ongoingNotification(request, message, checkedAt = now))
-        notifications.cancel(ARRIVAL_ID)
+    /** Location proceeds independently of network latency and the provider ETA polling interval. */
+    private fun startLocationTracking(request: JourneyMonitoringRequest) {
+        val token=generation
+        locationJob=scope.launch {
+            val health=launch {
+                while(isActive) {
+                    delay(4_000L)
+                    if(token != generation) break
+                    val active=currentRequest ?: break
+                    if(!hasLocationPermission(this@JourneyMonitoringService) || !JourneyMonitoringController.notificationsAllowed(this@JourneyMonitoringService)) {
+                        finishSession("위치·알림 권한이 변경되어 이동 안내를 종료했어요."); break
+                    }
+                    val latest=JourneyMonitoringController.state.value
+                    val now=System.currentTimeMillis()
+                    if(latest.lastUpdatedEpochMillis?.let { now-it in 0..3_500L } == true) continue
+                    publishMovement(monitoringStateWithSettings(latest,active,now,true))
+                }
+            }
+            try {
+                liveLocationSamples(this@JourneyMonitoringService).collect { fix ->
+                    if(token != generation || currentRequest?.isSameJourney(request) != true) return@collect
+                    updateWalkingLocation(fix)
+                    val now=System.currentTimeMillis()
+                    if(walkingJob?.isActive != true && shouldRefreshWalkingRoute(routeTracker,fix,now,lastWalkingRequestAt)) {
+                        lastWalkingRequestAt=now
+                        walkingJob=scope.launch {
+                            try {
+                                val route=kakao.searchWalk(fix.point,request.boardingPoint)
+                                if(!validWalkingAccess(route,fix.point,request.boardingPoint)) throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+                                if(token != generation || currentRequest?.isSameJourney(request) != true) return@launch
+                                routeTracker=WalkingRouteTracker(fix.point,route,System.currentTimeMillis())
+                                JourneyMonitoringController.state.value.location?.let { updateWalkingLocation(it) }
+                            } catch(cancelled: CancellationException) { throw cancelled }
+                            catch(_: Exception) { /* Keep the previous real route only until its original expiry. */ }
+                        }
+                    }
+                }
+            } catch(cancelled: CancellationException) { throw cancelled }
+            catch(_: Exception) {
+                if(token == generation) {
+                    val old=JourneyMonitoringController.state.value
+                    publishMovement(monitoringStateWithSettings(old.copy(location=null,walkingRoute=null),
+                        currentRequest ?: request,System.currentTimeMillis(),hasLocationPermission(this@JourneyMonitoringService)))
+                }
+            } finally { health.cancel() }
+        }
+    }
+
+    private fun updateWalkingLocation(fix: GuidanceLocation) {
+        val request=currentRequest ?: return
+        val latest=JourneyMonitoringController.state.value.location
+        if(latest != null && fix.observedAtEpochMillis < latest.observedAtEpochMillis) return
+        if(!hasLocationPermission(this) || !JourneyMonitoringController.notificationsAllowed(this)) {
+            finishSession("위치·알림 권한이 변경되어 이동 안내를 종료했어요."); return
+        }
+        val now=System.currentTimeMillis()
+        val progress=routeTracker?.update(fix,now)?.takeIf { it.onRoute }
+        val pace=livePaceCalibrator.observe(fix,now)
+        val tracker=routeTracker
+        val walking=if(progress != null && tracker != null) GuidanceWalkingRoute(fix.point,request.boardingPoint,
+            request.identity,request.settings.walkingSeconds(progress.remainingMeters,progress.providerSeconds,pace),
+            tracker.fetchedAt,120_000L,progress.remainingMeters) else null
+        val old=JourneyMonitoringController.state.value
+        if(old.request?.isSameJourney(request) != true) return
+        val next=old.copy(location=fix,walkingRoute=walking,walkingDistanceMeters=progress?.remainingMeters,
+            providerWalkingSeconds=progress?.providerSeconds,walkingPoints=tracker?.route?.points.orEmpty(),
+            calibratedSpeedMetersPerSecond=pace,lastUpdatedEpochMillis=now)
+        publishMovement(monitoringStateWithSettings(next,request,now,true))
+    }
+
+    private fun publishMovement(state: JourneyMonitoringState) {
+        val request=currentRequest ?: return
+        if(!state.running || !JourneyMonitoringController.state.value.running || state.request?.isSameJourney(request) != true) return
+        val assessment=state.assessment ?: return
+        val now=System.currentTimeMillis()
+        val change=transitions.observe(assessment,now,request.vibrationEnabled)
+        val message=movementGuidanceTitle(change.assessment,now)
+        JourneyMonitoringController.publish(state.copy(assessment=change.assessment,message=message))
+        notifySafely(ONGOING_ID,ongoingNotification(request,message,state.arrivals,now))
+        if(change.vibrationCount > 0) playMovementVibration(this,change.vibrationCount)
+    }
+
+    private fun stopLocationTracking() {
+        generation++
+        locationJob?.cancel(); locationJob=null
+        walkingJob?.cancel(); walkingJob=null
+        routeTracker=null; lastWalkingRequestAt=0L
     }
 
     private fun createChannels() {
@@ -336,7 +409,7 @@ class JourneyMonitoringService : Service() {
 
     private fun arrivalNotification(request: JourneyMonitoringRequest, message: String, visibleForMillis: Long,
         checkedAt: Long): Notification =
-        NotificationCompat.Builder(this, if (request.vibrationEnabled) ARRIVAL_CHANNEL else SILENT_ARRIVAL_CHANNEL)
+        NotificationCompat.Builder(this, SILENT_ARRIVAL_CHANNEL)
             .setSmallIcon(R.drawable.ic_journey_notification).setContentTitle(request.serviceLabel.ifBlank { request.boardingName })
             .setContentText(message).setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setWhen(checkedAt).setShowWhen(true)
@@ -360,6 +433,7 @@ class JourneyMonitoringService : Service() {
 
     private fun finishSession(message: String) {
         finishMessage = message
+        stopLocationTracking()
         monitoringJob?.cancel()
         timeoutJob?.cancel()
         monitoringJob = null
@@ -374,9 +448,11 @@ class JourneyMonitoringService : Service() {
     }
 
     override fun onDestroy() {
+        stopLocationTracking()
         monitoringJob?.cancel()
         timeoutJob?.cancel()
         scope.cancel()
+        monitoringJob=null; timeoutJob=null; currentRequest=null
         refreshRequests.close()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
@@ -386,7 +462,6 @@ class JourneyMonitoringService : Service() {
         super.onDestroy()
     }
 
-    private data class MonitoringWalk(val origin: MapPoint, val route: KakaoWalkingRoute, val fetchedAt: Long)
 
     companion object {
         internal const val ACTION_START = "com.example.run_or_walk.MONITOR_START"
@@ -412,10 +487,3 @@ internal fun monitoringAssessmentMessage(status: AutoGuidanceStatus, isBus: Bool
 }
 private fun clockTime(epochMillis: Long): String = DateTimeFormatter.ofPattern("HH:mm:ss")
     .format(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()))
-private fun monitoringDistance(first: MapPoint, second: MapPoint): Double {
-    val latitude = Math.toRadians(second.y - first.y)
-    val longitude = Math.toRadians(second.x - first.x)
-    val a = sin(latitude / 2).let { it * it } + cos(Math.toRadians(first.y)) * cos(Math.toRadians(second.y)) *
-        sin(longitude / 2).let { it * it }
-    return 6_371_000.0 * 2 * asin(sqrt(a.coerceIn(0.0, 1.0)))
-}

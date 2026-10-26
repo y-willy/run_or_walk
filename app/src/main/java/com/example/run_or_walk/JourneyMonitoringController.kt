@@ -122,13 +122,13 @@ internal fun monitoringStateWithSettings(
     }
     val evidence = selectTimetableEvidence(state.timetableAnalysis, nowEpochMillis,request.subwayChoice)
     val identity = state.arrivals?.identity ?: evidence?.identity ?: request.identity
-    val assessment = calculateAutoGuidance(AutoGuidanceInput(state.location,
+    val assessment = calculateMovementGuidance(AutoGuidanceInput(state.location,
         GuidanceBoarding(identity, request.boardingPoint, true), walking?.copy(boardingIdentity = identity), state.arrivals,
         locationPermissionGranted, arrivalRequestFailed = state.arrivalRequestFailed,
         bufferSeconds = request.settings.bufferSeconds, timetableArrivals = evidence,
         furtherServiceEnded = state.assessment?.nextVehicleState == NextVehicleState.SERVICE_ENDED,
         previousAssessment = state.assessment), nowEpochMillis,
-        AutoGuidancePolicy(fastSpeedKmh = request.settings.fastSpeedKmh))
+        request.settings)
     val estimatePrefix = evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
         ?.let { timetableArrivalText(it,nowEpochMillis) + " · " }.orEmpty()
     val message = if (assessment.unknownReason == AutoGuidanceUnknownReason.WALKING_OUTSIDE_RANGE)
