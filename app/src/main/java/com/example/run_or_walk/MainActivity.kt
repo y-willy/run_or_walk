@@ -12,6 +12,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.Theme_RUN_or_WALK)
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         journeySession = ViewModelProvider(this)[JourneySessionViewModel::class.java]
         val activityLifecycleOwner: LifecycleOwner = this
         val showLaunchArtwork = savedInstanceState == null
@@ -1552,11 +1554,18 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()
-            .verticalScroll(screen.scrollState).padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            .verticalScroll(screen.scrollState).padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
             // 1. Tabs. Screen states survive switching; pending responses do not.
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                PaceNudgeHeader()
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { PaceNudgeHeader() }
+                    JourneySettingsPanel(settings) { value ->
+                        session.updateSettings(value)
+                        JourneyMonitoringController.updateSettings(context,value,
+                            monitoring.request?.vibrationEnabled ?: screen.alertsEnabled)
+                    }
+                }
                 FeatureModeSelector(mode.ordinal, onSelect = { index ->
                     keyboard?.hide()
                     if (mode != FeatureMode.entries[index]) {
@@ -1564,11 +1573,6 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         session.mode = FeatureMode.entries[index]
                     }
                 })
-                JourneySettingsPanel(settings) { value ->
-                    session.updateSettings(value)
-                    JourneyMonitoringController.updateSettings(context, value,
-                        monitoring.request?.vibrationEnabled ?: screen.alertsEnabled)
-                }
             }
             if (screen !== rootScreen) {
                 SectionCard("출발지 접근 안내", "본래 경로: ${rootScreen.departure.selected?.name.orEmpty()} → ${rootScreen.destination.selected?.name.orEmpty()}") {
@@ -1607,8 +1611,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 }
             }
             if (mode == FeatureMode.STOP && screen.boarding != null) {
-                // Stop -> official routes -> arrivals are selectable without scrolling past results or the map.
-                selectionControls()
+                if (screen.confirmedServiceIdentity != null) {
+                    TextButton(onClick={ screen.detailsExpanded=!screen.detailsExpanded }) {
+                        Text(if(screen.detailsExpanded) "승차 정보 접기" else "승차 정보 변경")
+                    }
+                }
+                if(screen.confirmedServiceIdentity==null || screen.detailsExpanded || searchExpanded) selectionControls()
             }
             // 3. Core results and optional selection details.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1629,12 +1637,15 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     }) { Text("기기 위치 설정") }
                 }
                 if (screen.routes.isNotEmpty()) {
-                    Text("추천 경로", style = MaterialTheme.typography.labelMedium,
+                    Text(if(screen.selectedRoute==null) "추천 경로" else "이용 경로", style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.semantics { heading() })
                     if (screen.selectedRoute != null) TextButton(onClick = {
                         alternativesExpanded = !alternativesExpanded
                     }) { Text(if (alternativesExpanded) "다른 경로 접기" else "다른 경로 보기") }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    if (screen.selectedRoute!=null && !alternativesExpanded) {
+                        Text("총 ${screen.selectedRoute?.durationMinutes}분 · ${screen.selectedRoute?.serviceName.orEmpty()}",
+                            style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         (if (screen.selectedRoute != null && !alternativesExpanded)
                             listOfNotNull(screen.selectedRoute) else screen.routes.take(3)).forEach { route ->
@@ -1648,7 +1659,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                                         screen.activeArrivalSnapshot != null -> "공식 실시간 도착예정 수신"
                                         else -> "승차점 자동 설정 · 실시간 정보 연결 중"
                                     },
-                                    modifier = Modifier.width(260.dp),
+                                    modifier = if(screen.selectedRoute!=null && !alternativesExpanded) Modifier.fillMaxWidth() else Modifier.width(260.dp),
                                     onSelect = {
                                         selectRoute(screen, route)
                                         searchExpanded = false
@@ -1774,7 +1785,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 // 4. One MapView at a stable call site. Collapsing only changes its height.
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (mode == FeatureMode.ROUTE) "현재 위치 → 출발지 → 목적지" else "현재 위치 · 승차 위치 · 도보 경로", style = MaterialTheme.typography.titleSmall,
+                        Text("이동 경로", style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier.weight(1f))
                         TextButton(onClick = { mapExpanded = !mapExpanded }) {
                             Text(if (mapExpanded) "지도 줄이기" else "지도 펼치기")
@@ -1955,7 +1966,11 @@ private fun LocationSearchInput(label: String, input: JourneySearchState, enable
             keyboardActions = KeyboardActions(onSearch = { if (canSearch) onSearch() }),
             trailingIcon = { TextButton(onClick = onSearch, enabled = canSearch,
                 modifier = Modifier.heightIn(min = 48.dp)) { Text("검색") } },
-            modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium)
+            modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+            colors=OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor=MaterialTheme.colorScheme.surfaceContainerLow,
+                focusedContainerColor=MaterialTheme.colorScheme.surface,
+                unfocusedBorderColor=MaterialTheme.colorScheme.outlineVariant))
         PlacePages(input.options, enabled, onChoose)
         input.selected?.let { selected ->
             Text("✓ 선택됨 · " + selected.name,

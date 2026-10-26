@@ -5,6 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -22,16 +28,18 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JourneySettingsPanel(settings: JourneySettings, onSettingsChange: (JourneySettings) -> Unit) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         TextButton(onClick = { expanded = !expanded },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text(if (expanded) "걸음속도 설정 닫기" else "⚙ 걸음속도 설정")
+            modifier = Modifier.heightIn(min = 48.dp)) {
+            Text("설정")
         }
-        if (expanded) {
+        if (expanded) ModalBottomSheet(onDismissRequest={ expanded=false },containerColor=MaterialTheme.colorScheme.surface) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding()) {
             SectionCard("내 걸음속도", "변경사항은 저장되고 이동 안내에도 반영돼요.") {
                 Text("평소 걸음속도", style = MaterialTheme.typography.labelLarge)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -71,6 +79,7 @@ fun JourneySettingsPanel(settings: JourneySettings, onSettingsChange: (JourneySe
                         onDecrease = { onSettingsChange(settings.copy(bufferSeconds = settings.bufferSeconds - 30)) },
                         onIncrease = { onSettingsChange(settings.copy(bufferSeconds = settings.bufferSeconds + 30)) })
                 }
+            }
             }
         }
     }
