@@ -431,6 +431,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val point = stop.point ?: return
         target.clearWalking()
         target.clearOfficialSelection()
+        if (target.mode == FeatureMode.STOP) {
+            target.stop.selected = stop.toJourneyPlace()
+            target.stop.query = stop.name
+            target.stop.options = emptyList()
+        }
         target.boarding = JourneyPlace("seoul-bus-${stop.stopId}", stop.name,
             "정류장 번호 ${stop.arsId}", point, categoryName = "버스정류장")
         target.boardingSource = BoardingPointSource.VERIFIED
@@ -553,7 +558,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     .ifEmpty { if (query.isBlank()) emptyList() else busRepository.searchStops(query) }
                     else busRepository.searchStops(query)
                 if (!active() || !target.applySeoulStopsResponse(generation,boarding,stops)) return@launch
-                val physical = boarding?.let { seoulBusStopCandidates(stops,it) }.orEmpty()
+                val physical = boarding?.let { seoulBusRouteCandidates(stops,it) }.orEmpty()
                 val choice = target.selectedRoute?.kakao
                 val matched = if (automatic && boarding != null) resolveOfficialSeoulBusStop(stops,boarding) else null
                 val evidence = if (automatic && matched == null && choice != null && physical.size in 1..3)
@@ -1473,6 +1478,38 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         }
     }
 
+    // The stop picker belongs next to the search that produced the candidates, not below the map.
+    val selectionControls: @Composable () -> Unit = {
+        SelectionDetails(screen, configured, now,
+            onBusQueryChange = { screen.editBusStopQuery(it) },
+            onSearchBusStops = { findOfficialBusStops(screen) },
+            onNearbyBusStops = { findOfficialBusStops(screen, nearby = true) },
+            onChooseBusStop = { selectOfficialBusStop(screen, it) },
+            onChooseBusRoute = { selectOfficialBusRoute(screen, it) },
+            onChangeBoarding = { screen.changingBoarding = true; findBoardingPlaces(screen) },
+            onFindBoarding = { findBoardingPlaces(screen) },
+            onChooseBoarding = { confirmBoarding(screen, it) },
+            onStationQuery = { screen.editStationQuery(it) },
+            onFindStations = { findOfficialStations(screen) },
+            onChooseStation = { selectOfficialStation(screen, it) },
+            onChooseArrival = {
+                screen.invalidateRequests()
+                screen.guidanceWalkingRoute = null
+                screen.confirmedServiceIdentity = it.identity
+                screen.selectedArrival = chooseMatchingSubwayArrival(it.identity,
+                    screen.arrivalOptions, System.currentTimeMillis())
+                screen.arrivalRequestFailed = false
+                screen.liveError = null
+                scope.launch { refreshWalkingSnapshot(screen) }
+            },
+            onRefresh = {
+                if (monitored) JourneyMonitoringController.refresh(context)
+                else scope.launch { refreshLive(screen, force = true) }
+            },
+            onGyeonggiStationId = { screen.updateGyeonggiStationId(it) },
+            onGyeonggiLookup = { lookupGyeonggiArrivals(screen) })
+    }
+
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()
             .verticalScroll(screen.scrollState).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1505,6 +1542,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 onUseCurrentLocation = { requestLocation(screen, LocationAction.SET_DEPARTURE) },
                 onFindRoutes = { findRoutes(screen) },
                 onFindStopDirection = { connectStopDestination(screen) })
+            }
+            if (mode == FeatureMode.STOP && screen.boarding != null) {
+                // Stop -> official routes -> arrivals are selectable without scrolling past results or the map.
+                selectionControls()
             }
             // 3. Core results and optional selection details.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1724,42 +1765,13 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 if (boarding != null || screen.selectedRoute != null) {
                     val busConnectionNeedsChoice = screen.isBusJourney &&
                         (screen.selectedBusStop == null || screen.selectedBusRoute == null || screen.confirmedServiceIdentity == null)
-                    if (mode == FeatureMode.STOP || busConnectionNeedsChoice) TextButton(
+                    if (mode != FeatureMode.STOP && busConnectionNeedsChoice) TextButton(
                         onClick = { screen.detailsExpanded = !screen.detailsExpanded },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                         Text(if (screen.detailsExpanded) "연결 상태 닫기" else "승차·실시간 연결 상태")
                     }
-                    if ((mode == FeatureMode.STOP || busConnectionNeedsChoice) && screen.detailsExpanded) {
-                        SelectionDetails(screen, configured, now,
-                            onBusQueryChange = { screen.editBusStopQuery(it) },
-                            onSearchBusStops = { findOfficialBusStops(screen) },
-                            onNearbyBusStops = { findOfficialBusStops(screen, nearby = true) },
-                            onChooseBusStop = { selectOfficialBusStop(screen, it) },
-                            onChooseBusRoute = { selectOfficialBusRoute(screen, it) },
-                            onChangeBoarding = { screen.changingBoarding = true; findBoardingPlaces(screen) },
-                            onFindBoarding = { findBoardingPlaces(screen) },
-                            onChooseBoarding = { confirmBoarding(screen, it) },
-                            onStationQuery = {
-                                screen.editStationQuery(it)
-                            },
-                            onFindStations = { findOfficialStations(screen) },
-                            onChooseStation = { selectOfficialStation(screen, it) },
-                            onChooseArrival = {
-                                screen.invalidateRequests()
-                                screen.guidanceWalkingRoute = null
-                                screen.confirmedServiceIdentity = it.identity
-                                screen.selectedArrival = chooseMatchingSubwayArrival(it.identity,
-                                    screen.arrivalOptions, System.currentTimeMillis())
-                                screen.arrivalRequestFailed = false
-                                screen.liveError = null
-                                scope.launch { refreshWalkingSnapshot(screen) }
-                            },
-                            onRefresh = {
-                                if (monitored) JourneyMonitoringController.refresh(context)
-                                else scope.launch { refreshLive(screen, force = true) }
-                            },
-                            onGyeonggiStationId = { screen.updateGyeonggiStationId(it) },
-                            onGyeonggiLookup = { lookupGyeonggiArrivals(screen) })
+                    if (mode != FeatureMode.STOP && busConnectionNeedsChoice && screen.detailsExpanded) {
+                        selectionControls()
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1837,12 +1849,14 @@ private fun SearchContent(screen: JourneyScreenState,
                 onChange = { onEdit(SearchField.STOP, it) },
                 onSearch = { onSearch(SearchField.STOP) },
                 onChoose = { onChoose(SearchField.STOP, it) })
-            LocationSearchInput("목적지 · 이 방향의 열차만 안내", screen.destination, !screen.busy,
-                onChange = { onEdit(SearchField.DESTINATION, it) },
-                onSearch = { onSearch(SearchField.DESTINATION) },
-                onChoose = { onChoose(SearchField.DESTINATION, it) })
-            if (screen.stop.selected != null && screen.destination.selected != null) {
-                TextButton(onClick = onFindStopDirection, enabled = !screen.busy) { Text("목적지 방면 다시 연결") }
+            if (screen.stop.selected?.isSubwayStation == true) {
+                LocationSearchInput("목적지 · 이 방향의 열차만 안내", screen.destination, !screen.busy,
+                    onChange = { onEdit(SearchField.DESTINATION, it) },
+                    onSearch = { onSearch(SearchField.DESTINATION) },
+                    onChoose = { onChoose(SearchField.DESTINATION, it) })
+                if (screen.destination.selected != null) {
+                    TextButton(onClick = onFindStopDirection, enabled = !screen.busy) { Text("목적지 방면 다시 연결") }
+                }
             }
             screen.directionMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }

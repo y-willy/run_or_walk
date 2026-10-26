@@ -30,6 +30,18 @@ internal fun seoulBusStopCandidates(candidates: List<OfficialSeoulBusStop>, boar
     }.distinctBy { it.stopId }
 }
 
+/** Nearby route candidates may have a different Kakao stop label. They are NEVER selected
+ * by proximity alone: the caller must also prove the exact route and downstream stop order.
+ */
+internal fun seoulBusRouteCandidates(candidates: List<OfficialSeoulBusStop>, boarding: JourneyPlace): List<OfficialSeoulBusStop> {
+    if (!boarding.isBusStop || !boarding.point.isBusCoordinate()) return emptyList()
+    return candidates.distinctBy { it.stopId }.filter { candidate ->
+        candidate.stopId.matches(officialBusId) && candidate.point?.let {
+            it.isBusCoordinate() && busStopDistanceMeters(boarding.point, it) <= 100.0
+        } == true
+    }
+}
+
 /** Prefer a previously verified provider; an unknown route starts with official Seoul discovery. */
 internal fun lookupGyeonggiFirst(confirmed: OfficialBoardingIdentity?): Boolean =
     confirmed?.authority == "GBIS" && confirmed.isComplete
@@ -45,7 +57,7 @@ internal fun resolveSeoulBusBoarding(
     boarding: JourneyPlace, choice: KakaoTransitChoice,
     routeStops: Map<String,List<OfficialSeoulBusRouteStop>> = emptyMap()
 ): SeoulBusBoardingMatch? {
-    val physical = seoulBusStopCandidates(candidates.map { it.first }, boarding)
+    val physical = seoulBusRouteCandidates(candidates.map { it.first }, boarding)
     val options = candidates.filter { it.first in physical }.flatMap { (stop, routes) ->
         routes.filter { it.stopId == stop.stopId && it.supported &&
             normalizeBusRouteName(it.name) == normalizeBusRouteName(choice.serviceName) &&

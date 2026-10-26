@@ -13,5 +13,6 @@ internal fun routeBoardingPlace(route: JourneyTransitRoute): JourneyPlace? {
     if (!point.x.isFinite() || !point.y.isFinite() ||
         point.x !in -180.0..180.0 || point.y !in -90.0..90.0) return null
     return JourneyPlace("route-boarding-${route.id}", name,
-        "경로 제공 첫 승차 지점 · 승강장 위치는 현장에서 확인", point)
+        "경로 제공 첫 승차 지점 · 승강장 위치는 현장에서 확인", point,
+        categoryName = if (choice.firstTransitType == "BUS") "버스정류장" else "지하철역")
 }

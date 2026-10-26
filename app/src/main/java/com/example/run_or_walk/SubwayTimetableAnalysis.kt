@@ -152,6 +152,42 @@ class SubwayTimetableAnalyzer(
                 }
                 allCandidates += candidates.map { ProvenTimetableArrival(arrival, table, it, calendarDay) }
             }
+            // Realtime train numbers and publisher timetable numbers are not always the
+            // same identity (for example, a reported 6196 may not be timetable K6196).
+            // If there is no usable position estimate by number, anchor an explicitly
+            // reported upstream station to actual timetable calls instead. Every candidate
+            // still has to pass the route, direction, destination and timestamp checks in
+            // estimatePosition; uncertainty is retained as an interval below.
+            val canUsePosition = !arrival.snapshot.hasUsableOfficialEta(nowEpochMillis) &&
+                arrival.arrivalCode !in setOf("0", "1", "2") &&
+                arrival.gatewayContract == SubwayGatewayContract.RAW_FIELDS &&
+                (validTimetableText(arrival.reportedStationName.orEmpty()) ||
+                    reportedTimetableStationName(arrival.officialArrivalMessage) != null ||
+                    reportedTimetableStationCount(arrival.officialArrivalMessage) != null) &&
+                arrival.sourceReceivedAtEpochMillis?.let {
+                    nowEpochMillis - it in 0L..policy.maxObservationAgeMillis
+                } == true
+            if (canUsePosition && allCandidates.none {
+                    estimatePosition(it, station, nowEpochMillis, policy) != null
+                }) {
+                for (calendarDay in calendarDays) {
+                    val table = stationLoader?.invoke(station.routeId, station.stopId, calendarDay.serviceDate,
+                        calendarDay.dayType, calendarDay.sourceVersion, false) ?: continue
+                    if (!table.isStructurallyValid() || table.identityAuthority != "seoul") continue
+                    val stationCandidates = table.trips.asSequence().filter { trip ->
+                        trip.routeId == station.routeId && trip.serviceDate == calendarDay.serviceDate &&
+                            trip.dayType == calendarDay.dayType &&
+                            trip.directionId == arrival.identity.directionId &&
+                            provesBoardingPath(trip, station.stopId, endpoint, waypointNames) &&
+                            declaredDestinationMatches(destination, trip) &&
+                            trainOperationMatches(arrival.trainType, trip.operationType) &&
+                            !positionBeyondBoarding(arrival, trip, station.stopId)
+                    }.map { ProvenTimetableArrival(arrival, table, it, calendarDay) }
+                        .filter { estimatePosition(it, station, nowEpochMillis, policy) != null }
+                        .toList()
+                    allCandidates += stationCandidates
+                }
+            }
             // A route/destination narrows a publisher-provided train record. It never turns a
             // repeated train number or unresolved branch into a choice by array order.
             proofs += allCandidates
@@ -189,7 +225,7 @@ class SubwayTimetableAnalyzer(
                 val names = possibilities.map { it.trainNo }.distinct().sorted()
                 val paths = possibilities.map { it.routePatternId }.distinct().sorted()
                 val combined = first.copy(
-                    trainNo = if (arrival.trainId.isBlank() && names.size > 1)
+                    trainNo = if (names.size > 1)
                         "position-slot:${arrival.officialSlot}:${arrival.sourceReceivedAtEpochMillis}" else first.trainNo,
                     routePatternId = paths.singleOrNull() ?: "candidate-paths:${paths.joinToString(",")}",
                     operationType = possibilities.map { it.operationType }.distinct().singleOrNull() ?: OfficialTrainOperationType.OTHER,
@@ -292,9 +328,13 @@ private fun estimatePosition(proof: ProvenTimetableArrival, station: OfficialSub
     val target = trip.stops.withIndex().singleOrNull { it.value.stopId == station.stopId } ?: return null
     val names = listOfNotNull(arrival.reportedStationName, reportedTimetableStationName(arrival.officialArrivalMessage))
         .filter(::validTimetableText).map(::timetableStationName).distinct()
-    val named = trip.stops.withIndex().filter { timetableStationName(it.value.stopName) in names }
-    val position = if (named.isNotEmpty()) {
-        named.singleOrNull()?.takeIf { it.index < target.index }?.value ?: return null
+    if (names.size > 1) return null // Conflicting provider positions cannot identify one train.
+    val position = if (names.isNotEmpty()) {
+        // A publisher-supplied station name is evidence, not a hint. Never ignore a
+        // conflicting named station and manufacture a different position from [N] stops.
+        trip.stops.withIndex().singleOrNull {
+            timetableStationName(it.value.stopName) in names && it.index < target.index
+        }?.value ?: return null
     } else {
         if (trip.operationType != OfficialTrainOperationType.LOCAL && arrival.trainType != "일반") return null
         val count = reportedTimetableStationCount(arrival.officialArrivalMessage) ?: return null
