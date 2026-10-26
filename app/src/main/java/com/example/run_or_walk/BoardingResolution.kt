@@ -81,9 +81,9 @@ internal fun resolveAutomaticSubwayIdentity(
     if (supplied.isBlank() && nextStop.isBlank()) return null
     val matches = subwayRouteArrivalRows(route, arrivals).filter { arrival ->
         val snapshot = arrival.snapshot
-        if (!arrival.identity.isComplete || arrival.trainId.isBlank() ||
+        if (!arrival.identity.isComplete ||
             !snapshot.reliable || snapshot.trustState != ArrivalTrustState.VALID ||
-            nowMillis - snapshot.fetchedAtEpochMillis !in 0L..minOf(snapshot.validForMillis, 60_000L) ||
+            nowMillis - snapshot.fetchedAtEpochMillis !in 0L..minOf(snapshot.validForMillis, 600_000L) ||
             snapshot.firstArrivalAtEpochMillis <= nowMillis) return@filter false
         true
     }
@@ -111,6 +111,10 @@ internal fun subwayRouteArrivalRows(route: KakaoTransitChoice?, arrivals: List<O
         directionMatches && nextMatches
     }
 }
+
+/** Keep received source observations visible while the timetable resolves an ambiguous route hint. */
+internal fun subwayDisplayArrivalRows(route: KakaoTransitChoice?, arrivals: List<OfficialSubwayArrival>): List<OfficialSubwayArrival> =
+    subwayRouteArrivalRows(route, arrivals).ifEmpty { arrivals }
 
 private data class StationNameParts(val full: String, val base: String)
 

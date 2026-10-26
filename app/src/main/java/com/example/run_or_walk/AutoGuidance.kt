@@ -10,6 +10,8 @@ enum class AutoGuidanceStatus { WALK, FAST_WALK, NEXT_VEHICLE, UNKNOWN }
 
 /** Source-data trust, distinct from transport success and boarding identity matching. */
 enum class ArrivalTrustState { VALID, STALE, FUTURE_TIMESTAMP, INVALID_ETA, UNKNOWN }
+enum class ArrivalTimePrecision { SECONDS, MINUTES }
+enum class GuidanceArrivalSource { OFFICIAL_REALTIME, OFFICIAL_TIMETABLE_POSITION }
 
 enum class AutoGuidanceUnknownReason {
     LOCATION_PERMISSION_REQUIRED, LOCATION_UNAVAILABLE, LOCATION_INACCURATE, LOCATION_STALE,
@@ -70,8 +72,25 @@ data class RealtimeArrivalSnapshot(
     val fetchedAtEpochMillis: Long,
     val validForMillis: Long,
     val reliable: Boolean = true,
-    val trustState: ArrivalTrustState = ArrivalTrustState.VALID
+    val trustState: ArrivalTrustState = ArrivalTrustState.VALID,
+    val etaPrecision: ArrivalTimePrecision = ArrivalTimePrecision.SECONDS,
+    val sourceTimestampAvailable: Boolean = true,
+    val receivedAtEpochMillis: Long? = null,
+    /** An API slot is not a fabricated vehicle ID; it only distinguishes official ETA entries. */
+    val vehicleIdentityFallback: String? = null
 )
+
+data class TimetableArrivalEvidence(
+    val identity: OfficialBoardingIdentity,
+    val first: OfficialTimetableEstimate,
+    val next: OfficialTimetableEstimate? = null
+)
+
+fun RealtimeArrivalSnapshot.hasUsableOfficialEta(now: Long): Boolean =
+    reliable && trustState == ArrivalTrustState.VALID && validForMillis > 0 &&
+        fetchedAtEpochMillis <= now && now - fetchedAtEpochMillis <= minOf(validForMillis, 600_000L) &&
+        (receivedAtEpochMillis == null || receivedAtEpochMillis <= now + 60_000L && now - receivedAtEpochMillis <= 60_000L) &&
+        firstArrivalAtEpochMillis > now
 
 data class AutoGuidanceInput(
     val location: GuidanceLocation?,
@@ -80,7 +99,8 @@ data class AutoGuidanceInput(
     val arrivals: RealtimeArrivalSnapshot?,
     val locationPermissionGranted: Boolean,
     val arrivalRequestFailed: Boolean = false,
-    val bufferSeconds: Int = 120
+    val bufferSeconds: Int = 120,
+    val timetableArrivals: TimetableArrivalEvidence? = null
 )
 
 /** Conservative defaults; the adapter must use a shorter validity when its provider requires it. */
@@ -89,7 +109,8 @@ data class AutoGuidancePolicy(
     val maxLocationAccuracyMeters: Double = 50.0,
     val maxLocationAgeMillis: Long = 30_000L,
     val maxWalkingAgeMillis: Long = 120_000L,
-    val maxArrivalAgeMillis: Long = 60_000L,
+    val maxArrivalAgeMillis: Long = 600_000L,
+    val maxArrivalReceiptAgeMillis: Long = 60_000L,
     val maxWalkingOriginDistanceMeters: Double = 35.0,
     val maxWalkingDestinationDistanceMeters: Double = 15.0
 )
@@ -104,7 +125,11 @@ data class AutoGuidanceAssessment(
     val fastTravelSeconds: Int? = null,
     val bufferSeconds: Int = 120,
     val arrivalFetchedAtEpochMillis: Long? = null,
-    val fastSpeedKmh: Double = 6.0
+    val fastSpeedKmh: Double = 6.0,
+    val arrivalSource: GuidanceArrivalSource = GuidanceArrivalSource.OFFICIAL_REALTIME,
+    val arrivalPrecision: ArrivalTimePrecision = ArrivalTimePrecision.SECONDS,
+    val firstArrivalLatestAtEpochMillis: Long? = null,
+    val estimateLabel: String? = null
 )
 
 /** Pure calculation with an injected wall clock. All timestamps are epoch milliseconds;
@@ -148,32 +173,69 @@ fun calculateAutoGuidance(
     // An error invalidates any older successful response retained by the UI.
     if (input.arrivalRequestFailed) return unknown(AutoGuidanceUnknownReason.ARRIVAL_FAILED)
     val arrivals = input.arrivals
-        ?: return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNAVAILABLE)
-    if (arrivals.identity != boarding.identity) {
-        return unknown(AutoGuidanceUnknownReason.ARRIVAL_MISMATCH)
-    }
-    when (arrivals.trustState) {
-        ArrivalTrustState.STALE -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_STALE)
-        ArrivalTrustState.FUTURE_TIMESTAMP -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP)
-        ArrivalTrustState.INVALID_ETA -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_INVALID_ETA)
-        ArrivalTrustState.UNKNOWN -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
-        ArrivalTrustState.VALID -> Unit
-    }
-    if (!arrivals.reliable) return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
-    if (arrivals.fetchedAtEpochMillis > nowEpochMillis) {
-        return unknown(AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP)
-    }
-    if (arrivals.validForMillis <= 0L ||
-        !isFresh(arrivals.fetchedAtEpochMillis, nowEpochMillis,
-            minOf(arrivals.validForMillis, policy.maxArrivalAgeMillis)) ||
-        arrivals.firstArrivalAtEpochMillis < nowEpochMillis
-    ) {
-        return unknown(AutoGuidanceUnknownReason.ARRIVAL_STALE)
-    }
-    if (arrivals.nextArrivalAtEpochMillis != null &&
-        arrivals.nextArrivalAtEpochMillis <= arrivals.firstArrivalAtEpochMillis
-    ) {
-        return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
+    val scheduled = input.timetableArrivals
+    val useTimetable = scheduled != null && (arrivals == null || !arrivals.reliable ||
+        arrivals.trustState != ArrivalTrustState.VALID || arrivals.firstArrivalAtEpochMillis < nowEpochMillis)
+    val firstArrival: Long
+    val nextArrival: Long?
+    val fetchedAt: Long
+    val precision: ArrivalTimePrecision
+    val firstLatest: Long?
+    val estimateLabel: String?
+    if (useTimetable) {
+        val evidence = requireNotNull(scheduled)
+        if (evidence.identity != boarding.identity) return unknown(AutoGuidanceUnknownReason.ARRIVAL_MISMATCH)
+        val first = evidence.first
+        fun validEstimate(value: OfficialTimetableEstimate) =
+            value.identity.stopId == boarding.identity.stopId && value.identity.routeId == boarding.identity.routeId &&
+                value.identity.directionId == boarding.identity.directionId &&
+                value.sourceTimestampEpochMillis <= value.receivedAtEpochMillis &&
+                value.receivedAtEpochMillis <= nowEpochMillis &&
+                nowEpochMillis <= value.validUntilEpochMillis &&
+                value.earliestArrivalAtEpochMillis <= value.latestArrivalAtEpochMillis &&
+                value.latestArrivalAtEpochMillis > nowEpochMillis
+        if (!validEstimate(first)) return unknown(AutoGuidanceUnknownReason.ARRIVAL_STALE)
+        val next = evidence.next?.takeIf { validEstimate(it) && it.trainNo != first.trainNo &&
+            it.earliestArrivalAtEpochMillis > first.earliestArrivalAtEpochMillis }
+        firstArrival = first.earliestArrivalAtEpochMillis
+        nextArrival = next?.earliestArrivalAtEpochMillis
+        fetchedAt = first.sourceTimestampEpochMillis
+        precision = ArrivalTimePrecision.MINUTES
+        firstLatest = first.latestArrivalAtEpochMillis
+        estimateLabel = first.label
+    } else {
+        val actual = arrivals ?: return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNAVAILABLE)
+        if (actual.identity != boarding.identity) return unknown(AutoGuidanceUnknownReason.ARRIVAL_MISMATCH)
+        when (actual.trustState) {
+            ArrivalTrustState.STALE -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_STALE)
+            ArrivalTrustState.FUTURE_TIMESTAMP -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP)
+            ArrivalTrustState.INVALID_ETA -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_INVALID_ETA)
+            ArrivalTrustState.UNKNOWN -> return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
+            ArrivalTrustState.VALID -> Unit
+        }
+        if (!actual.reliable) return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
+        val received = actual.receivedAtEpochMillis
+        if (actual.fetchedAtEpochMillis > nowEpochMillis ||
+            received?.let { it > nowEpochMillis + 60_000L } == true) {
+            return unknown(AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP)
+        }
+        if (actual.validForMillis <= 0L ||
+            !isFresh(actual.fetchedAtEpochMillis, nowEpochMillis,
+                minOf(actual.validForMillis, policy.maxArrivalAgeMillis)) ||
+            (received != null && nowEpochMillis - received > policy.maxArrivalReceiptAgeMillis) ||
+            actual.firstArrivalAtEpochMillis < nowEpochMillis) {
+            return unknown(AutoGuidanceUnknownReason.ARRIVAL_STALE)
+        }
+        if (actual.nextArrivalAtEpochMillis != null &&
+            actual.nextArrivalAtEpochMillis <= actual.firstArrivalAtEpochMillis) {
+            return unknown(AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN)
+        }
+        firstArrival = actual.firstArrivalAtEpochMillis
+        nextArrival = actual.nextArrivalAtEpochMillis
+        fetchedAt = actual.fetchedAtEpochMillis
+        precision = actual.etaPrecision
+        firstLatest = null
+        estimateLabel = null
     }
     val walking = input.walkingRoute
         ?: return unknown(AutoGuidanceUnknownReason.WALKING_UNAVAILABLE)
@@ -203,34 +265,38 @@ fun calculateAutoGuidance(
         .coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
     // Provider time may already reflect a faster pace.
     val fastSeconds = minOf(walking.durationSeconds, estimate)
-    val remainingMillis = arrivals.firstArrivalAtEpochMillis - nowEpochMillis
+    val remainingMillis = firstArrival - nowEpochMillis
     val walkingWithBufferMillis = (walking.durationSeconds.toLong() + input.bufferSeconds) * 1_000L
     val fastWithBufferMillis = (fastSeconds.toLong() + input.bufferSeconds) * 1_000L
     val status = when {
         remainingMillis >= walkingWithBufferMillis -> AutoGuidanceStatus.WALK
         remainingMillis >= fastWithBufferMillis -> AutoGuidanceStatus.FAST_WALK
-        arrivals.nextArrivalAtEpochMillis == null ->
+        nextArrival == null ->
             return unknown(AutoGuidanceUnknownReason.NEXT_ARRIVAL_UNAVAILABLE)
-        arrivals.nextArrivalAtEpochMillis - nowEpochMillis >= walkingWithBufferMillis ->
+        nextArrival - nowEpochMillis >= walkingWithBufferMillis ->
             AutoGuidanceStatus.NEXT_VEHICLE
         else -> return unknown(AutoGuidanceUnknownReason.NO_CATCHABLE_TRAIN)
     }
     return AutoGuidanceAssessment(
         status = status,
-        firstArrivalAtEpochMillis = arrivals.firstArrivalAtEpochMillis,
-        nextArrivalAtEpochMillis = arrivals.nextArrivalAtEpochMillis,
+        firstArrivalAtEpochMillis = firstArrival,
+        nextArrivalAtEpochMillis = nextArrival,
         walkingSeconds = walking.durationSeconds,
         fastTravelSeconds = fastSeconds,
         bufferSeconds = input.bufferSeconds,
-        arrivalFetchedAtEpochMillis = arrivals.fetchedAtEpochMillis,
-        fastSpeedKmh = policy.fastSpeedKmh
+        arrivalFetchedAtEpochMillis = fetchedAt,
+        fastSpeedKmh = policy.fastSpeedKmh,
+        arrivalSource = if (useTimetable) GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION else GuidanceArrivalSource.OFFICIAL_REALTIME,
+        arrivalPrecision = precision,
+        firstArrivalLatestAtEpochMillis = firstLatest,
+        estimateLabel = estimateLabel
     )
 }
 
 private fun AutoGuidancePolicy.isValid() =
     fastSpeedKmh.isFinite() && fastSpeedKmh in 3.0..12.0 &&
         maxLocationAccuracyMeters.isFinite() && maxLocationAccuracyMeters >= 0.0 &&
-        maxLocationAgeMillis > 0L && maxWalkingAgeMillis > 0L && maxArrivalAgeMillis > 0L &&
+        maxLocationAgeMillis > 0L && maxWalkingAgeMillis > 0L && maxArrivalAgeMillis > 0L && maxArrivalReceiptAgeMillis > 0L &&
         maxWalkingOriginDistanceMeters.isFinite() && maxWalkingOriginDistanceMeters >= 0.0 &&
         maxWalkingDestinationDistanceMeters.isFinite() && maxWalkingDestinationDistanceMeters >= 0.0
 

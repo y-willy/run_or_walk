@@ -2,30 +2,51 @@ package com.example.run_or_walk
 
 internal data class MatchedGyeonggiArrival(val vehicleId: String, val snapshot: RealtimeArrivalSnapshot)
 
-/** The screen and foreground service use the same official stop/route/order and expiry checks. */
+/** The ETA uses receipt time only when GBIS omitted its own timestamp. */
+internal fun GyeonggiBusArrivalDisplay.arrivalBasisMillis(nowMillis: Long): Long =
+    officialBusEffectiveObservedAt(observedAtMillis, fetchedAtMillis, normalizedAtMillis ?: nowMillis)
+
+internal fun isUsableGyeonggiArrival(row: GyeonggiBusArrivalDisplay, nowMillis: Long): Boolean =
+    row.trust == ArrivalTrustState.VALID && officialBusArrivalTrust(
+        row.seconds?.toLong(), row.observedAtMillis, row.fetchedAtMillis, nowMillis
+    ) == ArrivalTrustState.VALID &&
+        row.arrivalBasisMillis(nowMillis) + requireNotNull(row.seconds) * 1_000L > nowMillis
+
+/** A missing response order does not erase the independently verified boarding occurrence. */
+internal fun GyeonggiBusArrivalDisplay.matchesOfficialMatch(match: GyeonggiOfficialMatch): Boolean =
+    stationId == match.stationId && routeId == match.routeId &&
+        (staOrder.isBlank() || staOrder == match.staOrder)
+
+/** The screen and foreground service share official identity, timing and next-slot checks. */
 internal fun chooseMatchingGyeonggiArrival(
     match: GyeonggiOfficialMatch,
     arrivals: List<GyeonggiBusArrivalDisplay>,
     nowMillis: Long
 ): MatchedGyeonggiArrival? {
     if (!match.isValid() || nowMillis < 0) return null
-    // Trust positive official ETAs for the exact station, route and boarding order.
-    // GBIS may omit vehicle IDs or report minute-precision ETAs.
-    val rows = arrivals.filter {
-        it.stationId == match.stationId && it.routeId == match.routeId && it.staOrder == match.staOrder &&
-            it.trust == ArrivalTrustState.VALID && it.seconds != null && it.seconds in 1..86_400 &&
-            it.observedAtMillis != null && nowMillis - it.observedAtMillis in 0L..60_000L &&
-            it.observedAtMillis + it.seconds * 1_000L > nowMillis
-    }.sortedBy { requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L }
+    val rows = arrivals.filter { it.matchesOfficialMatch(match) && isUsableGyeonggiArrival(it, nowMillis) }
+        .distinct().mapIndexed { index, row ->
+            if (row.sequence in 1..2) row else row.copy(sequence = index + 1)
+        }.sortedWith(compareBy<GyeonggiBusArrivalDisplay> { it.sequence }
+            .thenBy { it.arrivalBasisMillis(nowMillis) + requireNotNull(it.seconds) * 1_000L })
     val first = rows.firstOrNull() ?: return null
+    val basis = first.arrivalBasisMillis(nowMillis)
+    val firstArrival = basis + requireNotNull(first.seconds) * 1_000L
     val next = rows.drop(1).firstOrNull {
-        requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L >
-            requireNotNull(first.observedAtMillis) + requireNotNull(first.seconds) * 1_000L
+        it.sequence != first.sequence &&
+            (first.vehicleId.isBlank() || it.vehicleId.isBlank() || it.vehicleId != first.vehicleId) &&
+            it.arrivalBasisMillis(nowMillis) + requireNotNull(it.seconds) * 1_000L > firstArrival
     }
-    val observed = requireNotNull(first.observedAtMillis)
-    val expiresAt = minOf(observed + 60_000L, next?.observedAtMillis?.plus(60_000L) ?: Long.MAX_VALUE)
+    val expiresAt = minOf(officialBusArrivalExpiresAt(first.observedAtMillis, first.fetchedAtMillis,
+        first.normalizedAtMillis ?: nowMillis), next?.let {
+        officialBusArrivalExpiresAt(it.observedAtMillis, it.fetchedAtMillis, it.normalizedAtMillis ?: nowMillis)
+    } ?: Long.MAX_VALUE)
     return MatchedGyeonggiArrival(first.vehicleId, RealtimeArrivalSnapshot(match.identity,
-        observed + requireNotNull(first.seconds) * 1_000L,
-        next?.let { requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L },
-        observed, expiresAt - observed))
+        firstArrival,
+        next?.let { it.arrivalBasisMillis(nowMillis) + requireNotNull(it.seconds) * 1_000L },
+        basis, expiresAt - basis,
+        etaPrecision = first.etaPrecision,
+        sourceTimestampAvailable = first.sourceTimestampAvailable,
+        receivedAtEpochMillis = first.fetchedAtMillis,
+        vehicleIdentityFallback = "official-slot:${first.sequence}".takeIf { first.vehicleId.isBlank() }))
 }

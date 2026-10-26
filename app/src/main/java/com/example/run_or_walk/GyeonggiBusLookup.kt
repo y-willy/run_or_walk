@@ -30,7 +30,7 @@ internal data class GyeonggiOfficialMatch(
 
     fun isValid(): Boolean = stationId.matches(Regex("[1-9][0-9]{5,11}")) &&
         routeId.matches(Regex("[1-9][0-9]{5,11}")) && staOrder.matches(Regex("[1-9][0-9]{0,3}")) &&
-        routeName.isNotBlank() && routeName.length <= 100 && destination.isNotBlank() &&
+        routeName.isNotBlank() && routeName.length <= 100 &&
         destination.length <= 200 && (routeName + destination).none(Char::isISOControl) &&
         point.x.isFinite() && point.y.isFinite() && point.x in 124.0..132.0 && point.y in 32.0..40.0
 }
@@ -61,13 +61,13 @@ internal fun resolveGyeonggiBusMatch(
     val intended = normalizedGyeonggiDestination(choice.directionName.orEmpty())
     val same = matches.filter { (stop, route) ->
         normalizedGyeonggiName(route.routeName) == expected &&
-            route.destination.isNotBlank() &&
-            (intended.isBlank() || normalizedGyeonggiDestination(route.destination) == intended) &&
             stop.stationId.matches(Regex("[1-9][0-9]{5,11}")) &&
             route.routeId.matches(Regex("[1-9][0-9]{5,11}")) &&
             route.staOrder.matches(Regex("[1-9][0-9]{0,3}"))
     }.distinctBy { (s,r) -> listOf(s.stationId, r.routeId, r.staOrder) }
     val selected = when {
+        // One physical official stop + route + occurrence proves its service direction.
+        // Optional Kakao terminal wording must not veto that official tuple.
         same.size == 1 -> same.single()
         else -> {
             // Opposite-side stops may share both name and route number.
@@ -100,7 +100,7 @@ private fun normalizedGyeonggiName(name: String): String = name.trim().lowercase
     .replace(Regex("\\s+"), "").removeSuffix("정류장").removeSuffix("정류소")
 
 private fun normalizedGyeonggiDestination(name: String): String =
-    normalizedGyeonggiName(name).removeSuffix("방향").removeSuffix("방면")
+    normalizedGyeonggiName(name).replace(Regex("\\([^()]*\\)"), "").removeSuffix("방향").removeSuffix("방면")
         .removeSuffix("행").removeSuffix("역")
 private fun gbisDistanceMeters(a: MapPoint, b: MapPoint): Double {
     val r = 6_371_000.0

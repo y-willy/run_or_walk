@@ -38,7 +38,34 @@ data class OfficialSeoulBusArrival(
     val issues: Set<String> = emptySet()
 )
 
-/** Only exact official stop + route + sequence + direction matches can authorize guidance. */
+internal const val BUS_MAX_SOURCE_AGE_MILLIS = 600_000L
+internal const val BUS_MAX_RECEIPT_AGE_MILLIS = 60_000L
+internal const val BUS_CLOCK_TOLERANCE_MILLIS = 60_000L
+
+/** Receipt time is an explicit fallback when an official source timestamp was not supplied. */
+internal fun officialBusEffectiveObservedAt(observedAt: Long?, fetchedAt: Long, now: Long): Long =
+    minOf(observedAt ?: fetchedAt, fetchedAt, now)
+
+/** Timestamp and ETA checks shared by the Seoul and Gyeonggi official adapters. */
+internal fun officialBusArrivalTrust(seconds: Long?, observedAt: Long?, fetchedAt: Long,
+    now: Long): ArrivalTrustState {
+    if (seconds == null || seconds < 0L || seconds > 86_400L) return ArrivalTrustState.INVALID_ETA
+    if (fetchedAt <= 0L || now < 0L) return ArrivalTrustState.UNKNOWN
+    if (fetchedAt > now + BUS_CLOCK_TOLERANCE_MILLIS ||
+        (observedAt != null && (observedAt > fetchedAt + BUS_CLOCK_TOLERANCE_MILLIS ||
+            observedAt > now + BUS_CLOCK_TOLERANCE_MILLIS))) return ArrivalTrustState.FUTURE_TIMESTAMP
+    val observed = officialBusEffectiveObservedAt(observedAt, fetchedAt, now)
+    if (now - fetchedAt > BUS_MAX_RECEIPT_AGE_MILLIS ||
+        now - observed > BUS_MAX_SOURCE_AGE_MILLIS || observed + seconds * 1_000L <= now)
+        return ArrivalTrustState.STALE
+    return ArrivalTrustState.VALID
+}
+
+internal fun officialBusArrivalExpiresAt(observedAt: Long?, fetchedAt: Long, now: Long): Long =
+    minOf(officialBusEffectiveObservedAt(observedAt, fetchedAt, now) + BUS_MAX_SOURCE_AGE_MILLIS,
+        minOf(fetchedAt, now) + BUS_MAX_RECEIPT_AGE_MILLIS)
+
+/** Verified stop, route and boarding occurrence remain required when vehicle metadata is absent. */
 internal fun chooseMatchingBusArrival(
     verifiedIdentity: OfficialBoardingIdentity?,
     arrivals: List<OfficialSeoulBusArrival>,
@@ -46,22 +73,22 @@ internal fun chooseMatchingBusArrival(
 ): OfficialSeoulBusArrival? {
     if (verifiedIdentity == null || verifiedIdentity.authority != "seoul-bus" ||
         !verifiedIdentity.isComplete || nowEpochMillis < 0L) return null
-    val candidates = arrivals.filter {
-        it.identity == verifiedIdentity && it.snapshot.identity == verifiedIdentity && it.vehicleId.isNotBlank()
-    }.groupBy { it.vehicleId }.values.mapNotNull { it.distinct().singleOrNull() }
-        .filter { it.isUsableBusArrival(nowEpochMillis) }
-    val first = candidates.minOfOrNull { it.snapshot.firstArrivalAtEpochMillis } ?: return null
-    return candidates.filter { it.snapshot.firstArrivalAtEpochMillis == first }.singleOrNull()
+    return arrivals.firstOrNull {
+        it.identity == verifiedIdentity && it.snapshot.identity == verifiedIdentity &&
+            it.isUsableBusArrival(nowEpochMillis)
+    }
 }
 
 internal fun OfficialSeoulBusArrival.isUsableBusArrival(nowEpochMillis: Long): Boolean {
     val value = snapshot
+    val received = value.receivedAtEpochMillis ?: gatewayFetchedAtEpochMillis ?: value.fetchedAtEpochMillis
     return identity.authority == "seoul-bus" && identity.isComplete && value.identity == identity &&
-        vehicleId.isOfficialBusVehicleId() && isFull == false &&
-        !hasUncertainSeoulBusServiceState(officialArrivalMessage, issues) &&
+        isFull != true && !hasUncertainSeoulBusServiceState(officialArrivalMessage, issues) &&
         value.reliable && value.trustState == ArrivalTrustState.VALID &&
-        value.validForMillis > 0L && value.fetchedAtEpochMillis > 0L &&
-        nowEpochMillis - value.fetchedAtEpochMillis in 0L..minOf(value.validForMillis, 60_000L) &&
+        value.validForMillis > 0L && value.fetchedAtEpochMillis > 0L && received > 0L &&
+        nowEpochMillis - received in -BUS_CLOCK_TOLERANCE_MILLIS..BUS_MAX_RECEIPT_AGE_MILLIS &&
+        nowEpochMillis - value.fetchedAtEpochMillis in
+            -BUS_CLOCK_TOLERANCE_MILLIS..minOf(value.validForMillis, BUS_MAX_SOURCE_AGE_MILLIS) &&
         value.firstArrivalAtEpochMillis > nowEpochMillis &&
         (value.nextArrivalAtEpochMillis == null || value.nextArrivalAtEpochMillis > value.firstArrivalAtEpochMillis)
 }
@@ -69,22 +96,27 @@ internal fun OfficialSeoulBusArrival.isUsableBusArrival(nowEpochMillis: Long): B
 /** Actual vehicle IDs may have 9 or 10 digits; station and route IDs remain 9 digits. */
 internal fun String.isOfficialBusVehicleId(): Boolean = matches(Regex("[1-9][0-9]{8,9}"))
 
-/** Canonical issues describe uncertainty. A contradictory VALID flag must not erase them. */
+/** Missing metadata cannot contradict a positive official ETA; explicit service errors can. */
 internal fun hasUncertainSeoulBusServiceState(message: String, issues: Set<String>): Boolean =
-    issues.isNotEmpty() || Regex("운행\\s*종료|출발\\s*대기|회차\\s*대기|정보\\s*없음").containsMatchIn(message)
+    issues.any { it in setOf("SERVICE_ENDED", "BUS_SERVICE_ENDED", "STOP_MISMATCH", "ROUTE_MISMATCH",
+        "DIRECTION_MISMATCH", "AUTHENTICATION_FAILED", "COMMUNICATION_FAILED") } ||
+        Regex("운행\\s*종료").containsMatchIn(message)
 
 internal fun seoulBusArrivalDisplayStatus(arrival: OfficialSeoulBusArrival, nowEpochMillis: Long): String {
+    val value = arrival.snapshot
+    val received = value.receivedAtEpochMillis ?: arrival.gatewayFetchedAtEpochMillis ?: value.fetchedAtEpochMillis
     val reason = when {
         arrival.isFull == true -> "만차 · 탑승 판단에서 제외"
-        arrival.snapshot.trustState == ArrivalTrustState.FUTURE_TIMESTAMP -> "원본·기기 시각 불일치 · 자동 판단 제외"
-        arrival.snapshot.fetchedAtEpochMillis <= 0L -> arrival.statusMessage.ifBlank { "원본 생성 시각 미제공 · 자동 판단 제외" }
-        arrival.snapshot.trustState == ArrivalTrustState.STALE ||
-            nowEpochMillis - arrival.snapshot.fetchedAtEpochMillis > 60_000L -> "원본 도착정보 갱신 대기"
-        arrival.snapshot.trustState == ArrivalTrustState.INVALID_ETA -> "도착 예정시간 확인 필요"
-        arrival.isUsableBusArrival(nowEpochMillis) -> "실시간 자동 판단에 사용할 수 있어요"
-        arrival.snapshot.trustState == ArrivalTrustState.VALID &&
-            arrival.snapshot.firstArrivalAtEpochMillis <= nowEpochMillis -> "예정시각 경과 · 다음 자동 갱신 대기"
-        else -> arrival.statusMessage.ifBlank { "차량·도착 상태 확인 필요" }
+        value.trustState == ArrivalTrustState.FUTURE_TIMESTAMP -> "원본·기기 시각 불일치 · 자동 판단 제외"
+        value.trustState == ArrivalTrustState.INVALID_ETA -> "도착 예정시간 확인 필요"
+        value.trustState == ArrivalTrustState.VALID && value.firstArrivalAtEpochMillis <= nowEpochMillis ->
+            "예정시각 경과 · 다음 자동 갱신 대기"
+        value.trustState == ArrivalTrustState.STALE ||
+            nowEpochMillis - received > BUS_MAX_RECEIPT_AGE_MILLIS ||
+            nowEpochMillis - value.fetchedAtEpochMillis > value.validForMillis -> "공식 도착정보 갱신 대기"
+        arrival.isUsableBusArrival(nowEpochMillis) -> if (value.sourceTimestampAvailable)
+            "실시간 자동 판단에 사용할 수 있어요" else "공식 도착정보 · 조회 수신 시각 기준"
+        else -> arrival.statusMessage.ifBlank { "공식 도착정보 확인 필요" }
     }
     return listOf(arrival.officialArrivalMessage, reason,
         "막차".takeIf { arrival.isLast == true }).filterNotNull().filter(String::isNotBlank).joinToString(" · ")

@@ -2,7 +2,9 @@
 export const BUS_CACHE_TTL_MS = 30_000;
 export const BUS_WINDOW_MS = 86_400_000;
 export const BUS_UPSTREAM_BUDGET = 900;
-export const BUS_MAX_SOURCE_AGE_MS = 60_000;
+export const BUS_MAX_SOURCE_AGE_MS = 600_000;
+const BUS_MAX_RECEIPT_AGE_MS = 60_000;
+const BUS_CLOCK_SKEW_MS = 60_000;
 export const BUS_PROVIDER = 'seoul-bus';
 export type BusTrust = 'VALID' | 'STALE' | 'FUTURE_TIMESTAMP' | 'INVALID_ETA' | 'UNKNOWN';
 export type BusOperation =
@@ -158,16 +160,18 @@ export interface BusArrivalRow {
   raw: Record<string, string>;
 }
 function arrivalTrust(row: BusArrivalRow, fetchedAt: number, now: number): BusTrust {
-  const observed = row.observedAt === null ? null : Date.parse(row.observedAt);
-  if (observed === null || !Number.isFinite(observed)) return 'UNKNOWN';
-  if (observed > fetchedAt) return 'FUTURE_TIMESTAMP';
-  if (now < fetchedAt) return 'UNKNOWN';
-  if (now - observed > BUS_MAX_SOURCE_AGE_MS) return 'STALE';
-  if (row.arrivalSeconds === null || row.arrivalSeconds > 86_400) return 'INVALID_ETA';
-  if (row.arrivalSeconds === 0 || row.full !== false || !/^[1-9]\d{8,9}$/.test(row.vehicleId) ||
-      !supportedType(row.routeType) || row.raw.isArrive !== '0' ||
-      row.raw.deTourAt !== '00' || /운행\s*종료|출발\s*대기|회차\s*대기|정보\s*없음/u.test(row.message)) return 'UNKNOWN';
-  if (observed + row.arrivalSeconds * 1_000 <= now) return 'STALE';
+  const observed = row.observedAt === null ? NaN : Date.parse(row.observedAt);
+  if (!Number.isFinite(fetchedAt) || !Number.isFinite(now)) return 'UNKNOWN';
+  if (fetchedAt > now + BUS_CLOCK_SKEW_MS ||
+      (Number.isFinite(observed) && observed > fetchedAt + BUS_CLOCK_SKEW_MS)) return 'FUTURE_TIMESTAMP';
+  // Receipt time is a fallback ETA baseline, never a fabricated source timestamp.
+  const baseline = Number.isFinite(observed) ? Math.min(observed, fetchedAt) : fetchedAt;
+  if (now - fetchedAt > BUS_MAX_RECEIPT_AGE_MS || now - baseline > BUS_MAX_SOURCE_AGE_MS) return 'STALE';
+  if (row.arrivalSeconds === null || !Number.isSafeInteger(row.arrivalSeconds) ||
+      row.arrivalSeconds < 0 || row.arrivalSeconds > 86_400) return 'INVALID_ETA';
+  // Capacity, vehicle IDs, detour flags and other optional metadata remain display metadata.
+  if (/운행\s*종료/u.test(row.message)) return 'UNKNOWN';
+  if (baseline + row.arrivalSeconds * 1_000 <= now) return 'STALE';
   return 'VALID';
 }
 
@@ -205,7 +209,8 @@ export function normalizeBusPayload(operation: BusOperation, payload: unknown, f
     return { ...base, stopId: operation.stopId, arsId: operation.arsId, routes: [...routes.values()] };
   }
   const matching = rows.filter(row => scalarText(row.stId) === operation.stopId &&
-    scalarText(row.busRouteId) === operation.routeId && canonicalBusOrder(row.staOrd) === operation.stopOrder);
+    scalarText(row.busRouteId) === operation.routeId &&
+    (scalarText(row.staOrd) === null || canonicalBusOrder(row.staOrd) === operation.stopOrder));
   if (rows.length > 0 && matching.length === 0) throw new BusSourceError('BUS_ARRIVAL_MISMATCH', 409);
   if (matching.length > 1 && new Set(matching.map(row => JSON.stringify(row))).size > 1) throw new BusSourceError('BUS_ARRIVAL_AMBIGUOUS', 409);
   const arrivals: BusArrivalRow[] = [];
@@ -228,7 +233,7 @@ export function normalizeBusPayload(operation: BusOperation, payload: unknown, f
         last: booleanFlag(source[`isLast${number}`]), trustState: 'UNKNOWN', issues: [], raw,
       };
       if (sourceTime === null) row.issues.push('SOURCE_TIMESTAMP_MISSING');
-      else if (sourceTime > fetchedAtMs) row.issues.push('SOURCE_FUTURE');
+      else if (sourceTime > fetchedAtMs + BUS_CLOCK_SKEW_MS) row.issues.push('SOURCE_FUTURE');
       if (row.arrivalSeconds === null || row.arrivalSeconds > 86_400) row.issues.push('INVALID_ETA');
       else if (row.arrivalSeconds === 0) row.issues.push('ETA_UNAVAILABLE');
       if (row.full === true) row.issues.push('FULL');
@@ -242,9 +247,11 @@ export function normalizeBusPayload(operation: BusOperation, payload: unknown, f
       arrivals.push(row);
     }
   }
-  // Two source slots may repeat one vehicle; that is never proof of a next bus.
-  if (arrivals.length === 2 && arrivals[0].vehicleId && arrivals[0].vehicleId === arrivals[1].vehicleId) {
-    for (const row of arrivals) { row.trustState = 'UNKNOWN'; row.issues.push('DUPLICATE_VEHICLE'); }
+  // Keep the first official ETA even if both slots repeat one actual vehicle. Clients
+  // must not use that repeated vehicle as evidence of a second bus.
+  if (arrivals.length === 2 && /^[1-9]\d{8,9}$/.test(arrivals[0].vehicleId) &&
+      arrivals[0].vehicleId === arrivals[1].vehicleId) {
+    for (const row of arrivals) row.issues.push('DUPLICATE_VEHICLE');
   }
   return { ...base, stopId: operation.stopId, routeId: operation.routeId, stopOrder: operation.stopOrder,
     sourceGeneratedAt: arrivals[0]?.observedAt ?? null, arrivals };
@@ -253,8 +260,6 @@ export function normalizeBusPayload(operation: BusOperation, payload: unknown, f
 export function refreshBusPayload(payload: string, now: number): string {
   const response = JSON.parse(payload) as { fetchedAt: string; arrivals?: BusArrivalRow[] };
   for (const row of response.arrivals ?? []) {
-    // A future-at-original-query source or conflicting vehicle remains quarantined.
-    if (row.issues.includes('DUPLICATE_VEHICLE')) { row.trustState = 'UNKNOWN'; continue; }
     row.trustState = arrivalTrust(row, Date.parse(response.fetchedAt), now);
   }
   return JSON.stringify(response);

@@ -30,7 +30,8 @@ internal data class JourneySelectionSnapshot(
     val detailsExpanded: Boolean,
     val departureQuery: String = "",
     val departure: JourneyPlace? = null,
-    val gyeonggiMatch: GyeonggiOfficialMatch? = null
+    val gyeonggiMatch: GyeonggiOfficialMatch? = null,
+    val stopDirectionRoute: KakaoTransitChoice? = null
 )
 
 internal fun captureJourneySession(
@@ -43,7 +44,8 @@ internal fun captureJourneySession(
         state.boardingSource, state.boardingChosenByUser, state.boardingMatchedAutomatically,
         state.stationQuery, state.selectedStation, state.busStopQuery, state.selectedBusStop,
         state.selectedBusRoute, state.confirmedServiceIdentity, state.alertsEnabled,
-        state.detailsExpanded, state.departure.query, state.departure.selected, state.selectedGyeonggiMatch)
+        state.detailsExpanded, state.departure.query, state.departure.selected, state.selectedGyeonggiMatch,
+        state.stopDirectionRoute)
 })
 
 /** Use fresh screen instances: dynamic data and in-flight generations always start empty. */
@@ -59,6 +61,7 @@ internal fun restoreJourneyScreens(snapshot: JourneySessionSnapshot?): Map<Featu
                 stop.query = saved.stopQuery
                 stop.selected = saved.stop
                 selectedRoute = saved.selectedRoute
+                stopDirectionRoute = saved.stopDirectionRoute
                 // Only the user's selected itinerary is restored; alternate results need a new search.
                 routes = listOfNotNull(saved.selectedRoute)
                 routeSearchCompleted = saved.selectedRoute != null
@@ -136,6 +139,7 @@ internal fun encodeJourneySession(snapshot: JourneySessionSnapshot): String = JS
             .put("destinationQuery", saved.destinationQuery).putOptional("destination", saved.destination?.toJson())
             .put("stopQuery", saved.stopQuery).putOptional("stop", saved.stop?.toJson())
             .putOptional("selectedRoute", saved.selectedRoute?.toJson())
+            .putOptional("stopDirectionRoute", saved.stopDirectionRoute?.let { JourneyTransitRoute("stop-direction", it).toJson() })
             .putOptional("boarding", saved.boarding?.toJson())
             .putOptional("boardingSource", saved.boardingSource?.name)
             .put("boardingChosenByUser", saved.boardingChosenByUser)
@@ -169,7 +173,8 @@ internal fun decodeJourneySession(text: String?): JourneySessionSnapshot? {
                 row.optJSONObject("busRoute")?.busRoute(), row.optJSONObject("confirmedIdentity")?.identity(),
                 row.flag("alertsEnabled"), row.flag("detailsExpanded"),
                 row.query("departureQuery"), row.place("departure"),
-                decodeGyeonggiMatch(row.optJSONObject("gyeonggiMatch")))
+                decodeGyeonggiMatch(row.optJSONObject("gyeonggiMatch")),
+                row.optJSONObject("stopDirectionRoute")?.route()?.kakao)
         }
         if (screens.map { it.mode }.distinct().size != screens.size) return null
         JourneySessionSnapshot(mode, screens)
@@ -191,7 +196,7 @@ private fun JSONObject.point(): MapPoint? {
     val y = (opt("y") as? Number)?.toDouble() ?: return null
     return MapPoint(x, y).takeIf { x.isFinite() && y.isFinite() && x in -180.0..180.0 && y in -90.0..90.0 }
 }
-private fun JourneyTransitRoute.toJson(): JSONObject {
+internal fun JourneyTransitRoute.toJson(): JSONObject {
     val choice = kakao
     return JSONObject().put("id", id).put("totalSeconds", choice.totalSeconds)
         .putOptional("transfers", choice.transfers).put("serviceName", choice.serviceName)
@@ -200,8 +205,10 @@ private fun JourneyTransitRoute.toJson(): JSONObject {
         .putOptional("totalWalkingSeconds", choice.totalWalkingSeconds).putOptional("boardingStopId", choice.boardingStopId)
         .putOptional("officialBoardingStopId", choice.officialBoardingStopId).putOptional("transitLineId", choice.transitLineId)
         .putOptional("directionName", choice.directionName).putOptional("nextStopName", choice.nextStopName)
+        .put("firstLegStopNames", org.json.JSONArray(choice.firstLegStopNames))
+        .putOptional("alightingStopName", choice.alightingStopName)
 }
-private fun JSONObject.route(): JourneyTransitRoute? {
+internal fun JSONObject.route(): JourneyTransitRoute? {
     val id = text("id", 160) ?: return null
     val total = integer("totalSeconds", 1, 172_800) ?: return null
     val type = text("firstTransitType", 16)?.takeIf { it in setOf("BUS", "SUBWAY") } ?: return null
@@ -210,7 +217,14 @@ private fun JSONObject.route(): JourneyTransitRoute? {
         text("serviceName", 200).orEmpty(), text("boardingStopName", 200).orEmpty(),
         optJSONObject("boardingPoint")?.point(), source, type, integer("totalWalkingSeconds", 0, 86_400),
         text("boardingStopId", 160), text("officialBoardingStopId", 160), text("transitLineId", 160),
-        text("directionName", 200), text("nextStopName", 200)))
+        text("directionName", 200), text("nextStopName", 200),
+        optJSONArray("firstLegStopNames")?.let { names ->
+            if (names.length() > 300) return null
+            (0 until names.length()).map { index ->
+                (names.opt(index) as? String)?.takeIf { it.isNotBlank() && it.length <= 200 && it.none(Char::isISOControl) }
+                    ?: return null
+            }
+        }.orEmpty(), text("alightingStopName", 200)))
 }
 private fun OfficialSubwayStation.toJson() = JSONObject().put("stopId", stopId).put("routeId", routeId)
     .put("name", name).put("lineName", lineName)

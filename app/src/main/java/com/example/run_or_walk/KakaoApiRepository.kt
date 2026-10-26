@@ -197,7 +197,12 @@ internal fun parseTransitChoices(routes: JSONArray?): List<KakaoTransitChoice> =
             boardingStopId = firstStop?.identifier("id"),
             transitLineId = vehicle?.identifier("id"),
             directionName = boardingInfo.nonBlankString("direction"),
-            nextStopName = nextListedStop?.nonBlankString("name")
+            nextStopName = nextListedStop?.nonBlankString("name"),
+            firstLegStopNames = buildList {
+                if (transitStops != null) for (i in 0 until transitStops.length())
+                    transitStops.optJSONObject(i)?.nonBlankString("name")?.let(::add)
+            },
+            alightingStopName = transitStops?.optJSONObject(transitStops.length() - 1)?.nonBlankString("name")
         ))
     }
 }

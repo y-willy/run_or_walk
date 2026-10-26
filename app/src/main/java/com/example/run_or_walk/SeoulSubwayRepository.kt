@@ -46,7 +46,13 @@ data class OfficialSubwayArrival(
     val sourceReceivedAtEpochMillis: Long? = null,
     val gatewayContract: SubwayGatewayContract = SubwayGatewayContract.UNKNOWN,
     val issues: Set<SubwayArrivalIssue> = emptySet(),
-    val sourceEtaSeconds: Long? = null
+    val sourceEtaSeconds: Long? = null,
+    val trainType: String? = null,
+    val destinationName: String? = null,
+    val reportedStationName: String? = null,
+    val arrivalCode: String? = null,
+    val apiOrderKey: String? = null,
+    val officialSlot: Int? = null
 )
 
 enum class SubwayGatewayContract { RAW_FIELDS, LEGACY_ALIASES, UNKNOWN }
@@ -66,7 +72,7 @@ class SeoulSubwayApiException(message: String, val failure: SeoulSubwayFailure,
     val retryAfterEpochMillis: Long? = null, val serverCode: String? = null,
     val httpStatus: Int? = null) : IOException(message)
 
-private const val SEOUL_ARRIVAL_VALIDITY_MILLIS = 60_000L
+private const val SEOUL_ARRIVAL_VALIDITY_MILLIS = 600_000L
 private const val SEOUL_REQUEST_INTERVAL_NANOS = 30_000_000_000L
 private const val SEOUL_MAX_RESPONSE_CHARACTERS = 4_000_000
 
@@ -292,12 +298,13 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
                 row.has("stationId") && row.has("lineId") && row.has("receivedAt") -> SubwayGatewayContract.LEGACY_ALIASES
                 else -> SubwayGatewayContract.UNKNOWN
             }
-            val arrival = if (sourceTime != null && seconds != null) sourceTime + seconds * 1_000L else 0L
+            val basis = minOf(sourceTime ?: gatewayFetched, gatewayFetched, now)
+            val arrival = if (seconds != null) basis + seconds * 1_000L else 0L
             val issues = buildSet {
                 if (contract == SubwayGatewayContract.LEGACY_ALIASES) add(SubwayArrivalIssue.LEGACY_GATEWAY_FIELDS)
                 if (sourceTime == null) add(SubwayArrivalIssue.SOURCE_TIMESTAMP_MISSING)
-                if (sourceTime != null && sourceTime > gatewayFetched) add(SubwayArrivalIssue.SOURCE_FUTURE)
-                if (gatewayFetched > now && (sourceTime == null || sourceTime <= gatewayFetched))
+                if (sourceTime != null && sourceTime > gatewayFetched + 60_000L) add(SubwayArrivalIssue.SOURCE_FUTURE)
+                if (gatewayFetched > now + 60_000L && (sourceTime == null || sourceTime <= gatewayFetched))
                     add(SubwayArrivalIssue.DEVICE_CLOCK_BEHIND)
                 if (sourceTime != null && now - sourceTime > SEOUL_ARRIVAL_VALIDITY_MILLIS)
                     add(SubwayArrivalIssue.SOURCE_STALE)
@@ -305,26 +312,23 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
                 else if (seconds == 0L) add(SubwayArrivalIssue.ETA_UNAVAILABLE)
                 else if (arrival <= now && sourceTime != null) add(SubwayArrivalIssue.COUNTDOWN_ELAPSED)
                 if (!complete) add(SubwayArrivalIssue.MISSING_SERVICE_IDENTITY)
-                if (direction !in setOf("상행", "하행", "내선", "외선") || code !in setOf("3", "4", "5", "99"))
+                if (direction !in setOf("상행", "하행", "내선", "외선") || code == "2")
                     add(SubwayArrivalIssue.ARRIVAL_STATE_UNCERTAIN)
             }
             val computed = when {
-                sourceTime == null -> ArrivalTrustState.UNKNOWN
-                sourceTime > gatewayFetched || sourceTime > now || gatewayFetched > now ->
+                sourceTime?.let { it > gatewayFetched + 60_000L } == true || gatewayFetched > now + 60_000L ->
                     ArrivalTrustState.FUTURE_TIMESTAMP
-                now - sourceTime > SEOUL_ARRIVAL_VALIDITY_MILLIS -> ArrivalTrustState.STALE
+                now - basis > SEOUL_ARRIVAL_VALIDITY_MILLIS -> ArrivalTrustState.STALE
                 seconds == null -> ArrivalTrustState.INVALID_ETA
                 seconds == 0L -> ArrivalTrustState.UNKNOWN
                 arrival <= now -> ArrivalTrustState.STALE
-                !complete || direction !in setOf("상행", "하행", "내선", "외선") ||
-                    code !in setOf("3", "4", "5", "99") -> ArrivalTrustState.UNKNOWN
+                direction !in setOf("상행", "하행", "내선", "외선") || code == "2" -> ArrivalTrustState.UNKNOWN
                 else -> ArrivalTrustState.VALID
             }
-            val serverTrust = text("trustState")?.let {
-                runCatching { ArrivalTrustState.valueOf(it) }.getOrDefault(ArrivalTrustState.UNKNOWN)
-            }
             // A server's VALID cannot override the phone's own clock/schema checks.
-            val trust = if (computed == ArrivalTrustState.VALID && serverTrust != null) serverTrust else computed
+            // Old gateways may mark a sound official ETA UNKNOWN for optional missing fields.
+            // Classify the actual ETA, service, timestamps and departure state on the phone.
+            val trust = computed
             val identity = OfficialBoardingIdentity("seoul", station.stopId, station.routeId, direction,
                 listOf(service, trainType.orEmpty(), destinationId.orEmpty(), destinationName.orEmpty(),
                     nextStationId.orEmpty()).joinToString("") { "${it.length}:$it" })
@@ -341,27 +345,35 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
                     .ifBlank { service },
                 trainId,
                 RealtimeArrivalSnapshot(identity, arrival,
-                    fetchedAtEpochMillis = sourceTime ?: 0L,
+                    fetchedAtEpochMillis = basis,
                     validForMillis = SEOUL_ARRIVAL_VALIDITY_MILLIS,
-                    reliable = trust == ArrivalTrustState.VALID, trustState = trust),
+                    reliable = trust == ArrivalTrustState.VALID, trustState = trust,
+                    sourceTimestampAvailable = sourceTime != null, receivedAtEpochMillis = gatewayFetched,
+                    vehicleIdentityFallback = if (trainId.isBlank()) "official-slot:${row.optInt("rowNum", index + 1)}" else null),
                 message, gatewayFetched,
-                text("arvlMsg2", "arrivalMessage").orEmpty(), sourceTime, contract, issues, seconds
+                text("arvlMsg2", "arrivalMessage").orEmpty(), sourceTime, contract, issues, seconds,
+                trainType, destinationName, text("arvlMsg3"), code, text("ordkey"), row.optInt("rowNum", index + 1)
             ))
         }
     }
-    // Conflicting observations of one vehicle are not resolved by list order.
+    // A newer official observation replaces an older one. Only contradictory rows with
+    // the same source clock are ambiguous; a normal countdown update is not a failure.
     val unique = arrivals.filter { it.trainId.isBlank() } + arrivals.filter { it.trainId.isNotBlank() }
         .groupBy { it.identity to it.trainId }.values.map { values ->
         val latest = values.maxBy { it.snapshot.fetchedAtEpochMillis }
-        if (values.distinctBy { it.snapshot }.size > 1) latest.copy(snapshot = latest.snapshot.copy(
+        val sameObservation = values.filter {
+            it.snapshot.fetchedAtEpochMillis == latest.snapshot.fetchedAtEpochMillis
+        }
+        if (sameObservation.distinctBy { it.snapshot }.size > 1) latest.copy(snapshot = latest.snapshot.copy(
             reliable = false, trustState = if (values.any {
                 it.snapshot.trustState == ArrivalTrustState.FUTURE_TIMESTAMP
             }) ArrivalTrustState.FUTURE_TIMESTAMP else ArrivalTrustState.UNKNOWN)) else latest
     }
     return unique.map { selected ->
         val next = if (selected.snapshot.reliable) unique.asSequence()
-            .filter { it.identity == selected.identity && it.trainId.isNotBlank() &&
-                it.trainId != selected.trainId && it.snapshot.reliable &&
+            .filter { it.identity == selected.identity &&
+                (it.trainId.isBlank() || selected.trainId.isBlank() || it.trainId != selected.trainId) &&
+                it.officialSlot != selected.officialSlot && it.snapshot.reliable &&
                 it.snapshot.firstArrivalAtEpochMillis > selected.snapshot.firstArrivalAtEpochMillis }
             .minByOrNull { it.snapshot.firstArrivalAtEpochMillis } else null
         val expiry = minOf(selected.snapshot.fetchedAtEpochMillis + selected.snapshot.validForMillis,
@@ -414,7 +426,7 @@ internal fun subwayArrivalDisplayStatus(arrival: OfficialSubwayArrival, now: Lon
         SubwayArrivalIssue.SOURCE_FUTURE in arrival.issues ->
             "서울시 원본 생성 시각이 서버 조회 시각보다 늦어요 · 자동 판단 제외"
         SubwayArrivalIssue.DEVICE_CLOCK_BEHIND in arrival.issues ||
-            arrival.gatewayFetchedAtEpochMillis?.let { it > now } == true ->
+            arrival.gatewayFetchedAtEpochMillis?.let { it > now + 60_000L } == true ->
             "기기 날짜·시간이 서버보다 느려요 · 자동 날짜·시간 설정을 확인해 주세요"
         source != null && now - source > SEOUL_ARRIVAL_VALIDITY_MILLIS ->
             if (SubwayArrivalIssue.ETA_UNAVAILABLE in arrival.issues)
@@ -423,7 +435,7 @@ internal fun subwayArrivalDisplayStatus(arrival: OfficialSubwayArrival, now: Lon
         SubwayArrivalIssue.INVALID_ETA in arrival.issues -> "도착 예정시간이 유효하지 않아요"
         SubwayArrivalIssue.ETA_UNAVAILABLE in arrival.issues -> "열차 위치 정보로 안내 중 · 도착 시각 미제공"
         SubwayArrivalIssue.SOURCE_TIMESTAMP_MISSING in arrival.issues -> "원본 생성 시각 미제공"
-        SubwayArrivalIssue.MISSING_SERVICE_IDENTITY in arrival.issues -> "열차·운행 식별정보 부족 · 자동 판단 제외"
+        SubwayArrivalIssue.MISSING_SERVICE_IDENTITY in arrival.issues -> "일부 운행정보 미제공 · 공식 예정시간 사용"
         SubwayArrivalIssue.COUNTDOWN_ELAPSED in arrival.issues ||
             arrival.snapshot.firstArrivalAtEpochMillis <= now -> "도착 예정시각 경과 · 다음 자동 갱신 대기"
         arrival.snapshot.trustState == ArrivalTrustState.VALID && arrival.snapshot.reliable -> "자동 판단에 사용할 수 있어요"
@@ -443,14 +455,14 @@ internal fun subwayArrivalDiagnosticSummary(arrivals: List<OfficialSubwayArrival
     arrivals.all { SubwayArrivalIssue.SOURCE_FUTURE in it.issues } ->
         "도착정보 수신 완료 · 서울시 원본 생성 시각이 서버 조회보다 늦어 자동 판단에서 제외했어요."
     arrivals.any { SubwayArrivalIssue.DEVICE_CLOCK_BEHIND in it.issues ||
-        it.gatewayFetchedAtEpochMillis?.let { fetched -> fetched > now } == true } ->
+        it.gatewayFetchedAtEpochMillis?.let { fetched -> fetched > now + 60_000L } == true } ->
         "기기 날짜·시간이 서버 시각보다 느려요. 휴대전화의 날짜·시간 자동 설정을 확인해 주세요."
     arrivals.all { SubwayArrivalIssue.ETA_UNAVAILABLE in it.issues } ->
         if (arrivals.all { now - it.snapshot.fetchedAtEpochMillis > SEOUL_ARRIVAL_VALIDITY_MILLIS })
-            "도착정보 수신 완료 · 원본 예정시간이 모두 0초이고 60초 이상 갱신되지 않아 자동 판단을 보류했어요."
+            "도착정보 수신 완료 · 원본 예정시간이 모두 0초이고 장시간 갱신되지 않아 자동 판단을 보류했어요."
         else "도착정보 수신 완료 · 서울시 원본의 도착예정시간이 모두 0초라 자동 판단을 보류했어요."
     arrivals.all { now - it.snapshot.fetchedAtEpochMillis > SEOUL_ARRIVAL_VALIDITY_MILLIS } ->
-        "도착정보 수신 완료 · 서울시 원본 정보가 60초 이상 갱신되지 않아 자동 판단을 보류했어요."
+        "도착정보 수신 완료 · 서울시 원본 예정시각이 지났거나 정보가 오래되어 다음 갱신을 기다려요."
     else -> "도착정보 수신 완료 · 유효한 예정시간과 열차 상태가 확인될 때까지 자동 판단을 보류해요."
 }
 

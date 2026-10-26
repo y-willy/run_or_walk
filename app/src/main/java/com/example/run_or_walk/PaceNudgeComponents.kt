@@ -158,7 +158,9 @@ fun AutomaticGuidanceCard(
     vehicleLabel: String = "열차",
     movementHint: String = "역 내부 이동과 신호 대기는 확인해 주세요.",
     informationReceived: Boolean = false,
-    arrivalLabel: String = "차량 도착"
+    arrivalLabel: String = "차량 도착",
+    arrivalPrecision: ArrivalTimePrecision = ArrivalTimePrecision.SECONDS,
+    estimateLabel: String? = null
 ) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < .5f
     val (symbol, title, tint) = when (assessment.status) {
@@ -177,7 +179,8 @@ fun AutomaticGuidanceCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
             if (serviceLabel.isNotBlank()) Text(serviceLabel,
                 style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            Text(listOf(symbol, title).filter(String::isNotBlank).joinToString(" "),
+            Text(listOf(symbol, "시간표 추정 · ".takeIf { assessment.arrivalSource == GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION }.orEmpty() + title)
+                .filter(String::isNotBlank).joinToString(" "),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.ExtraBold, color = tint)
             if (assessment.status == AutoGuidanceStatus.UNKNOWN) {
@@ -192,7 +195,7 @@ fun AutomaticGuidanceCard(
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(arrivalLabel, style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(arrivalInformation ?: arrivalText(firstArrivalAtEpochMillis, nowEpochMillis),
+                        Text(arrivalInformation ?: arrivalText(firstArrivalAtEpochMillis, nowEpochMillis, arrivalPrecision),
                             style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -207,7 +210,7 @@ fun AutomaticGuidanceCard(
                 }
             }
             nextArrivalAtEpochMillis?.let {
-                Text("다음 " + vehicleLabel + " · " + arrivalText(it, nowEpochMillis),
+                Text("다음 " + vehicleLabel + " · " + arrivalText(it, nowEpochMillis, arrivalPrecision),
                     style = MaterialTheme.typography.bodySmall)
             }
             arrivalFetchedAtEpochMillis?.let {
@@ -216,6 +219,8 @@ fun AutomaticGuidanceCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            estimateLabel?.let { Text(it.replace(" · 유효기간 미확인", ""),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (assessment.status != AutoGuidanceStatus.UNKNOWN) {
                 Text("안전 여유 " + settingsBufferLabel(assessment.bufferSeconds) +
                     " 포함 · " + movementHint,
@@ -233,9 +238,10 @@ fun AutomaticGuidanceCard(
     }
 }
 
-private fun arrivalText(arrival: Long?, now: Long): String = when {
+private fun arrivalText(arrival: Long?, now: Long, precision: ArrivalTimePrecision = ArrivalTimePrecision.SECONDS): String = when {
     arrival == null -> "정보 없음"
     arrival <= now -> "도착 시각 경과 · 갱신 필요"
+    precision == ArrivalTimePrecision.MINUTES -> "약 " + ((arrival - now + 59_999L) / 60_000L).coerceAtLeast(1) + "분 후"
     else -> "${durationText(ceil((arrival - now) / 1000.0).toLong())} 후"
 }
 

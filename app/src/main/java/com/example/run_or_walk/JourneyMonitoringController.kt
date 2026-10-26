@@ -24,7 +24,8 @@ internal data class JourneyMonitoringState(
     val walkingDistanceMeters: Int? = null,
     val providerWalkingSeconds: Int? = null,
     val walkingPoints: List<MapPoint> = emptyList(),
-    val subwayObservations: List<OfficialSubwayArrival> = emptyList()
+    val subwayObservations: List<OfficialSubwayArrival> = emptyList(),
+    val timetableAnalysis: SubwayTimetableAnalysis? = null
 ) {
     val isRunning: Boolean get() = running
 }
@@ -101,9 +102,11 @@ internal fun monitoringStateWithSettings(
         if (distance == null || providerSeconds == null || distance < 0 || providerSeconds < 0) null
         else previous.copy(durationSeconds = request.settings.walkingSeconds(distance, providerSeconds))
     }
+    val evidence = selectTimetableEvidence(state.timetableAnalysis, nowEpochMillis)
+    val identity = state.arrivals?.identity ?: evidence?.identity ?: request.identity
     val assessment = calculateAutoGuidance(AutoGuidanceInput(state.location,
-        GuidanceBoarding(request.identity, request.boardingPoint, true), walking, state.arrivals,
-        locationPermissionGranted, bufferSeconds = request.settings.bufferSeconds), nowEpochMillis,
+        GuidanceBoarding(identity, request.boardingPoint, true), walking?.copy(boardingIdentity = identity), state.arrivals,
+        locationPermissionGranted, bufferSeconds = request.settings.bufferSeconds, timetableArrivals = evidence), nowEpochMillis,
         AutoGuidancePolicy(fastSpeedKmh = request.settings.fastSpeedKmh))
     val message = if (assessment.status == AutoGuidanceStatus.UNKNOWN) {
         val operation = subwayOperationGuidance(request.subwayStation, null, request.identity,

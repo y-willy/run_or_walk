@@ -29,7 +29,11 @@ internal data class GyeonggiBusArrivalDisplay(
     val fetchedAtMillis: Long,
     val observedAtMillis: Long?,
     val trust: ArrivalTrustState,
-    val sequence: Int
+    val sequence: Int,
+    val etaPrecision: ArrivalTimePrecision = ArrivalTimePrecision.SECONDS,
+    val sourceTimestampAvailable: Boolean = observedAtMillis != null,
+    /** Fix clock-skew clamping once per response, so a screen tick cannot move the ETA. */
+    val normalizedAtMillis: Long? = null
 )
 internal class GyeonggiBusRepository(
     private val baseUrl: String = BuildConfig.SUBWAY_GATEWAY_URL
@@ -97,39 +101,35 @@ internal fun parseGyeonggiWorkerArrivals(
         }.getOrNull() }
     val rows = root.optJSONArray("arrivals") ?: throw IOException("경기 도착정보 배열이 없어요.")
     if (rows.length() > 600) throw IOException("경기 도착정보 건수가 올바르지 않아요.")
+    val routeSlots = mutableMapOf<Pair<String, String>, Int>()
     return buildList {
         for (index in 0 until rows.length()) {
             val row = rows.optJSONObject(index) ?: continue
             if (row.optString("stationId") != stationId) continue
             val routeId = row.optString("routeId").takeIf { it.matches(Regex("[1-9][0-9]{5,11}")) } ?: continue
-            val order = row.optString("staOrder").takeIf { it.matches(Regex("[1-9][0-9]{0,3}")) } ?: continue
+            val rawOrder = row.optString("staOrder").takeUnless { it == "null" }.orEmpty()
+            if (rawOrder.isNotBlank() && !rawOrder.matches(Regex("[1-9][0-9]{0,3}"))) continue
+            val order = rawOrder
             val exactSeconds = row.opt("arrivalSeconds")?.toString()?.toDoubleOrNull()
                 ?.takeIf { it.isFinite() && it in 0.0..86_400.0 && it % 1.0 == 0.0 }?.toInt()
             val providerObserved = row.optString("observedAt").takeIf(String::isNotBlank)
                 ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
-                ?: sourceObservedAt ?: fetchedAt
-            // Allow small differences between the GBIS, Worker and device clocks.
-            val observedAt = if (providerObserved > fetchedAt && providerObserved - fetchedAt <= 15_000L)
-                fetchedAt else providerObserved
-            val effectiveObservedAt = if (observedAt > nowMillis && observedAt - nowMillis <= 15_000L)
-                nowMillis else observedAt
-            val computed = when {
-                providerObserved > fetchedAt + 15_000L || providerObserved > nowMillis + 15_000L ||
-                    fetchedAt > nowMillis + 15_000L ->
-                    ArrivalTrustState.FUTURE_TIMESTAMP
-                nowMillis - fetchedAt > 60_000L || nowMillis - effectiveObservedAt > 60_000L ->
-                    ArrivalTrustState.STALE
-                exactSeconds == null || exactSeconds == 0 -> ArrivalTrustState.INVALID_ETA
-                row.optString("status").isNotBlank() &&
-                    row.optString("status") !in setOf("RUN", "PASS") -> ArrivalTrustState.UNKNOWN
-                effectiveObservedAt + exactSeconds * 1_000L <= nowMillis -> ArrivalTrustState.STALE
-                else -> ArrivalTrustState.VALID
-            }
+                ?: sourceObservedAt
+            val timedTrust = officialBusArrivalTrust(exactSeconds?.toLong(), providerObserved, fetchedAt, nowMillis)
+            val computed = if (Regex("^(END|ENDED|CLOSED|TERMINATED)$|운행\\s*종료", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(row.optString("status"))) ArrivalTrustState.UNKNOWN else timedTrust
+            val routeSlot = routeId to order
+            val slotIndex = (routeSlots[routeSlot] ?: 0) + 1
+            routeSlots[routeSlot] = slotIndex
+            val sequence = row.optInt("sequence", 0).takeIf { it in 1..2 } ?: slotIndex
             // Official minute-only ETAs are usable. A vehicle ID is optional, not a trust gate.
+            // Keep an absent original timestamp absent; fetchedAt is only the ETA receipt basis.
             add(GyeonggiBusArrivalDisplay(stationId, routeId, order,
-                row.optString("routeName"), row.optString("direction"), row.optString("vehicleId"),
-                exactSeconds, fetchedAt, effectiveObservedAt, computed,
-                row.optInt("sequence", 0)))
+                row.optString("routeName"), row.optString("direction"),
+                row.optString("vehicleId").takeIf { it.matches(Regex("[1-9][0-9]+")) }.orEmpty(),
+                exactSeconds, fetchedAt, providerObserved, computed, sequence,
+                if (row.optString("etaPrecision") == "minutes") ArrivalTimePrecision.MINUTES
+                else ArrivalTimePrecision.SECONDS, providerObserved != null, nowMillis))
         }
     }
 }
