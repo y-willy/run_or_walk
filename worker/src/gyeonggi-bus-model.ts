@@ -2,6 +2,9 @@
 export const GYEONGGI_CACHE_MS = 30_000;
 export const GYEONGGI_WINDOW_MS = 86_400_000;
 export const GYEONGGI_BUDGET = 900; // Reserved under the advertised 1,000/day allowance.
+const MAX_SOURCE_AGE_MS = 600_000;
+const MAX_RECEIPT_AGE_MS = 60_000;
+const CLOCK_SKEW_MS = 60_000;
 export type GyeonggiOperation =
   | { kind: 'list'; stationId: string }
   | { kind: 'item'; stationId: string; routeId: string; staOrder: string };
@@ -95,16 +98,19 @@ export interface GyeonggiPayload {
 }
 export function computeGyeonggiTrust(row: GyeonggiArrival, fetchedAtMs: number, nowMs: number): GyeonggiTrust {
   const observedMs = row.observedAt ? Date.parse(row.observedAt) : NaN;
-  if (!Number.isFinite(observedMs)) return 'UNKNOWN';
-  if (observedMs > fetchedAtMs + 15_000 || observedMs > nowMs + 15_000) return 'FUTURE_TIMESTAMP';
-  if (nowMs < fetchedAtMs || nowMs - fetchedAtMs > 60_000 ||
-      nowMs - observedMs > 60_000) return 'STALE';
-  if (row.arrivalSeconds === null || row.arrivalSeconds <= 0 || row.arrivalSeconds > 86_400)
+  if (!Number.isFinite(fetchedAtMs) || !Number.isFinite(nowMs)) return 'UNKNOWN';
+  if (fetchedAtMs > nowMs + CLOCK_SKEW_MS ||
+      (Number.isFinite(observedMs) && observedMs > fetchedAtMs + CLOCK_SKEW_MS)) return 'FUTURE_TIMESTAMP';
+  // A missing source clock does not invalidate an official ETA. fetchedAt is its receipt
+  // baseline only; observedAt remains null so clients never mistake it for a source clock.
+  const baseline = Number.isFinite(observedMs) ? Math.min(observedMs, fetchedAtMs) : fetchedAtMs;
+  if (nowMs - fetchedAtMs > MAX_RECEIPT_AGE_MS || nowMs - baseline > MAX_SOURCE_AGE_MS) return 'STALE';
+  if (row.arrivalSeconds === null || !Number.isSafeInteger(row.arrivalSeconds) ||
+      row.arrivalSeconds < 0 || row.arrivalSeconds > 86_400)
     return 'INVALID_ETA';
-  // Route, stop and ETA come from GBIS. Missing vehicle IDs or second precision are not failures.
-  // Explicit STOP/WAIT/unknown flags disqualify an ETA; a missing flag alone does not.
-  if (row.status !== null && !['RUN', 'PASS'].includes(row.status)) return 'UNKNOWN';
-  if (Math.min(observedMs, fetchedAtMs) + row.arrivalSeconds * 1_000 <= nowMs) return 'STALE';
+  // Vehicle identity, minute precision and optional status metadata do not erase an ETA.
+  if (/^(?:END|ENDED|CLOSED|TERMINATED)$|운행\s*종료/iu.test(row.status ?? '')) return 'UNKNOWN';
+  if (baseline + row.arrivalSeconds * 1_000 <= nowMs) return 'STALE';
   return 'VALID';
 }
 export function normalizeGyeonggiResponse(payload: unknown, op: GyeonggiOperation, fetchedAtMs: number): GyeonggiPayload {
@@ -126,20 +132,15 @@ export function normalizeGyeonggiResponse(payload: unknown, op: GyeonggiOperatio
   const rows = Array.isArray(sourceRows) ? sourceRows : [sourceRows];
   if (rows.length > 300) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
   const sourceObservedMs = parseKst(header.queryTime);
-  // Bound a small (~6 s observed) upstream clock lead by the successful HTTPS receipt time.
-  // The original sourceQueryTime remains available for diagnostics.
-  const observedMs = sourceObservedMs === null ||
-    (sourceObservedMs > fetchedAtMs && sourceObservedMs - fetchedAtMs <= 15_000)
-    ? fetchedAtMs : sourceObservedMs;
-  const observedAt = new Date(observedMs).toISOString();
+  const observedAt = sourceObservedMs === null ? null : new Date(sourceObservedMs).toISOString();
   const arrivals: GyeonggiArrival[] = [];
   for (const original of rows) {
     const row = record(original);
     if (!row) throw new GyeonggiPayloadError('GYEONGGI_INVALID_RESPONSE');
     const stationId = text(row.stationId) ?? op.stationId;
     const routeId = text(row.routeId) ?? (op.kind === 'item' ? op.routeId : null);
-    const staOrder = text(row.staOrder) ?? (op.kind === 'item' ? op.staOrder : null);
-    if (stationId !== op.stationId || !officialId(routeId) || !order(staOrder)) continue;
+    const staOrder = text(row.staOrder) ?? (op.kind === 'item' ? op.staOrder : '');
+    if (stationId !== op.stationId || !officialId(routeId) || (staOrder !== '' && !order(staOrder))) continue;
     if (op.kind === 'item' && (routeId !== op.routeId || staOrder !== op.staOrder)) continue;
     for (const sequence of [1, 2] as const) {
       const exactSeconds = numeric(row['predictTimeSec' + sequence]);

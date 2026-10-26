@@ -11,9 +11,7 @@ internal class JourneyMonitoringAlertGate {
     fun claim(identity: OfficialBoardingIdentity, vehicleId: String?, assessment: AutoGuidanceAssessment,
         arrivals: RealtimeArrivalSnapshot?, now: Long): JourneyMonitoringAlert? {
         val usable = arrivals != null && vehicleId?.isNotBlank() == true && arrivals.identity == identity &&
-            arrivals.reliable && arrivals.trustState == ArrivalTrustState.VALID && arrivals.validForMillis > 0L &&
-            now - arrivals.fetchedAtEpochMillis in 0L..minOf(arrivals.validForMillis, 60_000L) &&
-            arrivals.firstArrivalAtEpochMillis > now
+            arrivals.hasUsableOfficialEta(now)
         val decision = decideAutoGuidanceVibration(guidanceState, usable, identity, assessment.status,
             now, vehicleId = vehicleId)
         guidanceState = decision.state
@@ -39,6 +37,7 @@ internal fun monitoringAlertLifetimeMillis(
     val target = if (alert.kind == JourneyMonitoringAlertKind.GUIDANCE_CHANGED &&
         alert.status == AutoGuidanceStatus.NEXT_VEHICLE) arrivals.nextArrivalAtEpochMillis
         ?: arrivals.firstArrivalAtEpochMillis else arrivals.firstArrivalAtEpochMillis
-    val sourceRemaining = minOf(arrivals.validForMillis, 60_000L) - (now - arrivals.fetchedAtEpochMillis)
-    return minOf(sourceRemaining, target - now).coerceIn(0L, 60_000L)
+    val sourceRemaining = minOf(arrivals.validForMillis, 600_000L) - (now - arrivals.fetchedAtEpochMillis)
+    val receiptRemaining = arrivals.receivedAtEpochMillis?.let { 60_000L - (now - it) } ?: 60_000L
+    return minOf(sourceRemaining, receiptRemaining, target - now).coerceIn(0L, 60_000L)
 }

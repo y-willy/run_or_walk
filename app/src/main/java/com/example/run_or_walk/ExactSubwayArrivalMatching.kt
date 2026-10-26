@@ -15,10 +15,9 @@ internal fun chooseMatchingSubwayArrival(
 ): OfficialSubwayArrival? {
     if (verifiedIdentity == null || !verifiedIdentity.isComplete || nowEpochMillis < 0L) return null
     val exact = arrivals.filter {
-        it.identity == verifiedIdentity && it.snapshot.identity == verifiedIdentity &&
-            it.trainId.isNotBlank()
+        it.identity == verifiedIdentity && it.snapshot.identity == verifiedIdentity
     }
-    val candidates = exact.groupBy { it.trainId }.values.mapNotNull { observations ->
+    val candidates = exact.groupBy { it.trainId.ifBlank { it.snapshot.vehicleIdentityFallback ?: "eta:${it.snapshot.firstArrivalAtEpochMillis}" } }.values.mapNotNull { observations ->
         // Repeated identical rows are harmless; conflicting rows for one vehicle are uncertain.
         observations.distinct().singleOrNull()
     }.filter { arrival ->
@@ -26,8 +25,9 @@ internal fun chooseMatchingSubwayArrival(
         snapshot.reliable && snapshot.trustState == ArrivalTrustState.VALID &&
             snapshot.validForMillis > 0L && snapshot.fetchedAtEpochMillis >= 0L &&
             snapshot.fetchedAtEpochMillis <= nowEpochMillis &&
-            nowEpochMillis - snapshot.fetchedAtEpochMillis <= minOf(snapshot.validForMillis, 60_000L) &&
+            nowEpochMillis - snapshot.fetchedAtEpochMillis <= minOf(snapshot.validForMillis, 600_000L) &&
             snapshot.firstArrivalAtEpochMillis >= nowEpochMillis &&
+            (snapshot.receivedAtEpochMillis == null || nowEpochMillis - snapshot.receivedAtEpochMillis <= 60_000L) &&
             (snapshot.nextArrivalAtEpochMillis == null ||
                 snapshot.nextArrivalAtEpochMillis > snapshot.firstArrivalAtEpochMillis)
     }

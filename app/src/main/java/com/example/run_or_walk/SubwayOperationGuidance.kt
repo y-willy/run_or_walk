@@ -39,7 +39,8 @@ internal fun subwayOperationGuidance(
             row.officialArrivalMessage.none(Char::isISOControl) &&
             row.issues.none { it in setOf(SubwayArrivalIssue.SOURCE_FUTURE, SubwayArrivalIssue.DEVICE_CLOCK_BEHIND) }
     }
-    val rows = subwayRouteArrivalRows(route, candidates).distinctBy {
+    val routeDirectionPending = route != null && subwayRouteArrivalRows(route, candidates).isEmpty()
+    val rows = subwayDisplayArrivalRows(route, candidates).distinctBy {
         Triple(it.identity, it.trainId, it.officialArrivalMessage)
     }.sortedByDescending { it.sourceReceivedAtEpochMillis }
         .groupBy { it.identity.directionId }.values.flatMap { it.take(2) }.take(4)
@@ -51,8 +52,10 @@ internal fun subwayOperationGuidance(
         "${row.directionLabel}\n$previous${row.officialArrivalMessage} · 원본 생성 ${age}초 전"
     }
     return SubwayOperationGuidance(
-        if (hasCurrent) "열차 위치 안내 중" else "마지막 수신 열차 위치",
-        descriptions + "\n도착시간 대신 공식 위치·운행 메시지로 안내해요.",
+        if (routeDirectionPending) "열차 위치 수신 · 목적지 방향 대조 중"
+        else if (hasCurrent) "열차 위치 안내 중" else "마지막 수신 열차 위치",
+        descriptions + if (routeDirectionPending) "\n위치는 수신됐어요. 공식 정차 순서로 목적지 방면을 확인해요."
+        else "\n도착시간 대신 공식 위치·운행 메시지로 안내해요.",
         if (rows.size == 1) rows.single().officialArrivalMessage else "방향별 위치 정보 수신",
         rows.maxOf { requireNotNull(it.sourceReceivedAtEpochMillis) }, hasCurrent)
 }

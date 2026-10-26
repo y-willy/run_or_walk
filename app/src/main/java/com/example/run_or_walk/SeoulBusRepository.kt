@@ -31,7 +31,6 @@ class SeoulBusApiException(
 ) : IOException(message)
 
 private const val BUS_REQUEST_INTERVAL_NANOS = 30_000_000_000L
-private const val BUS_VALIDITY_MILLIS = 60_000L
 private const val BUS_MAX_RESPONSE_CHARS = 2_000_000
 
 /** The Seoul bus service key lives only on the Worker. No bus key is compiled into the APK. */
@@ -191,7 +190,8 @@ internal fun parseWorkerSeoulBusRoutes(json: String, stop: OfficialSeoulBusStop)
             val name = row.busText("name") ?: continue
             val direction = row.busText("direction").orEmpty()
             val routeType = row.busText("routeType").orEmpty()
-            val supported = row.busBoolean("supported") == true && routeType in setOf("2", "3", "4", "5", "6")
+            val supported = row.busBoolean("supported") != false &&
+                (routeType.isBlank() || routeType in setOf("2", "3", "4", "5", "6"))
             add(OfficialSeoulBusRoute(stop.stopId, id, name, order, direction, routeType, supported))
         }
     }.groupBy { it.routeId to it.stopOrder }.values.mapNotNull { it.distinct().singleOrNull() }
@@ -208,75 +208,55 @@ internal fun parseWorkerSeoulBusArrivals(json: String, route: OfficialSeoulBusRo
         for (i in 0 until rows.length()) {
             val row = rows.optJSONObject(i) ?: continue
             if (row.busText("stopId") != route.stopId || row.busText("routeId") != route.routeId ||
-                row.busText("stopOrder") != route.stopOrder) continue
+                row.busText("stopOrder")?.let { it != route.stopOrder } == true) continue
             val observedAt = row.busInstant("observedAt")
             val seconds = row.busNumber("arrivalSeconds")?.takeIf {
                 it >= 0.0 && it <= 86_400.0 && it % 1.0 == 0.0 }?.toLong()
             val full = row.busBoolean("full")
             val vehicle = row.busText("vehicleId")?.takeIf(String::isOfficialBusVehicleId).orEmpty()
-            val raw = row.optJSONObject("raw")
-            val vehicleState = raw?.busText("isArrive")
-            val detour = raw?.busText("deTourAt")
-            val routeType = row.busText("routeType")
             val issues = row.optJSONArray("issues")?.busStrings().orEmpty().toSet()
             val officialMessage = row.busText("message").orEmpty()
-            val serviceStateUncertain = hasUncertainSeoulBusServiceState(officialMessage, issues)
-            val arrivalAt = if (observedAt != null && seconds != null) observedAt + seconds * 1_000L else 0L
-            val calculated = when {
-                observedAt == null || observedAt <= 0L -> ArrivalTrustState.UNKNOWN
-                observedAt > fetchedAt || observedAt > nowEpochMillis || fetchedAt > nowEpochMillis -> ArrivalTrustState.FUTURE_TIMESTAMP
-                nowEpochMillis - observedAt > BUS_VALIDITY_MILLIS -> ArrivalTrustState.STALE
-                seconds == null -> ArrivalTrustState.INVALID_ETA
-                seconds == 0L || full != false || vehicle.isBlank() || !route.identity.isComplete || !route.supported ||
-                    routeType !in setOf("2", "3", "4", "5", "6") || routeType != route.routeType ||
-                    vehicleState != "0" || detour != "00" || serviceStateUncertain -> ArrivalTrustState.UNKNOWN
-                arrivalAt <= nowEpochMillis -> ArrivalTrustState.STALE
-                else -> ArrivalTrustState.VALID
-            }
-            val serverTrust = row.busText("trustState")?.let {
-                runCatching { ArrivalTrustState.valueOf(it) }.getOrDefault(ArrivalTrustState.UNKNOWN)
-            } ?: ArrivalTrustState.UNKNOWN
-            val trust = if (calculated == ArrivalTrustState.VALID) serverTrust else calculated
+            val observed = officialBusEffectiveObservedAt(observedAt, fetchedAt, nowEpochMillis)
+            val arrivalAt = seconds?.let { observed + it * 1_000L } ?: 0L
+            val timingTrust = officialBusArrivalTrust(seconds, observedAt, fetchedAt, nowEpochMillis)
+            val trust = if (timingTrust == ArrivalTrustState.VALID &&
+                hasUncertainSeoulBusServiceState(officialMessage, issues)) ArrivalTrustState.UNKNOWN else timingTrust
+            // A source flag based on missing vehicle/capacity/detour metadata does not invalidate its ETA.
             val message = when {
                 full == true -> "만차 · 탑승 판단에서 제외"
                 trust == ArrivalTrustState.FUTURE_TIMESTAMP -> "원본·기기 시각 불일치 · 자동 판단 제외"
-                trust == ArrivalTrustState.STALE -> "원본 도착정보 갱신 대기"
-                observedAt == null || observedAt <= 0L -> "원본 생성 시각 미제공 · 자동 판단 제외"
-                seconds == null || seconds == 0L -> "유효한 도착 예정시간 확인 필요"
-                vehicle.isBlank() -> "실제 차량 식별정보 미제공"
-                full == null -> "만차 여부 확인 필요 · 자동 판단 제외"
-                serviceStateUncertain -> "운행 상태 확인 필요 · 자동 판단 제외"
-                trust != ArrivalTrustState.VALID -> "차량·운행 상태 확인 필요"
+                trust == ArrivalTrustState.STALE -> "공식 도착정보 갱신 대기"
+                trust == ArrivalTrustState.INVALID_ETA -> "유효한 도착 예정시간 확인 필요"
+                trust != ArrivalTrustState.VALID -> "공식 운행 상태 확인 필요"
+                observedAt == null -> "공식 도착정보 · 조회 수신 시각 기준"
                 else -> "실시간 도착정보 연결됨"
             }
             add(OfficialSeoulBusArrival(route.identity, vehicle, row.busText("routeName") ?: route.name,
                 row.busText("direction") ?: route.direction, RealtimeArrivalSnapshot(route.identity, arrivalAt,
-                    fetchedAtEpochMillis = observedAt ?: 0L, validForMillis = BUS_VALIDITY_MILLIS,
-                    reliable = trust == ArrivalTrustState.VALID, trustState = trust),
+                    fetchedAtEpochMillis = observed,
+                    validForMillis = officialBusArrivalExpiresAt(observedAt, fetchedAt, nowEpochMillis) - observed,
+                    reliable = trust == ArrivalTrustState.VALID, trustState = trust,
+                    etaPrecision = ArrivalTimePrecision.SECONDS, sourceTimestampAvailable = observedAt != null,
+                    receivedAtEpochMillis = fetchedAt,
+                    vehicleIdentityFallback = if (vehicle.isBlank()) "official-slot:${i + 1}" else null),
                 officialMessage, full, row.busBoolean("last"), message, fetchedAt, issues))
         }
     }
-    val unique = arrivals.filter { it.vehicleId.isBlank() } + arrivals.filter { it.vehicleId.isNotBlank() }
-        .groupBy { it.vehicleId }.values.map { observations ->
-            val latest = observations.maxBy { it.snapshot.fetchedAtEpochMillis }
-            if (observations.distinct().size > 1) latest.copy(snapshot = latest.snapshot.copy(
-                reliable = false, trustState = if (observations.any {
-                    it.snapshot.trustState == ArrivalTrustState.FUTURE_TIMESTAMP
-                }) ArrivalTrustState.FUTURE_TIMESTAMP else ArrivalTrustState.UNKNOWN),
-                statusMessage = "차량 정보가 서로 달라 자동 판단에서 제외했어요")
-            else latest
-        }
-    return unique.map { first ->
-        val next = if (first.isUsableBusArrival(nowEpochMillis)) unique.filter {
-            it.vehicleId.isNotBlank() && it.vehicleId != first.vehicleId && it.identity == first.identity &&
-                it.isUsableBusArrival(nowEpochMillis) && it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis
+    // The official slots remain distinct without IDs. A repeated actual ID only removes next-bus evidence.
+    val seenVehicles = mutableSetOf<String>()
+    val unique = arrivals.filter { it.vehicleId.isBlank() || seenVehicles.add(it.vehicleId) }
+    return unique.mapIndexed { firstIndex, first ->
+        val next = if (first.isUsableBusArrival(nowEpochMillis)) unique.drop(firstIndex + 1).filter {
+            it.identity == first.identity &&
+                (first.vehicleId.isBlank() || it.vehicleId.isBlank() || it.vehicleId != first.vehicleId) &&
+                it.isUsableBusArrival(nowEpochMillis) &&
+                it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis
         }.minByOrNull { it.snapshot.firstArrivalAtEpochMillis } else null
         val expires = minOf(first.snapshot.fetchedAtEpochMillis + first.snapshot.validForMillis,
             next?.let { it.snapshot.fetchedAtEpochMillis + it.snapshot.validForMillis } ?: Long.MAX_VALUE)
         first.copy(snapshot = first.snapshot.copy(nextArrivalAtEpochMillis = next?.snapshot?.firstArrivalAtEpochMillis,
             validForMillis = expires - first.snapshot.fetchedAtEpochMillis))
-    }.sortedWith(compareBy<OfficialSeoulBusArrival> { !it.snapshot.reliable }
-        .thenBy { it.snapshot.firstArrivalAtEpochMillis }.thenBy { it.vehicleId })
+    }
 }
 
 internal fun parseSeoulBusHttpFailure(status: Int, body: String?, retryAfter: String?, nowEpochMillis: Long): SeoulBusApiException {

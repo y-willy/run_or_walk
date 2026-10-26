@@ -8,36 +8,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 
 /** Reception and ETA display are separate from proving a catchable, direction-matched vehicle. */
-internal fun sourceSubwayEstimate(arrival: OfficialSubwayArrival, now: Long): String? {
-    val source = arrival.sourceReceivedAtEpochMillis ?: return null
-    val seconds = arrival.sourceEtaSeconds?.takeIf { it in 1..86_400L } ?: return null
-    val fetched = arrival.gatewayFetchedAtEpochMillis ?: return null
-    if (source > fetched || fetched > now || now - source !in 0L..60_000L ||
-        SubwayArrivalIssue.ARRIVAL_STATE_UNCERTAIN in arrival.issues ||
-        arrival.gatewayContract != SubwayGatewayContract.RAW_FIELDS) return null
-    val remaining = (source + seconds * 1_000L - now + 999L) / 1_000L
-    if (remaining <= 0) return null
-    return "원본 도착예정 약 ${remaining / 60}분 ${remaining % 60}초"
-}
+internal fun sourceSubwayEstimate(arrival: OfficialSubwayArrival, now: Long): String? =
+    arrival.snapshot.takeIf { it.hasUsableOfficialEta(now) }?.let { officialEtaText(it, now) }
 
-internal fun sourceBusEstimate(arrival: OfficialSeoulBusArrival, now: Long): String? {
-    val source = arrival.snapshot.fetchedAtEpochMillis
-    val fetched = arrival.gatewayFetchedAtEpochMillis ?: return null
-    val remaining = (arrival.snapshot.firstArrivalAtEpochMillis - now + 999L) / 1_000L
-    if (source <= 0 || source > fetched || fetched > now || now - source !in 0L..60_000L ||
-        remaining !in 1..86_400L || arrival.issues.any {
-            it in setOf("INVALID_ETA", "ETA_UNAVAILABLE", "VEHICLE_STATE_UNCERTAIN", "SERVICE_STATE_UNCERTAIN")
-        }) return null
-    return "원본 도착예정 약 ${remaining / 60}분 ${remaining % 60}초"
+internal fun sourceBusEstimate(arrival: OfficialSeoulBusArrival, now: Long): String? =
+    arrival.snapshot.takeIf { it.hasUsableOfficialEta(now) }?.let { officialEtaText(it, now) }
+
+internal fun officialEtaText(snapshot: RealtimeArrivalSnapshot, now: Long): String {
+    val seconds = ((snapshot.firstArrivalAtEpochMillis - now + 999L) / 1_000L).coerceAtLeast(0)
+    return if (snapshot.etaPrecision == ArrivalTimePrecision.MINUTES) "약 ${(seconds + 59) / 60}분 후 도착"
+        else "약 ${seconds / 60}분 ${seconds % 60}초 후 도착"
 }
 
 @Composable
 internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
-    val subwayRows = subwayRouteArrivalRows(screen.selectedRoute?.kakao, screen.arrivalOptions)
+    val analysis = screen.timetableAnalysis?.takeIf { it.requestedRoute == screen.subwayDirectionRoute && it.stationStopId == screen.selectedStation?.stopId }
+    val subwayRows = if (analysis?.directionVerified == true) analysis.matchingArrivals
+        else subwayDisplayArrivalRows(screen.subwayDirectionRoute, screen.arrivalOptions)
     val busRows = screen.busArrivalOptions.filter { it.identity == screen.selectedBusRoute?.identity }
     val match = screen.selectedGyeonggiMatch
     val gyeonggiRows = screen.gyeonggiArrivals.filter {
-        match != null && it.stationId == match.stationId && it.routeId == match.routeId && it.staOrder == match.staOrder
+        match != null && it.matchesOfficialMatch(match)
     }
     if (subwayRows.isEmpty() && busRows.isEmpty() && gyeonggiRows.isEmpty()) return
     SectionCard("공식 도착정보 수신", if (screen.arrivalRequestFailed) "최근 갱신 실패 · 이전 수신 정보"
@@ -60,14 +51,15 @@ internal fun OfficialArrivalStatusCard(screen: JourneyScreenState, now: Long) {
         }
         gyeonggiRows.take(2).forEach { row ->
             Text("${row.routeName} · ${row.destination}", style = MaterialTheme.typography.labelLarge)
-            val source = row.observedAtMillis
-            val remaining = source?.let { observed -> row.seconds?.let { observed + it * 1_000L - now } }
-            val fresh = source != null && source <= row.fetchedAtMillis && row.fetchedAtMillis <= now &&
-                now - source in 0L..60_000L && remaining != null && remaining > 0 && !screen.arrivalRequestFailed
-            Text(if (fresh) "원본 도착예정 약 ${(requireNotNull(remaining) + 59_999L) / 60_000L}분"
-                else "원본 예정시간·갱신 상태 확인 필요", style = MaterialTheme.typography.bodyLarge)
-            Text(if (row.trust == ArrivalTrustState.VALID && fresh) "경기도 버스정보 제공"
-                else "경기도 버스정보 수신 · 자동 이동 판단 보류", style = MaterialTheme.typography.bodySmall)
+            val usable = isUsableGyeonggiArrival(row, now) && !screen.arrivalRequestFailed
+            val remaining = row.seconds?.let { row.arrivalBasisMillis(now) + it * 1_000L - now }
+            val text = if (usable && remaining != null) {
+                if (row.etaPrecision == ArrivalTimePrecision.MINUTES) "약 ${(remaining + 59_999L) / 60_000L}분 후 도착"
+                else "약 ${(remaining / 1_000L) / 60}분 ${(remaining / 1_000L) % 60}초 후 도착"
+            } else "도착 예정시각 경과 또는 운행 상태 변경 · 다시 조회해요."
+            Text(text, style = MaterialTheme.typography.bodyLarge)
+            Text(if (usable) "경기도 공식 버스정보" + if (row.sourceTimestampAvailable) "" else " · 수신시각 기준"
+                else "경기도 버스정보 갱신 중", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

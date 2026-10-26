@@ -64,6 +64,10 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var routes by mutableStateOf<List<JourneyTransitRoute>>(emptyList())
     var routeSearchCompleted by mutableStateOf(false)
     var selectedRoute by mutableStateOf<JourneyTransitRoute?>(null)
+    var stopDirectionRoute by mutableStateOf<KakaoTransitChoice?>(null)
+    val subwayDirectionRoute: KakaoTransitChoice? get() = selectedRoute?.kakao ?: stopDirectionRoute
+    var directionMessage by mutableStateOf<String?>(null)
+    var timetableAnalysis by mutableStateOf<SubwayTimetableAnalysis?>(null)
     var boarding by mutableStateOf<JourneyPlace?>(null)
     var boardingSource by mutableStateOf<BoardingPointSource?>(null)
     var boardingChosenByUser by mutableStateOf(false)
@@ -148,29 +152,13 @@ internal class JourneyScreenState(val mode: FeatureMode,
         val match = selectedGyeonggiMatch ?: return emptyList()
         if (selectedBusRoute != null) return emptyList()
         return gyeonggiArrivals.filter { row ->
-            row.stationId == match.stationId && row.routeId == match.routeId &&
-                row.staOrder == match.staOrder && row.trust == ArrivalTrustState.VALID &&
-                row.seconds != null && row.seconds > 0 && row.observedAtMillis != null &&
-                nowMillis - row.observedAtMillis in 0L..60_000L &&
-                row.observedAtMillis + row.seconds * 1_000L > nowMillis
-        }.sortedBy { requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L }
+            row.matchesOfficialMatch(match) && isUsableGyeonggiArrival(row, nowMillis)
+        }.sortedBy { it.arrivalBasisMillis(nowMillis) + requireNotNull(it.seconds) * 1_000L }
     }
 
     private val activeGyeonggiSnapshot: RealtimeArrivalSnapshot?
-        get() {
-            val match = selectedGyeonggiMatch ?: return null
-            if (selectedBusRoute != null) return null // Prefer a confirmed Seoul service.
-            val now = System.currentTimeMillis()
-            val rows = usableGyeonggiArrivals(now)
-            val first = rows.firstOrNull() ?: return null
-            val observed = requireNotNull(first.observedAtMillis)
-            val firstArrival = observed + requireNotNull(first.seconds) * 1_000L
-            // Minute rounding can make two different vehicles share the same ETA.
-            val nextArrival = rows.drop(1).map {
-                requireNotNull(it.observedAtMillis) + requireNotNull(it.seconds) * 1_000L
-            }.firstOrNull { it > firstArrival }
-            return RealtimeArrivalSnapshot(match.identity,
-                firstArrival, nextArrival, observed, 60_000L)
+        get() = selectedGyeonggiMatch?.takeIf { selectedBusRoute == null }?.let {
+            chooseMatchingGyeonggiArrival(it, gyeonggiArrivals, System.currentTimeMillis())?.snapshot
         }
     private val activeBusArrival: OfficialSeoulBusArrival?
         get() = selectedBusArrival?.takeIf {
@@ -222,7 +210,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
             options = emptyList()
             searched = false
         }
-        clearRoutesAndBoarding()
+        if (mode == FeatureMode.STOP && field == SearchField.DESTINATION) clearStopDestinationDirection()
+        else clearRoutesAndBoarding()
         status = ""
         error = null
     }
@@ -249,6 +238,17 @@ internal class JourneyScreenState(val mode: FeatureMode,
         loading = false
         waitingForPermission = false
         liveLoading = false
+        timetableAnalysis = null
+    }
+
+    /** A new destination keeps the selected physical station, but retires its old direction. */
+    fun clearStopDestinationDirection() {
+        invalidateRequests()
+        stopDirectionRoute = null
+        directionMessage = null
+        confirmedServiceIdentity = null
+        selectedArrival = null
+        guidanceWalkingRoute = null
     }
 
     fun clearWalking() {
@@ -327,6 +327,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
         routes = emptyList()
         routeSearchCompleted = false
         selectedRoute = null
+        stopDirectionRoute = null
+        directionMessage = null
         boarding = null
         boardingSource = null
         boardingChosenByUser = false

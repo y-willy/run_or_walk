@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "identityAuthority": "seoul",
+  "groups": [
+    {
+      "routeId": "1001",
+      "dayType": "HOLIDAY",
+      "asset": "1001_HOLIDAY.json.gz",
+      "sha256": "190c373edbe19f48ed97de7cf6786a7638ec3965df664fba38f8cc7305fe0da9",
+      "compressedBytes": 128128,
+      "uncompressedBytes": 541435,
+      "tripCount": 540,
+      "stopCount": 22763
+    },
+    {
+      "routeId": "1001",
+      "dayType": "SATURDAY",
+      "asset": "1001_SATURDAY.json.gz",
+      "sha256": "7dc601597c1ca3a0b95c7ee4d506ca3cd57ea22a4bb3a2c728825a29fa9ed20d",
+      "compressedBytes": 128129,
+      "uncompressedBytes": 541436,
+      "tripCount": 540,
+      "stopCount": 22763
+    },
+    {
+      "routeId": "1001",
+      "dayType": "WEEKDAY",
+      "asset": "1001_WEEKDAY.json.gz",
+      "sha256": "f4ac8f1ea03296a6ff51ecf275de201fc9ddfef30aa2b1209732a8191c556e7a",
+      "compressedBytes": 132010,
+      "uncompressedBytes": 562132,
+      "tripCount": 581,
+      "stopCount": 23518
+    },
+    {
+      "routeId": "1002",
+      "dayType": "HOLIDAY",
+      "asset": "1002_HOLIDAY.json.gz",
+      "sha256": "5bb312578bfc9342932723d22c1734447fbc18c973c090eac08bcf3fd3ba48cd",
+      "compressedBytes": 86297,
+      "uncompressedBytes": 500190,
+      "tripCount": 840,
+      "stopCount": 19245
+    },
+    {
+      "routeId": "1002",
+      "dayType": "SATURDAY",
+      "asset": "1002_SATURDAY.json.gz",
+      "sha256": "3fb7be7588d4b7e8a031b0ef9b06daa91ca07c1795fc4e36ed877fd9e995ad8b",
+      "compressedBytes": 86424,
+      "uncompressedBytes": 500599,
+      "tripCount": 842,
+      "stopCount": 19253
+    },
+    {
+      "routeId": "1002",
+      "dayType": "WEEKDAY",
+      "asset": "1002_WEEKDAY.json.gz",
+      "sha256": "a4e1967227e88bdc2d400b002566450e07ab8761454152fd0abd4c55aa8e8d11",
+      "compressedBytes": 104528,
+      "uncompressedBytes": 601178,
+      "tripCount": 976,
+      "stopCount": 23363
+    },
+    {
+      "routeId": "1003",
+      "dayType": "HOLIDAY",
+      "asset": "1003_HOLIDAY.json.gz",
+      "sha256": "267fc74ad4aab1a896b48f93defd042dcb4e7dadf95b1080b2a81ff2b4e950d2",
+      "compressedBytes": 59069,
+      "uncompressedBytes": 327246,
+      "tripCount": 367,
+      "stopCount": 13688
+    },
+    {
+      "routeId": "1003",
+      "dayType": "SATURDAY",
+      "asset": "1003_SATURDAY.json.gz",
+      "sha256": "42bf1eca143bf6b7391999777fd55dee64e2db3bbb2a066c81608d4541ffdb3e",
+      "compressedBytes": 58951,
+      "uncompressedBytes": 326437,
+      "tripCount": 366,
+      "stopCount": 13655
+    },
+    {
+      "routeId": "1003",
+      "dayType": "WEEKDAY",
+      "asset": "1003_WEEKDAY.json.gz",
+      "sha256": "389583c2cae1d0f387804b6abd5a2178cfc42913afcfe92546e6a0b7a385d4ca",
+      "compressedBytes": 64531,
+      "uncompressedBytes": 366896,
+      "tripCount": 406,
+      "stopCount": 15377
+    },
+    {
+      "routeId": "1004",
+      "dayType": "HOLIDAY",
+      "asset": "1004_HOLIDAY.json.gz",
+      "sha256": "2d981bb58eb543ad727e814f895881d11193949e4dc6518589384ebc1cbe1ca9",
+      "compressedBytes": 76768,
+      "uncompressedBytes": 357982,
+      "tripCount": 398,
+      "stopCount": 14935
+    },
+    {
+      "routeId": "1004",
+      "dayType": "SATURDAY",
+      "asset": "1004_SATURDAY.json.gz",
+      "sha256": "007c8673f935b4f8eb7239682f4113379488083c910e95e1030441185db1dc33",
+      "compressedBytes": 76770,
+      "uncompressedBytes": 357983,
+      "tripCount": 398,
+      "stopCount": 14935
+    },
+    {
+      "routeId": "1004",
+      "dayType": "WEEKDAY",
+      "asset": "1004_WEEKDAY.json.gz",
+      "sha256": "56013532d8c46719cbfa6370d7b1efde2e0e39c1da70e6dbf5336c28b35073de",
+      "compressedBytes": 88449,
+      "uncompressedBytes": 424275,
+      "tripCount": 475,
+      "stopCount": 17699
+    },
+    {
+      "routeId": "1005",
+      "dayType": "HOLIDAY",
+      "asset": "1005_HOLIDAY.json.gz",
+      "sha256": "a3b2d11c2707d3bca6fb96e0c00ec5606cfc06cd8e97e5042b3b3353cb2cc518",
+      "compressedBytes": 92192,
+      "uncompressedBytes": 362676,
+      "tripCount": 342,
+      "stopCount": 15515
+    },
+    {
+      "routeId": "1005",
+      "dayType": "SATURDAY",
+      "asset": "1005_SATURDAY.json.gz",
+      "sha256": "2d0120df5543c3b313dd6335b1976f923c1f2eaf66352ebcc855a2bdd07e12f7",
+      "compressedBytes": 92193,
+      "uncompressedBytes": 362677,
+      "tripCount": 342,
+      "stopCount": 15515
+    },
+    {
+      "routeId": "1005",
+      "dayType": "WEEKDAY",
+      "asset": "1005_WEEKDAY.json.gz",
+      "sha256": "86bb48fba798a1009fa5f1101065f02b9ec0b19f25b894fe8da51ff8eb649376",
+      "compressedBytes": 111418,
+      "uncompressedBytes": 456212,
+      "tripCount": 501,
+      "stopCount": 19094
+    },
+    {
+      "routeId": "1006",
+      "dayType": "HOLIDAY",
+      "asset": "1006_HOLIDAY.json.gz",
+      "sha256": "a50c6f57ab84a4f7d08569b6abe6d4664172797bb29b15eab26c0f13d8619350",
+      "compressedBytes": 48616,
+      "uncompressedBytes": 211334,
+      "tripCount": 251,
+      "stopCount": 8804
+    },
+    {
+      "routeId": "1006",
+      "dayType": "SATURDAY",
+      "asset": "1006_SATURDAY.json.gz",
+      "sha256": "4588a0e94b629bb328de4d35aa6f004199bff3bed95dd56ac444ce80da834096",
+      "compressedBytes": 48617,
+      "uncompressedBytes": 211335,
+      "tripCount": 251,
+      "stopCount": 8804
+    },
+    {
+      "routeId": "1006",
+      "dayType": "WEEKDAY",
+      "asset": "1006_WEEKDAY.json.gz",
+      "sha256": "ffbc6e1f6aaaff4bb18efe039a0c899279efa7de82f977aec00f2f60a93d95be",
+      "compressedBytes": 67181,
+      "uncompressedBytes": 288465,
+      "tripCount": 340,
+      "stopCount": 12027
+    },
+    {
+      "routeId": "1007",
+      "dayType": "HOLIDAY",
+      "asset": "1007_HOLIDAY.json.gz",
+      "sha256": "ba0f8a67436398d7f4d6fe16f6ff615987eddce63d86ab480d8297bf72b6ec83",
+      "compressedBytes": 81728,
+      "uncompressedBytes": 353006,
+      "tripCount": 332,
+      "stopCount": 15142
+    },
+    {
+      "routeId": "1007",
+      "dayType": "SATURDAY",
+      "asset": "1007_SATURDAY.json.gz",
+      "sha256": "3aaf626b3634bae214c4b8e3bf94fd23d522eca669d0ae9859bbe590dbe46a7a",
+      "compressedBytes": 81730,
+      "uncompressedBytes": 353007,
+      "tripCount": 332,
+      "stopCount": 15142
+    },
+    {
+      "routeId": "1007",
+      "dayType": "WEEKDAY",
+      "asset": "1007_WEEKDAY.json.gz",
+      "sha256": "112f6ad68d07682404033fafb3b25a13ad4489db923a4934d8bf310529163407",
+      "compressedBytes": 102240,
+      "uncompressedBytes": 450680,
+      "tripCount": 420,
+      "stopCount": 19333
+    },
+    {
+      "routeId": "1008",
+      "dayType": "HOLIDAY",
+      "asset": "1008_HOLIDAY.json.gz",
+      "sha256": "c7551be967c5714a7be33baab7b07b1857c6b2bf9fc39ee526e857ced6e568af",
+      "compressedBytes": 33695,
+      "uncompressedBytes": 144708,
+      "tripCount": 242,
+      "stopCount": 5703
+    },
+    {
+      "routeId": "1008",
+      "dayType": "SATURDAY",
+      "asset": "1008_SATURDAY.json.gz",
+      "sha256": "0c881d2b16be6f612560bc277976a858d093bb4363c9056e0b6c2ae1681b5e3a",
+      "compressedBytes": 33696,
+      "uncompressedBytes": 144709,
+      "tripCount": 242,
+      "stopCount": 5703
+    },
+    {
+      "routeId": "1008",
+      "dayType": "WEEKDAY",
+      "asset": "1008_WEEKDAY.json.gz",
+      "sha256": "1d4914ab3f213a20f89e4cd7f76f472c811768c8e0a6839fb3c5e892f237576b",
+      "compressedBytes": 44299,
+      "uncompressedBytes": 194564,
+      "tripCount": 324,
+      "stopCount": 7671
+    },
+    {
+      "routeId": "1009",
+      "dayType": "HOLIDAY",
+      "asset": "1009_HOLIDAY.json.gz",
+      "sha256": "34a009aa2527586c212052d6952880e708984bfd30807f3dabddb6fef7123a7b",
+      "compressedBytes": 65903,
+      "uncompressedBytes": 264331,
+      "tripCount": 388,
+      "stopCount": 10315
+    },
+    {
+      "routeId": "1009",
+      "dayType": "SATURDAY",
+      "asset": "1009_SATURDAY.json.gz",
+      "sha256": "9e74d1b8319f4b03aa22688bbea20fdce376c5c28b4dc5a31324f8794cba392c",
+      "compressedBytes": 65905,
+      "uncompressedBytes": 264332,
+      "tripCount": 388,
+      "stopCount": 10315
+    },
+    {
+      "routeId": "1009",
+      "dayType": "WEEKDAY",
+      "asset": "1009_WEEKDAY.json.gz",
+      "sha256": "bdf3446086452d4455e24b5802d4b5fe4532f3991a0ab63486f82d739694d63f",
+      "compressedBytes": 83257,
+      "uncompressedBytes": 338856,
+      "tripCount": 495,
+      "stopCount": 13230
+    },
+    {
+      "routeId": "1075",
+      "dayType": "HOLIDAY",
+      "asset": "1075_HOLIDAY.json.gz",
+      "sha256": "e19bda608c70b887729e60ea95e059925eb27b83c6ed8593e916d60fc5146818",
+      "compressedBytes": 59128,
+      "uncompressedBytes": 279732,
+      "tripCount": 342,
+      "stopCount": 10966
+    },
+    {
+      "routeId": "1075",
+      "dayType": "WEEKDAY",
+      "asset": "1075_WEEKDAY.json.gz",
+      "sha256": "409c148345c730f6de0724800ab30186914ff4d0ddcaddd6a9a89cea8a2d68f7",
+      "compressedBytes": 74959,
+      "uncompressedBytes": 368529,
+      "tripCount": 437,
+      "stopCount": 14563
+    }
+  ],
+  "publications": [
+    {
+      "authority": "서울교통공사",
+      "dataset": "서울 도시철도 열차운행시각표",
+      "version": "seoulmetro-2026-09-01",
+      "publishedAtEpochMillis": 1789311600000,
+      "scheduleAsOfDate": "2026-09-01",
+      "validFromServiceDate": null,
+      "validThroughServiceDate": null,
+      "timeZone": "Asia/Seoul",
+      "url": "https://www.data.go.kr/data/15098251/fileData.do",
+      "downloadUrl": "https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000007671122&fileDetailSn=1&insertDataPrcus=N"
+    },
+    {
+      "authority": "한국철도공사",
+      "dataset": "수인분당선 광역전철 시간표",
+      "version": "korail-suinbundang-2026-08-22",
+      "publishedAtEpochMillis": 1786978800000,
+      "scheduleAsOfDate": "2026-08-22",
+      "validFromServiceDate": "2026-08-22",
+      "validThroughServiceDate": null,
+      "timeZone": "Asia/Seoul",
+      "url": "https://www.korail.com/ticket/guest/notice/25642",
+      "downloadUrl": "https://www.korail.com/file/cubedata/COMMON/jfile/202608/21/202608211a023449d0b840.xlsx"
+    }
+  ]
+}

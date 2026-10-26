@@ -12,7 +12,8 @@ internal data class JourneyMonitoringRequest(
     val busRoute: OfficialSeoulBusRoute? = null,
     val settings: JourneySettings = JourneySettings(),
     val vibrationEnabled: Boolean = false,
-    val gyeonggiMatch: GyeonggiOfficialMatch? = null
+    val gyeonggiMatch: GyeonggiOfficialMatch? = null,
+    val subwayRoute: KakaoTransitChoice? = null
 ) {
     val isGyeonggi: Boolean get() = identity.authority == "GBIS"
     val isBus: Boolean get() = identity.authority in setOf("seoul-bus", "GBIS")
@@ -27,7 +28,7 @@ internal data class JourneyMonitoringRequest(
     fun isSameJourney(other: JourneyMonitoringRequest): Boolean =
         identity == other.identity && boardingPoint == other.boardingPoint &&
             subwayStation == other.subwayStation && busStop == other.busStop && busRoute == other.busRoute &&
-            gyeonggiMatch == other.gyeonggiMatch
+            gyeonggiMatch == other.gyeonggiMatch && subwayRoute == other.subwayRoute
 
     fun isValid(): Boolean {
         if (boardingName.isBlank() || boardingName.length > 200 || boardingName.any(Char::isISOControl) ||
@@ -68,6 +69,7 @@ internal object JourneyMonitoringRequestCodec {
             .put("settings", JSONObject(JourneySettingsCodec.encode(request.settings)))
             .put("vibrationEnabled", request.vibrationEnabled).apply {
                 request.gyeonggiMatch?.let { put("gyeonggiMatch", it.toSessionJson()) }
+                request.subwayRoute?.let { put("subwayRoute", JourneyTransitRoute("monitor-route", it).toJson()) }
                 request.subwayStation?.let {
                     put("subwayStation", JSONObject().put("stopId", it.stopId).put("routeId", it.routeId)
                         .put("name", it.name).put("lineName", it.lineName))
@@ -107,7 +109,8 @@ internal object JourneyMonitoringRequestCodec {
         JourneyMonitoringRequest(root.text("boardingName"), point, identity, station, stop, route,
             JourneySettingsCodec.decode(root.optJSONObject("settings")?.toString()),
             root.opt("vibrationEnabled") == true,
-            decodeGyeonggiMatch(root.optJSONObject("gyeonggiMatch"))).takeIf { it.isValid() }
+            decodeGyeonggiMatch(root.optJSONObject("gyeonggiMatch")),
+            root.optJSONObject("subwayRoute")?.route()?.kakao).takeIf { it.isValid() }
     }.getOrNull()
 }
 

@@ -4,7 +4,7 @@ export const CACHE_TTL_MS = 30_000;
 export const FAILURE_BACKOFF_MS = 10_000;
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
 export const UPSTREAM_BUDGET = 900;
-export const MAX_SOURCE_AGE_MS = 60_000;
+export const MAX_SOURCE_AGE_MS = 600_000;
 export type TrustState = 'VALID' | 'STALE' | 'FUTURE_TIMESTAMP' | 'INVALID_ETA' | 'UNKNOWN';
 export type ArrivalRow = Record<string, string | number> & { trustState: TrustState };
 export interface ArrivalResponse {
@@ -40,11 +40,11 @@ export function parseSourceTime(value: unknown): number | null {
 
 export function trustState(row: Record<string, unknown>, fetchedAtMs: number, nowMs = fetchedAtMs): TrustState {
   const sourceTime = parseSourceTime(row.recptnDt ?? row.receivedAt);
-  if (!Number.isFinite(fetchedAtMs) || sourceTime === null) return 'UNKNOWN';
-  if (sourceTime > fetchedAtMs) return 'FUTURE_TIMESTAMP';
+  if (!Number.isFinite(fetchedAtMs)) return 'UNKNOWN';
+  if (sourceTime !== null && sourceTime > fetchedAtMs + 60_000) return 'FUTURE_TIMESTAMP';
   if (!Number.isFinite(nowMs) || nowMs < fetchedAtMs) return 'UNKNOWN';
-  const elapsed = nowMs - sourceTime;
-  if (elapsed > MAX_SOURCE_AGE_MS) return 'STALE';
+  const elapsed = nowMs - Math.min(sourceTime ?? fetchedAtMs, fetchedAtMs);
+  if (elapsed > MAX_SOURCE_AGE_MS || nowMs - fetchedAtMs > 60_000) return 'STALE';
   const raw = row.barvlDt ?? row.arrivalSeconds;
   if ((typeof raw !== 'number' && typeof raw !== 'string') ||
       (typeof raw === 'string' && !/^\d+$/.test(raw))) return 'INVALID_ETA';
@@ -52,13 +52,12 @@ export function trustState(row: Record<string, unknown>, fetchedAtMs: number, no
   if (!Number.isSafeInteger(seconds) || seconds < 0 || seconds > 86_400) return 'INVALID_ETA';
   // Zero does not prove that a train is at this station. A prior-station message
   // and arrival/departure codes cannot authorize a boarding recommendation.
-  if (seconds === 0 || !['3', '4', '5', '99'].includes(String(row.arvlCd ?? ''))) return 'UNKNOWN';
+  if (seconds === 0 || String(row.arvlCd ?? '') === '2') return 'UNKNOWN';
   if (seconds * 1000 <= elapsed) return 'STALE';
   const present = (value: unknown) => (typeof value === 'string' && value.trim().length > 0) ||
     (typeof value === 'number' && Number.isFinite(value));
   if (!present(row.statnId ?? row.stationId) || !present(row.subwayId ?? row.lineId) ||
-      !['statnTid', 'btrainNo', 'bstatnId'].every(field => present(row[field])) ||
-      !['statnNm', 'trainLineNm', 'btrainSttus', 'bstatnNm'].every(field =>
+      !['statnNm', 'trainLineNm'].every(field =>
         typeof row[field] === 'string' && row[field].trim().length > 0) ||
       !['상행', '하행', '내선', '외선'].includes(String(row.updnLine ?? row.direction ?? '').trim())) return 'UNKNOWN';
   return 'VALID';

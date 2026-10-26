@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "publications": [
+    {
+      "counts": {
+        "excludedInconsistentTripRows": 19597,
+        "excludedInconsistentTrips": 646,
+        "excludedInvalidTimeRows": 3,
+        "includedStopRows": 403507,
+        "includedTrips": 11919,
+        "inputRows": 423107
+      },
+      "stationMatches": {
+        "exact": 392534,
+        "explicit_alias": 6454,
+        "unique_parenthetical_name": 22952,
+        "unmatched": 1164
+      },
+      "unmatchedStations": [
+        {
+          "routeId": "1004",
+          "sourceStopId": "0405",
+          "name": "진접",
+          "rows": 388
+        },
+        {
+          "routeId": "1004",
+          "sourceStopId": "0406",
+          "name": "오남",
+          "rows": 388
+        },
+        {
+          "routeId": "1004",
+          "sourceStopId": "0408",
+          "name": "별내별가람",
+          "rows": 388
+        }
+      ],
+      "source": {
+        "authority": "서울교통공사",
+        "dataset": "서울 도시철도 열차운행시각표",
+        "version": "seoulmetro-2026-09-01",
+        "publishedAtEpochMillis": 1789311600000,
+        "scheduleAsOfDate": "2026-09-01",
+        "validFromServiceDate": null,
+        "validThroughServiceDate": null,
+        "timeZone": "Asia/Seoul",
+        "url": "https://www.data.go.kr/data/15098251/fileData.do",
+        "downloadUrl": "https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000007671122&fileDetailSn=1&insertDataPrcus=N"
+      },
+      "inputEncoding": "cp949",
+      "normalizedInputSha256": "fd7e7b6edc18a5ac4f40f53b594d460d5cbd96d90919aaeb54b957890080d606",
+      "normalizedInputBytes": 32730124
+    },
+    {
+      "counts": {
+        "includedStopRows": 25529,
+        "includedTrips": 779,
+        "inputRows": 25529
+      },
+      "stationMatches": {
+        "exact": 20587,
+        "explicit_alias": 4942
+      },
+      "unmatchedStations": [],
+      "source": {
+        "authority": "한국철도공사",
+        "dataset": "수인분당선 광역전철 시간표",
+        "version": "korail-suinbundang-2026-08-22",
+        "publishedAtEpochMillis": 1786978800000,
+        "scheduleAsOfDate": "2026-08-22",
+        "validFromServiceDate": "2026-08-22",
+        "validThroughServiceDate": null,
+        "timeZone": "Asia/Seoul",
+        "url": "https://www.korail.com/ticket/guest/notice/25642",
+        "downloadUrl": "https://www.korail.com/file/cubedata/COMMON/jfile/202608/21/202608211a023449d0b840.xlsx"
+      },
+      "inputEncoding": "utf-8-sig",
+      "normalizedInputSha256": "55370345aadd48dc8cb3590897feb8ff13d9843819dd48eb6c659251ffc10129",
+      "normalizedInputBytes": 3508785
+    }
+  ]
+}
