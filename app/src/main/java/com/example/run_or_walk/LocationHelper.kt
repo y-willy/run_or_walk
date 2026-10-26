@@ -122,7 +122,9 @@ private fun Location.asGuidanceSample(): GuidanceLocation {
     return GuidanceLocation(
         MapPoint(longitude, latitude),
         if (hasAccuracy()) accuracy.toDouble() else Double.POSITIVE_INFINITY,
-        if (ageMillis == Long.MAX_VALUE) -1L else System.currentTimeMillis() - ageMillis)
+        if (ageMillis == Long.MAX_VALUE) -1L else System.currentTimeMillis() - ageMillis,
+        if (hasSpeed()) speed.toDouble() else null,
+        if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond.toDouble() else null)
 }
 
 suspend fun getCurrentPoint(context: Context): MapPoint = getCurrentLocationSample(context).point

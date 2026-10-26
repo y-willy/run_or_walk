@@ -45,7 +45,10 @@ data class GuidanceBoarding(
 data class GuidanceLocation(
     val point: MapPoint,
     val accuracyMeters: Double,
-    val observedAtEpochMillis: Long
+    val observedAtEpochMillis: Long,
+    /** Fused provider speed, kept separate from the reported position accuracy. */
+    val speedMetersPerSecond: Double? = null,
+    val speedAccuracyMetersPerSecond: Double? = null
 )
 
 /** A real walking response, tied to the coordinates and official boarding selection queried. */
@@ -301,11 +304,20 @@ fun calculateAutoGuidance(
     val remainingMillis = firstArrival - nowEpochMillis
     val walkingWithBufferMillis = (walking.durationSeconds.toLong() + input.bufferSeconds) * 1_000L
     val fastWithBufferMillis = (fastSeconds.toLong() + input.bufferSeconds) * 1_000L
-    val status = when {
+    val rawStatus = when {
         remainingMillis >= walkingWithBufferMillis -> AutoGuidanceStatus.WALK
         remainingMillis >= fastWithBufferMillis -> AutoGuidanceStatus.FAST_WALK
         else -> AutoGuidanceStatus.NEXT_VEHICLE
     }
+    // Escalate immediately when time is short. Relax FAST_WALK back to WALK only
+    // after a small positive margin, so GPS velocity jitter cannot alternate advice.
+    val previous = input.previousAssessment
+    val status = if (rawStatus == AutoGuidanceStatus.WALK &&
+        previous?.status == AutoGuidanceStatus.FAST_WALK &&
+        previous.boardingIdentity == boarding.identity &&
+        previous.firstArrivalAtEpochMillis?.let { kotlin.math.abs(it - firstArrival) <= 15_000L } == true &&
+        remainingMillis - walkingWithBufferMillis < 20_000L
+    ) AutoGuidanceStatus.FAST_WALK else rawStatus
     val recommended = (listOfNotNull(nextArrival) + if (useTimetable) scheduled?.later.orEmpty()
         .filter { it.validUntilEpochMillis >= nowEpochMillis && it.identity.directionId == boarding.identity.directionId }
         .map { it.earliestArrivalAtEpochMillis }

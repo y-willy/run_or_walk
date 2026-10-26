@@ -113,6 +113,7 @@ class JourneyMonitoringService : Service() {
 
     private suspend fun monitor() {
         val startedAt = android.os.SystemClock.elapsedRealtime()
+        val paceCalibrator = WalkingPaceCalibrator()
         var cachedWalk: MonitoringWalk? = null
         var retryAt: Long? = null
         val alertGate = JourneyMonitoringAlertGate()
@@ -218,6 +219,7 @@ class JourneyMonitoringService : Service() {
             }
             try {
                 location = getCurrentLocationSample(this)
+                val measuredPace = paceCalibrator.observe(location, System.currentTimeMillis())
                 val old = cachedWalk
                 if (old == null || System.currentTimeMillis() - old.fetchedAt !in 0L..90_000L ||
                     monitoringDistance(old.origin, location.point) > 25.0) {
@@ -231,7 +233,7 @@ class JourneyMonitoringService : Service() {
                 val activeSettings = currentRequest?.settings ?: request.settings
                 walking = cachedWalk?.let {
                     GuidanceWalkingRoute(it.origin, request.boardingPoint, request.identity,
-                        activeSettings.walkingSeconds(it.route.distanceMeters, it.route.durationSeconds),
+                        activeSettings.walkingSeconds(it.route.distanceMeters, it.route.durationSeconds, measuredPace),
                         it.fetchedAt, 120_000L, it.route.distanceMeters)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
