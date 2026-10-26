@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 
 /** Survives Activity recreation and persists only explicit static choices across app restarts. */
 internal class JourneySessionViewModel(application: Application) : AndroidViewModel(application) {
+    val walkingAnalysis = WalkingAnalysisController(application)
     private val store = JourneySessionStore(application)
     private val saved = store.load()
     val screens = restoreJourneyScreens(saved)
@@ -47,6 +48,7 @@ internal class JourneySessionViewModel(application: Application) : AndroidViewMo
     }
 
     override fun onCleared() {
+        walkingAnalysis.close()
         flush()
         persistenceScope.cancel()
         super.onCleared()
