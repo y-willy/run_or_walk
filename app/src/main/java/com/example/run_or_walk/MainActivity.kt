@@ -314,7 +314,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val identity = target.confirmedServiceIdentity
         val revision = target.revision
         if (action == LocationAction.WALKING && boarding == null) return
-        if (action == LocationAction.WALKING) target.discardWalkingResults()
+        // A refresh replaces valid walking evidence only after the new route is ready.
         runRequest(target,
             if (action == LocationAction.WALKING) "현재 위치와 도보 경로를 확인하고 있어요"
                 else "현재 위치를 확인하고 있어요",
@@ -371,6 +371,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 }
             },
             onFailure = { error ->
+                if (error is SecurityException || error is DeviceLocationException && error.failure in
+                    setOf(LocationFailure.PERMISSION_REQUIRED,LocationFailure.SERVICES_DISABLED)) target.discardWalkingResults()
                 // A real GPS fix may succeed while Kakao cannot produce a walking route.
                 if (action == LocationAction.WALKING && shouldSearchTransitAccess(error)) {
                     target.location?.let { startAccessTransitFallback(target, it) }
@@ -708,12 +710,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         requireNotNull(walk).distanceMeters)
                 }
             } else {
-                target.guidanceWalkingRoute = null
-                target.walkRoute = null
-                target.walkingPoints = emptyList()
+                // Refresh in place: the calculator still checks the original route's age,
+                // identity and GPS origin distance while the replacement is in flight.
                 if (target.mode == FeatureMode.ROUTE && target.departure.selected?.point?.let {
                         requiresTransitAccess(location.point, it)
                     } == true) {
+                    target.discardWalkingResults()
                     startAccessTransitFallback(target, location)
                     return
                 }
@@ -725,8 +727,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             throw cancelled
         } catch (error: Exception) {
             if (active()) {
-                // Preserve an acquired GPS fix even when only the route request failed.
-                target.discardWalkingResults()
+                // A failed refresh does not erase still-valid walking proof. Its original
+                // timestamps and origin remain authoritative, including after this failure.
+                if (error is SecurityException || error is DeviceLocationException && error.failure in
+                    setOf(LocationFailure.PERMISSION_REQUIRED,LocationFailure.SERVICES_DISABLED)) target.discardWalkingResults()
                 target.error = friendlyFailure(error, "도보 경로를 다시 확인해 주세요")
                 if (shouldSearchTransitAccess(error)) {
                     target.location?.let { startAccessTransitFallback(target, it) }
@@ -826,9 +830,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             if (active()) {
-                target.gyeonggiArrivals = emptyList()
+                // Keep received rows with their original source/receipt times during retry.
                 target.arrivalRequestFailed = true
-                target.gyeonggiArrivals = emptyList()
                 target.liveRetryAtEpochMillis = (error as? GyeonggiApiException)?.retryAfterEpochMillis
                 target.gyeonggiMessage = (error as? java.io.IOException)?.message
                     ?: "경기버스 실시간 정보를 확인하지 못했어요."
@@ -1402,16 +1405,20 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     val isBus = screen.isBusJourney
     val configured = if (isBus) (busRepository.isConfigured || gyeonggiRepository.isConfigured)
         else subwayRepository.isConfigured
-    val activeSnapshot = if (monitored) monitoring.arrivals else screen.activeArrivalSnapshot
+    val selectedSnapshot = if (monitored) monitoring.arrivals else screen.activeArrivalSnapshot
     val analysis = (if (monitored) monitoring.timetableAnalysis else screen.timetableAnalysis)?.takeIf {
         it.stationStopId == (if (monitored) monitoring.request?.subwayStation?.stopId else screen.selectedStation?.stopId) &&
             it.requestedRoute == (if (monitored) monitoring.request?.subwayRoute else screen.subwayDirectionRoute)
     }
     val estimatedArrivals = selectTimetableEvidence(analysis, now, if(monitored) monitoring.request?.subwayChoice else screen.subwayChoice)
+    val retainedArrival = if (!monitored && !isBus && estimatedArrivals == null && selectedSnapshot?.hasUsableOfficialEta(now) != true)
+        retainedSubwayArrivalDuringRefresh(analysis,screen.arrivalOptions,screen.confirmedServiceIdentity,screen.subwayChoice,now)
+        else null
+    val activeSnapshot = retainedArrival?.snapshot ?: selectedSnapshot
     val stationArrivalInformation = stationSubwayArrivalInformation(analysis,now)
     val boarding = screen.boarding
     val identity = if (monitored) monitoring.arrivals?.identity ?: estimatedArrivals?.identity ?: monitoring.request?.identity
-        else screen.activeArrivalIdentity ?: estimatedArrivals?.identity ?: screen.confirmedServiceIdentity
+        else activeSnapshot?.identity ?: screen.activeArrivalIdentity ?: estimatedArrivals?.identity ?: screen.confirmedServiceIdentity
     val officialConnectionConfirmed = if (isBus) {
         val route = screen.selectedBusRoute
         (route != null && screen.selectedBusStop?.stopId == route.stopId && route.identity == identity &&

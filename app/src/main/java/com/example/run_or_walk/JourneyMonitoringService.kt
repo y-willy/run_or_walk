@@ -196,7 +196,10 @@ class JourneyMonitoringService : Service() {
                     arrivalHistory.record(requireNotNull(request.subwayStation), subwayObservations,
                         timetableAnalysis?.estimates.orEmpty(), System.currentTimeMillis())
                     val selected = selectDestinationSubwayArrival(timetableAnalysis, System.currentTimeMillis(),request.subwayChoice) ?:
-                        chooseMatchingSubwayArrival(request.identity, subwayObservations.filter { request.subwayChoice?.matches(it) != false }, System.currentTimeMillis())
+                        chooseMatchingSubwayArrival(request.identity, subwayObservations.filter { request.subwayChoice?.matches(it) != false }, System.currentTimeMillis()) ?:
+                        if(selectTimetableEvidence(timetableAnalysis,System.currentTimeMillis(),request.subwayChoice) == null)
+                            retainedSubwayArrivalDuringRefresh(JourneyMonitoringController.state.value.timetableAnalysis,
+                                subwayObservations,request.identity,request.subwayChoice,System.currentTimeMillis()) else null
                     arrivals = selected?.snapshot
                     vehicleId = selected?.trainId
                     if (selected == null) message = "선택한 방향의 유효한 열차 정보를 기다리고 있어요."
