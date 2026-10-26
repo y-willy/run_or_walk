@@ -106,6 +106,13 @@ internal class JourneyScreenState(val mode: FeatureMode,
         return gyeonggiGeneration
     }
     fun acceptsGyeonggiResponse(generation: Long): Boolean = gyeonggiGeneration == generation
+    fun beginSeoulBusLookup() {
+        gyeonggiGeneration++
+        selectedGyeonggiMatch = null
+        gyeonggiArrivals = emptyList()
+        gyeonggiLoading = false
+        gyeonggiMessage = null
+    }
     fun updateGyeonggiStationId(value: String) {
         gyeonggiGeneration++
         gyeonggiStationId = value

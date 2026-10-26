@@ -425,7 +425,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
     }
 
     fun selectOfficialBusStop(target: JourneyScreenState, stop: OfficialSeoulBusStop,
-        automatic: Boolean = false) {
+        automatic: Boolean = false, preloadedRoutes: List<OfficialSeoulBusRoute>? = null,
+        preferredRoute: OfficialSeoulBusRoute? = null) {
         val point = stop.point ?: return
         target.clearWalking()
         target.clearOfficialSelection()
@@ -446,10 +447,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val generation = target.beginLiveRequest()
         scope.launch {
             try {
-                val routes = busRepository.routes(stop)
+                val routes = preloadedRoutes ?: busRepository.routes(stop)
                 if (target.acceptsLiveResponse(generation) && isActiveTarget(target) && target.selectedBusStop == stop) {
                     target.busRouteOptions = routes
-                    val matched = resolveOfficialSeoulBusRoute(routes, stop.stopId,
+                    val matched = preferredRoute?.takeIf { it in routes && it.stopId == stop.stopId }
+                        ?: resolveOfficialSeoulBusRoute(routes, stop.stopId,
                         target.selectedRoute?.serviceName.orEmpty(), target.selectedRoute?.kakao?.directionName)
                     if (matched != null) {
                         target.selectedBusRoute = matched
@@ -458,6 +460,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     target.liveError = when {
                         routes.isEmpty() -> "이 정류장에 조회 가능한 노선이 없어요."
                         routes.none { it.supported } -> "이 정류장에는 서울 소속 지원 노선이 없어요. 경기·인천 노선은 별도 연동이 필요해요."
+                        matched == null && target.selectedRoute != null -> "서울 정류소는 확인했지만 선택한 노선·방향을 연결하지 못했어요. 아래 공식 노선에서 확인해 주세요."
                         else -> null
                     }
                 }
@@ -478,6 +481,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
         val boarding = target.boarding ?: return
         val query = target.busStopQuery.trim().ifBlank { boarding.name }
         if (target.liveLoading) return
+        target.beginSeoulBusLookup()
         target.clearSelectedBusRoute()
         target.selectedBusStop = null
         target.busRouteOptions = emptyList()
@@ -492,18 +496,28 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     target.busStopOptions = stops
                     target.busStopsSearched = true
                     val matched = if (automatic) resolveOfficialSeoulBusStop(stops, boarding) else null
-                    if (matched != null) selectOfficialBusStop(target, matched, automatic = true)
+                    val candidates = seoulBusStopCandidates(stops, boarding)
+                    val choice = target.selectedRoute?.kakao
+                    val evidence = if (automatic && matched == null && choice != null && candidates.size in 1..3)
+                        candidates.map { it to busRepository.routes(it) } else emptyList()
+                    if (!target.acceptsLiveResponse(generation) || !isActiveTarget(target) || target.boarding != boarding) return@launch
+                    val routeMatch = choice?.let { resolveSeoulBusBoarding(evidence, boarding, it) }
+                    if (routeMatch != null) selectOfficialBusStop(target, routeMatch.stop, automatic = true,
+                        preloadedRoutes = evidence.first { it.first.stopId == routeMatch.stop.stopId }.second,
+                        preferredRoute = routeMatch.route)
+                    else if (matched != null) selectOfficialBusStop(target, matched, automatic = true)
                     else target.liveError = if (automatic && target.selectedRoute?.kakao?.firstTransitType == "BUS")
-                        target.gyeonggiMessage ?: "선택한 버스의 공식 정류장·노선을 자동 연결하지 못했어요. 정류장 이름과 경로를 확인해 주세요."
+                        if (stops.isEmpty()) "서울 공식 조회에 해당 정류소가 없어요. 정류장 이름을 확인해 주세요."
+                        else "서울 공식 정류소 후보에서 선택한 승차 방향을 하나로 확정하지 못했어요. 정류장 번호와 방향을 확인해 주세요."
                     else if (stops.isEmpty()) "공식 정류장을 찾지 못했어요. 정류장 이름을 확인해 주세요." else null
+                    if (target.selectedBusRoute == null && target.liveError != null) target.detailsExpanded = true
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (target.acceptsLiveResponse(generation) && isActiveTarget(target)) {
                     target.liveRetryAtEpochMillis = (error as? SeoulBusApiException)?.retryAfterEpochMillis
-                    target.liveError = if (automatic && target.selectedRoute?.kakao?.firstTransitType == "BUS")
-                        (error as? SeoulBusApiException)?.message ?: target.gyeonggiMessage
-                    else (error as? SeoulBusApiException)?.message ?: "공식 정류장을 확인하지 못했어요."
+                    target.liveError = (error as? SeoulBusApiException)?.message ?: "서울 공식 정류소·노선 조회 중 오류가 발생했어요."
+                    target.detailsExpanded = true
                 }
             } finally {
                 if (target.acceptsLiveResponse(generation)) target.liveLoading = false
@@ -993,7 +1007,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
             "SUBWAY" -> findOfficialStations(target)
             "BUS" -> {
                 target.busStopQuery = boarding.name
-                connectGyeonggiRoute(target, route)
+                if (preferSeoulBusLookup(route.serviceName)) findOfficialBusStops(target, nearby = true, automatic = true)
+                else connectGyeonggiRoute(target, route)
             }
         }
         requestLocation(target, LocationAction.WALKING)
@@ -1465,12 +1480,14 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 }
 
                 if (boarding != null || screen.selectedRoute != null) {
-                    if (mode == FeatureMode.STOP) TextButton(
+                    val busConnectionNeedsChoice = screen.isBusJourney &&
+                        (screen.selectedBusStop == null || screen.selectedBusRoute == null)
+                    if (mode == FeatureMode.STOP || busConnectionNeedsChoice) TextButton(
                         onClick = { screen.detailsExpanded = !screen.detailsExpanded },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                         Text(if (screen.detailsExpanded) "연결 상태 닫기" else "승차·실시간 연결 상태")
                     }
-                    if (mode == FeatureMode.STOP && screen.detailsExpanded) {
+                    if ((mode == FeatureMode.STOP || busConnectionNeedsChoice) && screen.detailsExpanded) {
                         SelectionDetails(screen, configured, now,
                             onBusQueryChange = { screen.editBusStopQuery(it) },
                             onSearchBusStops = { findOfficialBusStops(screen) },
