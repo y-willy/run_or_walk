@@ -66,3 +66,38 @@ internal fun shouldRefreshWalkingRoute(tracker: WalkingRouteTracker?,fix: Guidan
     return projection == null || projection.distanceFromPath > max(25.0,fix.accuracyMeters) ||
         pedestrianDistance(tracker.origin,fix.point) >= 60.0
 }
+
+/** UI and service retain exactly the same aged geometry while a new fix/route is pending. */
+internal data class LiveWalkingEvidence(
+    val location: GuidanceLocation?,val walking: GuidanceWalkingRoute?,
+    val distanceMeters: Int?,val providerSeconds: Int?,val points: List<MapPoint>
+)
+internal fun updateLiveWalkingEvidence(previous: LiveWalkingEvidence,tracker: WalkingRouteTracker?,
+    fix: GuidanceLocation?,identity: OfficialBoardingIdentity,boarding: MapPoint,
+    settings: JourneySettings,calibratedSpeed: Double?,now: Long): LiveWalkingEvidence {
+    val previousLocation=previous.location?.takeIf { locationSampleFailure(it,now)==null }
+    val candidate=fix?.takeIf { locationSampleFailure(it,now)==null &&
+        (previous.location?.observedAtEpochMillis?.let { time -> it.observedAtEpochMillis>=time } != false) }
+    var location=candidate ?: previousLocation
+    val progress=candidate?.let { tracker?.update(it,now) }
+    if(progress?.onRoute==true && tracker!=null && tracker.route.points.lastOrNull()?.let {
+            pedestrianDistance(it,boarding)<=150.0 }==true) {
+        return LiveWalkingEvidence(candidate,GuidanceWalkingRoute(requireNotNull(candidate).point,boarding,identity,
+            settings.walkingSeconds(progress.remainingMeters,progress.providerSeconds,calibratedSpeed),
+            tracker.fetchedAt,120_000L,progress.remainingMeters),progress.remainingMeters,progress.providerSeconds,tracker.route.points)
+    }
+    if(progress?.onRoute==false) return LiveWalkingEvidence(location,null,null,null,emptyList())
+    // A precise but rejected jump/vehicle sample must not replace the preceding valid fix.
+    if(candidate!=null && validPedestrianFix(candidate,now) && tracker!=null &&
+        now-tracker.fetchedAt in 0L..120_000L) location=previousLocation
+    val walking=previous.walking?.takeIf {
+        it.boardingIdentity==identity && pedestrianDistance(it.destination,boarding)<=15.0 &&
+            now-it.fetchedAtEpochMillis in 0L..minOf(it.validForMillis,120_000L) &&
+            (location==null || pedestrianDistance(it.origin,location.point)<=35.0)
+    }
+    val distance=previous.distanceMeters.takeIf { walking!=null }
+    val provider=previous.providerSeconds.takeIf { walking!=null }
+    val adjusted=walking?.let { value -> if(distance!=null && provider!=null)
+        value.copy(durationSeconds=settings.walkingSeconds(distance,provider,calibratedSpeed)) else value }
+    return LiveWalkingEvidence(location,adjusted,distance,provider,previous.points.takeIf { walking!=null }.orEmpty())
+}

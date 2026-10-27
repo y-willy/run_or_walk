@@ -1,0 +1,9 @@
+{
+  "positionRows": 7,
+  "kind": "captured-operational-response-replay",
+  "capturedAt": "2026-10-27T10:50:54.583Z",
+  "officialNumericEtaRows": 0,
+  "source": "OFFICIAL_TIMETABLE_POSITION",
+  "etaDisplay": "약 8분 후",
+  "movement": "WALK"
+}

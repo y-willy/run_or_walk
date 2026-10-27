@@ -83,7 +83,10 @@ data class RealtimeArrivalSnapshot(
     /** An API slot is not a fabricated vehicle ID; it only distinguishes official ETA entries. */
     val vehicleIdentityFallback: String? = null,
     val laterArrivalAtEpochMillis: List<Long> = emptyList(),
-    val nextArrivalPrecision: ArrivalTimePrecision? = null
+    val nextArrivalPrecision: ArrivalTimePrecision? = null,
+    /** A separate vehicle must not shorten the first vehicle's source/receipt lifetime. */
+    val nextArrivalValidUntilEpochMillis: Long? = null,
+    val laterArrivalValidUntilEpochMillis: Map<Long,Long> = emptyMap()
 )
 
 data class TimetableArrivalEvidence(
@@ -98,6 +101,19 @@ fun RealtimeArrivalSnapshot.hasUsableOfficialEta(now: Long): Boolean =
         fetchedAtEpochMillis <= now && now - fetchedAtEpochMillis <= minOf(validForMillis, 600_000L) &&
         (receivedAtEpochMillis == null || receivedAtEpochMillis <= now + 60_000L && now - receivedAtEpochMillis <= 60_000L) &&
         firstArrivalAtEpochMillis > now
+
+/** The next vehicle retains its own deadline; absent metadata uses the legacy shared lifetime. */
+internal fun RealtimeArrivalSnapshot.usableNextArrivalAt(now: Long): Long? =
+    nextArrivalAtEpochMillis?.takeIf { it > now && it > firstArrivalAtEpochMillis &&
+        now <= (nextArrivalValidUntilEpochMillis ?: arrivalValidityDeadline()) }
+
+internal fun RealtimeArrivalSnapshot.arrivalValidityDeadline(): Long =
+    minOf(fetchedAtEpochMillis+minOf(validForMillis,600_000L),
+        receivedAtEpochMillis?.plus(60_000L) ?: Long.MAX_VALUE)
+
+internal fun RealtimeArrivalSnapshot.usableLaterArrivalTimes(now: Long): List<Long> =
+    laterArrivalAtEpochMillis.filter { it > now && now <=
+        (laterArrivalValidUntilEpochMillis[it] ?: arrivalValidityDeadline()) }
 
 data class AutoGuidanceInput(
     val location: GuidanceLocation?,
@@ -269,7 +285,7 @@ fun calculateAutoGuidance(
             return unknown(AutoGuidanceUnknownReason.ARRIVAL_STALE)
         }
         firstArrival = actual.firstArrivalAtEpochMillis
-        nextArrival = actual.nextArrivalAtEpochMillis?.takeIf { it > firstArrival }
+        nextArrival = actual.usableNextArrivalAt(nowEpochMillis)
         fetchedAt = actual.fetchedAtEpochMillis
         precision = actual.etaPrecision
         firstLatest = null
@@ -323,7 +339,7 @@ fun calculateAutoGuidance(
     val recommended = (listOfNotNull(nextArrival) + if (useTimetable) scheduled?.later.orEmpty()
         .filter { it.validUntilEpochMillis >= nowEpochMillis && it.identity.directionId == boarding.identity.directionId }
         .map { it.midpointArrivalAtEpochMillis() }
-        else arrivals?.laterArrivalAtEpochMillis.orEmpty()).distinct().sorted().firstOrNull {
+        else arrivals?.usableLaterArrivalTimes(nowEpochMillis).orEmpty()).distinct().sorted().firstOrNull {
         it > firstArrival && it - nowEpochMillis >= walkingWithBufferMillis
     }
     val nextState = if (status != AutoGuidanceStatus.NEXT_VEHICLE) null else when {

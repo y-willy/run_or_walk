@@ -33,7 +33,8 @@ internal data class GyeonggiBusArrivalDisplay(
     val etaPrecision: ArrivalTimePrecision = ArrivalTimePrecision.SECONDS,
     val sourceTimestampAvailable: Boolean = observedAtMillis != null,
     /** Fix clock-skew clamping once per response, so a screen tick cannot move the ETA. */
-    val normalizedAtMillis: Long? = null
+    val normalizedAtMillis: Long? = null,
+    val serviceEnded: Boolean = false
 )
 internal class GyeonggiBusRepository(
     private val baseUrl: String = BuildConfig.SUBWAY_GATEWAY_URL
@@ -116,8 +117,9 @@ internal fun parseGyeonggiWorkerArrivals(
                 ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
                 ?: sourceObservedAt
             val timedTrust = officialBusArrivalTrust(exactSeconds?.toLong(), providerObserved, fetchedAt, nowMillis)
-            val computed = if (Regex("^(END|ENDED|CLOSED|TERMINATED)$|운행\\s*종료", RegexOption.IGNORE_CASE)
-                    .containsMatchIn(row.optString("status"))) ArrivalTrustState.UNKNOWN else timedTrust
+            val serviceEnded=Regex("^(END|ENDED|CLOSED|TERMINATED)$|운행\\s*종료", RegexOption.IGNORE_CASE)
+                .containsMatchIn(row.optString("status"))
+            val computed = if(serviceEnded) ArrivalTrustState.UNKNOWN else timedTrust
             val routeSlot = routeId to order
             val slotIndex = (routeSlots[routeSlot] ?: 0) + 1
             routeSlots[routeSlot] = slotIndex
@@ -129,7 +131,7 @@ internal fun parseGyeonggiWorkerArrivals(
                 row.optString("vehicleId").takeIf { it.matches(Regex("[1-9][0-9]+")) }.orEmpty(),
                 exactSeconds, fetchedAt, providerObserved, computed, sequence,
                 if (row.optString("etaPrecision") == "minutes") ArrivalTimePrecision.MINUTES
-                else ArrivalTimePrecision.SECONDS, providerObserved != null, nowMillis))
+                else ArrivalTimePrecision.SECONDS, providerObserved != null, nowMillis,serviceEnded))
         }
     }
 }

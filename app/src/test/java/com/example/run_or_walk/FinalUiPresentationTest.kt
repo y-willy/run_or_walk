@@ -46,7 +46,7 @@ class FinalUiPresentationTest {
         withActivity({RUN_or_WALKTheme { AutomaticGuidanceCard(
             AutoGuidanceAssessment(AutoGuidanceStatus.UNKNOWN),"수인분당선","망포역","",time,time+360000,null,sourceAt,180,validatedEta=approved) }}) {
             compose.onNodeWithText("이동 여유",substring=true).assertDoesNotExist()
-            compose.onNodeWithText("정보 확인 중").assertIsDisplayed()
+            compose.onNodeWithText("도착정보 확인 중").assertIsDisplayed()
             compose.runOnIdle { approved=null;sourceAt=time-700000 }
             compose.onNodeWithText("이동 여유",substring=true).assertDoesNotExist()
             compose.onAllNodes(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo)).assertCountEquals(0)

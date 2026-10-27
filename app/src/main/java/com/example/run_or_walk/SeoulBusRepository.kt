@@ -280,7 +280,7 @@ internal fun parseWorkerSeoulBusArrivals(json: String, route: OfficialSeoulBusRo
                     etaPrecision = ArrivalTimePrecision.SECONDS, sourceTimestampAvailable = observedAt != null,
                     receivedAtEpochMillis = fetchedAt,
                     vehicleIdentityFallback = if (vehicle.isBlank()) "official-slot:${i + 1}" else null),
-                officialMessage, full, row.busBoolean("last"), message, fetchedAt, issues))
+                officialMessage, full, row.busBoolean("last"), message, fetchedAt, issues, i+1, seconds))
         }
     }
     // The official slots remain distinct without IDs. A repeated actual ID only removes next-bus evidence.
@@ -296,10 +296,9 @@ internal fun parseWorkerSeoulBusArrivals(json: String, route: OfficialSeoulBusRo
                 it.isUsableBusArrival(nowEpochMillis) &&
                 it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis
         }.minByOrNull { it.snapshot.firstArrivalAtEpochMillis } else null
-        val expires = minOf(first.snapshot.fetchedAtEpochMillis + first.snapshot.validForMillis,
-            next?.let { it.snapshot.fetchedAtEpochMillis + it.snapshot.validForMillis } ?: Long.MAX_VALUE)
         first.copy(snapshot = first.snapshot.copy(nextArrivalAtEpochMillis = next?.snapshot?.firstArrivalAtEpochMillis,
-            validForMillis = expires - first.snapshot.fetchedAtEpochMillis))
+            nextArrivalPrecision = next?.snapshot?.etaPrecision,
+            nextArrivalValidUntilEpochMillis = next?.snapshot?.let { it.fetchedAtEpochMillis + it.validForMillis }))
     }
 }
 

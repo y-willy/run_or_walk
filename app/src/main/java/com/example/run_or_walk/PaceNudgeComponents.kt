@@ -168,7 +168,7 @@ fun AutomaticGuidanceCard(
     nextArrivalAtEpochMillis: Long?,
     arrivalFetchedAtEpochMillis: Long?,
     walkingSeconds: Int?,
-    unknownTitle: String = "자동 판단을 준비하고 있어요",
+    unknownTitle: String = "도착정보 확인 중",
     arrivalInformation: String? = null,
     vehicleLabel: String = "열차",
     movementHint: String = "역 내부 이동과 신호 대기는 확인해 주세요.",
@@ -181,7 +181,9 @@ fun AutomaticGuidanceCard(
     paceStatus: String? = null,
     remainingDistanceMeters: Int? = null,
     arrivalSource: GuidanceArrivalSource = assessment.arrivalSource,
-    validatedEta: Boolean? = null
+    validatedEta: Boolean? = null,
+    refreshError: String? = null,
+    providerLabel: String? = null
 ) {
     var detailsExpanded by rememberSaveable { mutableStateOf(false) }
     // Presentation only: the existing assessment/ETA selection remains authoritative.
@@ -189,7 +191,7 @@ fun AutomaticGuidanceCard(
         AutoGuidanceStatus.WALK -> "걸으세요"
         AutoGuidanceStatus.FAST_WALK -> "빠르게 이동하세요"
         AutoGuidanceStatus.NEXT_VEHICLE -> "다음 차량 이용"
-        AutoGuidanceStatus.UNKNOWN -> "정보 확인 중"
+        AutoGuidanceStatus.UNKNOWN -> unknownTitle
     }
     val accent = when(assessment.status) {
         AutoGuidanceStatus.FAST_WALK -> Color(0xFFFFD0A1)
@@ -232,6 +234,10 @@ fun AutomaticGuidanceCard(
             }
             if(detailsExpanded) Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
                 Text(arrivalSourceLabel(arrivalSource),style=MaterialTheme.typography.labelSmall)
+                if(arrivalSource==GuidanceArrivalSource.OFFICIAL_REALTIME && usableEta)
+                    Text("남은 시간은 수신 예정시각에 경과시간을 반영해요.",style=MaterialTheme.typography.labelSmall)
+                providerLabel?.let { Text("제공기관 · $it",style=MaterialTheme.typography.labelSmall) }
+                refreshError?.let { Text("최근 갱신 오류 · $it",style=MaterialTheme.typography.bodySmall,color=Color(0xFFFFD0A1)) }
                 if(assessment.status==AutoGuidanceStatus.NEXT_VEHICLE)
                     Text(nextVehicleGuidanceText(assessment,nowEpochMillis),style=MaterialTheme.typography.bodySmall)
                 else nextArrivalAtEpochMillis?.let { Text("다음 $vehicleLabel · ${arrivalText(it,nowEpochMillis,nextArrivalPrecision)}",style=MaterialTheme.typography.bodySmall) }
@@ -361,7 +367,7 @@ internal fun JourneyMetrics(speed: Double?,distance: Int?) {
                     Text(if(isSpeed) "현재 이동속도" else "승차점까지",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     AppIcon(if(isSpeed) R.drawable.ui_walk else R.drawable.ui_pin,tint=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if(isSpeed) speed?.let { String.format(java.util.Locale.KOREA,"%.1f km/h",it*3.6) } ?: "측정 중"
+                    Text(if(isSpeed) speed?.let { String.format(java.util.Locale.KOREA,"%.1f km/h",it*3.6) } ?: "0.0 km/h"
                         else distance?.let { "${it}m" } ?: "확인 중",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
                     }
                 }

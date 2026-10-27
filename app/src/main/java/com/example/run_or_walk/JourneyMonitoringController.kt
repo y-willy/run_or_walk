@@ -27,7 +27,11 @@ internal data class JourneyMonitoringState(
     val subwayObservations: List<OfficialSubwayArrival> = emptyList(),
     val timetableAnalysis: SubwayTimetableAnalysis? = null,
     val calibratedSpeedMetersPerSecond: Double? = null,
-    val arrivalRequestFailed: Boolean = false
+    val arrivalRequestFailed: Boolean = false,
+    val seoulBusObservations: List<OfficialSeoulBusArrival>? = null,
+    val gyeonggiBusObservations: List<GyeonggiBusArrivalDisplay>? = null,
+    val arrivalResponseAtEpochMillis: Long? = null,
+    val arrivalError: String? = null
 ) {
     val isRunning: Boolean get() = running
 }
@@ -37,7 +41,7 @@ internal object JourneyMonitoringController {
     private val mutableState = MutableStateFlow(JourneyMonitoringState())
     val state: StateFlow<JourneyMonitoringState> = mutableState.asStateFlow()
 
-    fun start(context: Context, request: JourneyMonitoringRequest): Boolean {
+    fun start(context: Context, request: JourneyMonitoringRequest, handover: JourneyMonitoringState? = null): Boolean {
         val message = when {
             !request.isValid() -> "공식 승차 장소와 노선·방향을 먼저 선택해 주세요."
             !hasLocationPermission(context) -> "화면 꺼짐 안내에는 위치 권한이 필요해요."
@@ -46,6 +50,9 @@ internal object JourneyMonitoringController {
         }
         if (message != null) { publishFailure(message); return false }
         return try {
+            if(!mutableState.value.running && handover?.request?.isSameJourney(request)==true) {
+                publish(monitoringStateWithSettings(handover.copy(running=true),request,System.currentTimeMillis(),true))
+            }
             ContextCompat.startForegroundService(context, Intent(context, JourneyMonitoringService::class.java)
                 .setAction(JourneyMonitoringService.ACTION_START)
                 .putExtra(JourneyMonitoringService.EXTRA_REQUEST, JourneyMonitoringRequestCodec.encode(request)))
@@ -113,6 +120,13 @@ internal fun monitoringStateWithSettings(
     locationPermissionGranted: Boolean
 ): JourneyMonitoringState {
     if (state.request?.isSameJourney(request) != true) return state
+    val currentArrival=when {
+        request.isGyeonggi && state.gyeonggiBusObservations!=null ->
+            chooseMatchingGyeonggiArrival(requireNotNull(request.gyeonggiMatch),state.gyeonggiBusObservations,nowEpochMillis)?.snapshot
+        request.isBus && state.seoulBusObservations!=null ->
+            chooseMatchingBusArrival(request.identity,state.seoulBusObservations,nowEpochMillis)?.snapshot
+        else -> state.arrivals?.takeIf { (!request.isBus || it.identity==request.identity) && it.hasUsableOfficialEta(nowEpochMillis) }
+    }
     val walking = state.walkingRoute?.let { previous ->
         val distance = state.walkingDistanceMeters
         val providerSeconds = state.providerWalkingSeconds
@@ -121,9 +135,9 @@ internal fun monitoringStateWithSettings(
             state.calibratedSpeedMetersPerSecond.takeIf { state.location?.let { nowEpochMillis-it.observedAtEpochMillis in 0L..30_000L } == true }))
     }
     val evidence = selectTimetableEvidence(state.timetableAnalysis, nowEpochMillis,request.subwayChoice)
-    val identity = state.arrivals?.identity ?: evidence?.identity ?: request.identity
+    val identity = currentArrival?.identity ?: evidence?.identity ?: request.identity
     val assessment = calculateMovementGuidance(AutoGuidanceInput(state.location,
-        GuidanceBoarding(identity, request.boardingPoint, true), walking?.copy(boardingIdentity = identity), state.arrivals,
+        GuidanceBoarding(identity, request.boardingPoint, true), walking?.copy(boardingIdentity = identity), currentArrival,
         locationPermissionGranted, arrivalRequestFailed = state.arrivalRequestFailed,
         bufferSeconds = request.settings.bufferSeconds, timetableArrivals = evidence,
         furtherServiceEnded = state.assessment?.nextVehicleState == NextVehicleState.SERVICE_ENDED,
@@ -142,5 +156,27 @@ internal fun monitoringStateWithSettings(
     } else if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
         estimatePrefix + "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, nowEpochMillis)
     else estimatePrefix + movementGuidanceTitle(assessment,nowEpochMillis)
-    return state.copy(request = request, walkingRoute = walking, assessment = assessment, message = message)
+    return state.copy(request = request, walkingRoute = walking, arrivals=currentArrival, assessment = assessment, message = message)
+}
+
+/** Process-local handover only: no GPS, route geometry or ETA is put in the service Intent. */
+internal fun monitoringScreenHandover(screen: JourneyScreenState,request: JourneyMonitoringRequest,
+    now: Long,permissionGranted: Boolean): JourneyMonitoringState? {
+    if(!request.isValid() || !screen.boardingConfirmed || screen.boarding?.point!=request.boardingPoint ||
+        screen.confirmedServiceIdentity!=request.identity) return null
+    val rows=screen.busArrivalOptions.takeIf { request.isBus && !request.isGyeonggi }
+    val ggRows=screen.gyeonggiArrivals.takeIf { request.isGyeonggi }
+    val arrival=when {
+        request.isGyeonggi -> chooseMatchingGyeonggiArrival(requireNotNull(request.gyeonggiMatch),ggRows.orEmpty(),now)?.snapshot
+        request.isBus -> chooseMatchingBusArrival(request.identity,rows.orEmpty(),now)?.snapshot
+        else -> screen.selectedArrival?.snapshot?.takeIf { it.hasUsableOfficialEta(now) }
+    }
+    val state=JourneyMonitoringState(running=true,request=request,location=screen.location,
+        walkingRoute=screen.guidanceWalkingRoute,arrivals=arrival,
+        walkingDistanceMeters=screen.walkRoute?.distanceMeters,providerWalkingSeconds=screen.walkRoute?.durationSeconds,
+        walkingPoints=screen.walkingPoints,subwayObservations=screen.arrivalOptions,timetableAnalysis=screen.timetableAnalysis,
+        arrivalRequestFailed=screen.arrivalRequestFailed,seoulBusObservations=rows,gyeonggiBusObservations=ggRows,
+        arrivalResponseAtEpochMillis=screen.arrivalResponseAtEpochMillis,
+        arrivalError=(screen.liveError ?: screen.gyeonggiMessage).takeIf { screen.arrivalRequestFailed })
+    return monitoringStateWithSettings(state,request,now,permissionGranted)
 }

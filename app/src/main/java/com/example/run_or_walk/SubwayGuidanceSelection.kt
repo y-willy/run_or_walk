@@ -13,12 +13,16 @@ internal fun selectDestinationSubwayArrival(analysis: SubwayTimetableAnalysis?, 
             (it.trainId.isBlank() || first.trainId.isBlank() || it.trainId != first.trainId) &&
             it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis
     }
-    val later = rows.filter { it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis }
+    val laterRows = rows.filter { it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis }
         .distinctBy { it.trainId.ifBlank { "slot:${it.officialSlot}" } }
         .filter { first.trainId.isBlank() || it.trainId != first.trainId }
-        .map { it.snapshot.firstArrivalAtEpochMillis }.distinct().sorted()
+    val later = laterRows.map { it.snapshot.firstArrivalAtEpochMillis }.distinct().sorted()
+    val deadlines=laterRows.groupBy { it.snapshot.firstArrivalAtEpochMillis }
+        .mapValues { (_,values) -> values.maxOf { it.snapshot.arrivalValidityDeadline() } }
     return first.copy(snapshot = first.snapshot.copy(nextArrivalAtEpochMillis = next?.snapshot?.firstArrivalAtEpochMillis,
-        laterArrivalAtEpochMillis = later))
+        nextArrivalPrecision = next?.snapshot?.etaPrecision,
+        nextArrivalValidUntilEpochMillis = next?.snapshot?.arrivalValidityDeadline(),
+        laterArrivalAtEpochMillis = later,laterArrivalValidUntilEpochMillis=deadlines))
 }
 
 internal fun selectTimetableEvidence(analysis: SubwayTimetableAnalysis?, now: Long,

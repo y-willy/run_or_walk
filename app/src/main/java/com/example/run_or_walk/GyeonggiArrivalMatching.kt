@@ -10,6 +10,7 @@ internal fun isUsableGyeonggiArrival(row: GyeonggiBusArrivalDisplay, nowMillis: 
     row.trust == ArrivalTrustState.VALID && officialBusArrivalTrust(
         row.seconds?.toLong(), row.observedAtMillis, row.fetchedAtMillis, nowMillis
     ) == ArrivalTrustState.VALID &&
+        nowMillis <= officialBusArrivalExpiresAt(row.observedAtMillis,row.fetchedAtMillis,row.normalizedAtMillis ?: nowMillis) &&
         row.arrivalBasisMillis(nowMillis) + requireNotNull(row.seconds) * 1_000L > nowMillis
 
 /** A missing response order does not erase the independently verified boarding occurrence. */
@@ -37,10 +38,8 @@ internal fun chooseMatchingGyeonggiArrival(
             (first.vehicleId.isBlank() || it.vehicleId.isBlank() || it.vehicleId != first.vehicleId) &&
             it.arrivalBasisMillis(nowMillis) + requireNotNull(it.seconds) * 1_000L > firstArrival
     }
-    val expiresAt = minOf(officialBusArrivalExpiresAt(first.observedAtMillis, first.fetchedAtMillis,
-        first.normalizedAtMillis ?: nowMillis), next?.let {
-        officialBusArrivalExpiresAt(it.observedAtMillis, it.fetchedAtMillis, it.normalizedAtMillis ?: nowMillis)
-    } ?: Long.MAX_VALUE)
+    val expiresAt = officialBusArrivalExpiresAt(first.observedAtMillis, first.fetchedAtMillis,
+        first.normalizedAtMillis ?: nowMillis)
     return MatchedGyeonggiArrival(first.vehicleId, RealtimeArrivalSnapshot(match.identity,
         firstArrival,
         next?.let { it.arrivalBasisMillis(nowMillis) + requireNotNull(it.seconds) * 1_000L },
@@ -49,5 +48,8 @@ internal fun chooseMatchingGyeonggiArrival(
         sourceTimestampAvailable = first.sourceTimestampAvailable,
         receivedAtEpochMillis = first.fetchedAtMillis,
         vehicleIdentityFallback = "official-slot:${first.sequence}".takeIf { first.vehicleId.isBlank() },
-        nextArrivalPrecision = next?.etaPrecision))
+        nextArrivalPrecision = next?.etaPrecision,
+        nextArrivalValidUntilEpochMillis = next?.let {
+            officialBusArrivalExpiresAt(it.observedAtMillis,it.fetchedAtMillis,it.normalizedAtMillis ?: nowMillis)
+        }))
 }

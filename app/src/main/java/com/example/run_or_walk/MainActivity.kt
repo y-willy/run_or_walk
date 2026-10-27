@@ -46,6 +46,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.sin
@@ -128,7 +129,8 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     var searchExpanded by rememberSaveable(mode) { mutableStateOf(false) }
     var alternativesExpanded by rememberSaveable(mode) { mutableStateOf(false) }
     var officialDetailsExpanded by rememberSaveable(mode) { mutableStateOf(false) }
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val displayClock=remember { GuidanceDisplayClock(System.currentTimeMillis(),SystemClock.elapsedRealtime(),SystemClock::elapsedRealtime) }
+    var now by remember { mutableLongStateOf(displayClock.now()) }
     val vibrationSupported = remember(context) { supportsVibration(context) }
     var pendingMonitoring by remember { mutableStateOf<Triple<JourneyScreenState, Long, JourneyMonitoringRequest>?>(null) }
     var startingMonitoring by remember { mutableStateOf(false) }
@@ -142,7 +144,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         if (!monitoring.running) monitorRecenterPending = false
         val fix = monitoring.location
         if (monitorRecenterPending && isMonitored(screen) && fix != null &&
-            System.currentTimeMillis() - fix.observedAtEpochMillis in 0L..30_000L) {
+            displayClock.now() - fix.observedAtEpochMillis in 0L..30_000L) {
             screen.centerOn(fix.point)
             monitorRecenterPending = false
         }
@@ -171,9 +173,10 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 lifecycleOwner.lifecycle.withResumed {
                     if (isActiveTarget(target) && target.revision == revision &&
                         monitoringRequest(target)?.isSameJourney(request) == true) {
-                        target.invalidateRequests()
-                        if (!JourneyMonitoringController.start(context, request.copy(
-                            settings = session.settings, vibrationEnabled = target.alertsEnabled))) {
+                        val activeRequest=request.copy(settings=session.settings,vibrationEnabled=target.alertsEnabled)
+                        val handover=monitoringScreenHandover(target,activeRequest,displayClock.now(),hasLocationPermission(context))
+                        target.invalidateRequests(preserveTimetable=true)
+                        if (!JourneyMonitoringController.start(context,activeRequest,handover)) {
                             target.error = JourneyMonitoringController.state.value.message
                         }
                     }
@@ -240,6 +243,27 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         }
     }
 
+    fun applyWalkingLocation(target: JourneyScreenState,fix: GuidanceLocation) {
+        val identity=target.confirmedServiceIdentity
+        val boarding=target.boarding
+        if(identity==null || boarding==null) {
+            if(locationSampleFailure(fix,displayClock.now())==null &&
+                (target.location?.observedAtEpochMillis?.let { fix.observedAtEpochMillis>=it } != false)) target.location=fix
+            return
+        }
+        val previous=LiveWalkingEvidence(target.location,target.guidanceWalkingRoute,
+            target.walkRoute?.distanceMeters,target.walkRoute?.durationSeconds,target.walkingPoints)
+        val result=updateLiveWalkingEvidence(previous,target.walkingTracker,fix,identity,boarding.point,
+            session.settings,null,displayClock.now())
+        target.location=result.location
+        target.guidanceWalkingRoute=result.walking
+        target.walkRoute=if(result.distanceMeters!=null && result.providerSeconds!=null)
+            WalkRoute(result.distanceMeters,result.providerSeconds) else null
+        target.walkOrigin=result.walking?.origin
+        target.walkFetchedAtEpochMillis=result.walking?.fetchedAtEpochMillis
+        target.walkingPoints=result.points
+    }
+
     fun storeWalking(target: JourneyScreenState, location: GuidanceLocation,
         boarding: JourneyPlace, identity: OfficialBoardingIdentity?, walk: KakaoWalkingRoute) {
         // A complete walking polyline must actually connect the live GPS to this boarding place.
@@ -247,14 +271,16 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             target.discardWalkingResults()
             throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
         }
+        if(target.location?.let { pedestrianDistance(it.point,location.point)>35.0 }==true) return
+        target.walkingTracker=WalkingRouteTracker(location.point,walk,displayClock.now())
         target.walkRoute = WalkRoute(walk.distanceMeters, walk.durationSeconds)
-        target.walkFetchedAtEpochMillis = System.currentTimeMillis()
+        target.walkFetchedAtEpochMillis = target.walkingTracker?.fetchedAt
         target.walkOrigin = location.point
         target.walkingPoints = walk.points
         target.clearAccessTransit()
         target.guidanceWalkingRoute = identity?.let {
             GuidanceWalkingRoute(location.point, boarding.point, it, walk.durationSeconds,
-                System.currentTimeMillis(), 120_000L, walk.distanceMeters)
+                requireNotNull(target.walkFetchedAtEpochMillis), 120_000L, walk.distanceMeters)
         }
     }
 
@@ -262,9 +288,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         // A feeder trip's scheduled duration is not proof of a catchable realtime vehicle.
         if (target.mode != FeatureMode.ROUTE ||
             location.accuracyMeters > 50.0 ||
-            System.currentTimeMillis() - location.observedAtEpochMillis !in 0L..30_000L) return
+            displayClock.now() - location.observedAtEpochMillis !in 0L..30_000L) return
         val boarding = target.departure.selected ?: target.boarding ?: return
-        val now = System.currentTimeMillis()
+        val now = displayClock.now()
         val previous = target.accessTransitAttemptAtMillis
         if (target.accessTransitLoading ||
             (previous != null && now - previous in 0L..60_000L &&
@@ -289,7 +315,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             try {
                 val alternatives = kakaoRepository.searchPublicTransit(location.point, boarding.point)
                 if (active()) {
-                    target.accessTransitFetchedAtMillis = System.currentTimeMillis()
+                    target.accessTransitFetchedAtMillis = displayClock.now()
                     target.accessTransitRoutes = alternatives.take(3).mapIndexed { index, choice ->
                         JourneyTransitRoute("access-$index", choice)
                     }
@@ -363,10 +389,8 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                     target.status = "도보 경로를 확인했어요."
                 }
                 if (action == LocationAction.RECENTER) {
-                    // Recentring changes the GPS sample. Never keep guidance tied to an old origin.
-                    target.guidanceWalkingRoute = null
-                    target.walkRoute = null
-                    target.walkingPoints = emptyList()
+                    // Recentring revalidates actual geometry; it does not erase a usable path.
+                    applyWalkingLocation(target,result.location)
                     target.status = "현재 위치를 갱신했어요."
                 }
             },
@@ -504,8 +528,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         try {
                             val arrivals = busRepository.arrivals(stop,matched)
                             if (!stillSelected()) return@launch
-                            target.busArrivalOptions = arrivals
-                            target.selectedBusArrival = chooseMatchingBusArrival(matched.identity,arrivals,System.currentTimeMillis())
+                            target.applyBusArrivals(arrivals,displayClock.now())
                             target.arrivalRequestFailed = false
                             if (arrivals.isEmpty()) arrivalStatus = "선택한 노선에 현재 도착 예정 차량이 없어요."
                         } catch (cancelled: CancellationException) { throw cancelled }
@@ -692,20 +715,20 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         try {
             val location = getCurrentLocationSample(context)
             if (!active()) return
-            target.location = location
-            currentPoint = location.point
+            applyWalkingLocation(target,location)
+            currentPoint = target.location?.point ?: location.point
             val fetched = target.walkFetchedAtEpochMillis
-            val origin = target.walkOrigin
+            val origin = target.walkingTracker?.origin ?: target.walkOrigin
             val walk = target.walkRoute
             val walkFresh = fetched != null && origin != null && walk != null &&
-                System.currentTimeMillis() - fetched in 0L..90_000L &&
+                displayClock.now() - fetched in 0L..90_000L &&
                 distanceBetweenMeters(origin, location.point) <= 25.0 &&
                 target.walkingPoints.size >= 2 &&
                 distanceBetweenMeters(target.walkingPoints.last(), boarding.point) <= 150.0
             if (walkFresh) {
                 // Rebind the same actual, fresh walking response after a direction choice.
                 target.guidanceWalkingRoute = identity?.let {
-                    GuidanceWalkingRoute(requireNotNull(origin), boarding.point, it,
+                    GuidanceWalkingRoute(requireNotNull(target.walkOrigin ?: origin), boarding.point, it,
                         requireNotNull(walk).durationSeconds, requireNotNull(fetched), 120_000L,
                         requireNotNull(walk).distanceMeters)
                 }
@@ -746,7 +769,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         val route = target.selectedBusRoute ?: return
         val boarding = target.boarding ?: return
         if (target.liveLoading || !isActiveTarget(target) || !busRepository.isConfigured) return
-        if (target.liveRetryAtEpochMillis?.let { it > System.currentTimeMillis() } == true) return
+        if (target.liveRetryAtEpochMillis?.let { it > displayClock.now() } == true) return
         val binding = target.confirmedServiceIdentity
         if (route.stopId != stop.stopId || !route.supported) return
         val generation = target.beginLiveRequest()
@@ -761,14 +784,13 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 busRepository.arrivals(stop, route)
             } else target.busArrivalOptions
             if (!active()) return
-            target.busArrivalOptions = arrivals
-            target.selectedBusArrival = chooseMatchingBusArrival(route.identity, arrivals, System.currentTimeMillis())
+            target.applyBusArrivals(arrivals,displayClock.now())
             target.arrivalRequestFailed = false
             target.liveRetryAtEpochMillis = null
             target.liveError = when {
                 arrivals.isEmpty() -> "선택한 노선에 도착 예정 버스가 없어요. 운행 상태를 확인해 주세요."
                 target.selectedBusArrival == null -> arrivals.map {
-                    seoulBusArrivalDisplayStatus(it, System.currentTimeMillis())
+                    seoulBusArrivalDisplayStatus(it, displayClock.now())
                 }.distinct().joinToString("\n")
                 else -> null
             }
@@ -814,9 +836,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             val arrivals = gyeonggiRepository.arrivals(match.stationId)
             if (active()) {
                 target.liveRetryAtEpochMillis = null
-                target.gyeonggiArrivals = arrivals
+                target.applyGyeonggiArrivals(arrivals,displayClock.now())
                 target.arrivalRequestFailed = false
-                val nowMillis = System.currentTimeMillis()
+                val nowMillis = displayClock.now()
                 val usable = target.usableGyeonggiArrivals(nowMillis)
                 target.gyeonggiMessage = when {
                     usable.isNotEmpty() -> null // The live cards calculate remaining time each second.
@@ -909,7 +931,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             target.liveError = "실시간 정보 연결 필요"
             return
         }
-        target.liveRetryAtEpochMillis?.takeIf { it > System.currentTimeMillis() }?.let {
+        target.liveRetryAtEpochMillis?.takeIf { it > displayClock.now() }?.let {
             // Keep the actual reason (warmup, IP limit or daily budget) during backoff.
             if (target.liveError == null) target.liveError = "서버의 재조회 대기 시간 이후 자동으로 다시 확인해요."
             return
@@ -932,14 +954,16 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             } else target.arrivalOptions
             if (!active()) return
             target.arrivalOptions = arrivals
+            if(arrivals.isEmpty()) { target.clearMissingSubwayArrival();expectedSelection=null }
+            target.arrivalResponseAtEpochMillis = arrivals.mapNotNull { it.gatewayFetchedAtEpochMillis ?: it.snapshot.receivedAtEpochMillis }.maxOrNull() ?: displayClock.now()
             target.liveRetryAtEpochMillis = null
             val refreshed = if(target.subwayChoice != null) arrivals.firstOrNull { target.subwayChoice?.matches(it) == true }
-                else chooseMatchingSubwayArrival(binding, arrivals, System.currentTimeMillis())
+                else chooseMatchingSubwayArrival(binding, arrivals, displayClock.now())
             if (binding == null) {
                 val auto = resolveAutomaticSubwayIdentity(target.subwayDirectionRoute,
-                    arrivals, System.currentTimeMillis())
+                    arrivals, displayClock.now())
                 if (auto != null) {
-                    val first = chooseMatchingSubwayArrival(auto, arrivals, System.currentTimeMillis())
+                    val first = chooseMatchingSubwayArrival(auto, arrivals, displayClock.now())
                     if (first != null) {
                         target.confirmedServiceIdentity = auto
                         target.selectedArrival = first
@@ -952,17 +976,15 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 }
                 target.arrivalRequestFailed = false
                 target.liveError = if (arrivals.isEmpty()) "도착 예정 차량이 없어요."
-                    else subwayArrivalDiagnosticSummary(arrivals, System.currentTimeMillis())
+                    else subwayArrivalDiagnosticSummary(arrivals, displayClock.now())
                 return
             }
             // A confirmed full service identity is required before choosing an actual vehicle.
             if (refreshed == null) {
                 target.arrivalRequestFailed = false
-                if(target.subwayChoice == null) {
-                    target.selectedArrival = null
-                    expectedSelection = null
-                }
-                target.liveError = subwayArrivalDiagnosticSummary(arrivals, System.currentTimeMillis())
+                target.clearMissingSubwayArrival()
+                expectedSelection = null
+                target.liveError = subwayArrivalDiagnosticSummary(arrivals, displayClock.now())
                     ?: "선택한 방향의 열차 정보가 없어요. 다른 방향을 확인하거나 다음 갱신을 기다려 주세요."
                 return
             }
@@ -1009,7 +1031,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         runRequest(target, "목적지 방면을 확인하고 있어요", "목적지 방면 경로를 확인하지 못했어요",
             request = {
                 val catalog = subwayRepository.searchStations(officialStationSearchQuery(stop.name))
-                val day = timetableCalendar.serviceDays(System.currentTimeMillis()).firstOrNull()
+                val day = timetableCalendar.serviceDays(displayClock.now()).firstOrNull()
                 val direct = if (day == null) null else {
                     val stations = catalog.filter { officialStationSearchQuery(it.name) == officialStationSearchQuery(stop.name) }
                     val preferred = target.selectedStation?.takeIf { it in stations }
@@ -1217,7 +1239,8 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             try {
                 val arrivals = gyeonggiRepository.arrivals(stationId)
                 if (active()) {
-                    target.gyeonggiArrivals = arrivals
+                    target.applyGyeonggiArrivals(arrivals,displayClock.now())
+                    target.arrivalRequestFailed=false
                     target.gyeonggiMessage = if (arrivals.isEmpty())
                         "이 공식 정류소의 실시간 도착정보가 없어요."
                     else "경기버스 공식 도착정보를 조회했어요. 실제 승차 정류장과의 매칭이 확인되기 전에는 자동 뛰기·걷기 판단에 사용하지 않아요."
@@ -1225,7 +1248,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (active()) {
-                    target.gyeonggiArrivals = emptyList()
+                    target.arrivalRequestFailed=true
                     target.gyeonggiMessage = (error as? java.io.IOException)?.message
                         ?: "경기버스 실시간 도착정보를 확인할 수 없어요."
                 }
@@ -1247,20 +1270,20 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         val rows = screen.arrivalOptions
         if (route != null && route.firstTransitType != "SUBWAY") return@LaunchedEffect
         val revision = screen.revision
-        val days = timetableCalendar.serviceDays(System.currentTimeMillis())
+        val days = timetableCalendar.serviceDays(displayClock.now())
         if (days.isEmpty()) return@LaunchedEffect
         try {
             val analysis = analyzeSubwayWithScheduleFallback(timetableAnalyzer, station, route, rows,
-                System.currentTimeMillis(), days, screen.confirmedServiceIdentity) ?: return@LaunchedEffect
+                displayClock.now(), days, screen.confirmedServiceIdentity) ?: return@LaunchedEffect
             if (latestScreen !== screen || screen.revision != revision || screen.selectedStation != station ||
                 screen.subwayDirectionRoute != route || screen.arrivalOptions != rows) return@LaunchedEffect
             screen.timetableAnalysis = analysis
             if (!screen.arrivalRequestFailed && (analysis.estimates.isNotEmpty() ||
-                    analysis.matchingArrivals.any { it.snapshot.hasUsableOfficialEta(System.currentTimeMillis()) }))
+                    analysis.matchingArrivals.any { it.snapshot.hasUsableOfficialEta(displayClock.now()) }))
                 screen.liveError = null
-            arrivalHistory.record(station, rows, analysis.estimates, System.currentTimeMillis())
-            val official = selectDestinationSubwayArrival(analysis, System.currentTimeMillis(),screen.subwayChoice)
-            val estimated = selectTimetableEvidence(analysis, System.currentTimeMillis(),screen.subwayChoice)
+            arrivalHistory.record(station, rows, analysis.estimates, displayClock.now())
+            val official = selectDestinationSubwayArrival(analysis, displayClock.now(),screen.subwayChoice)
+            val estimated = selectTimetableEvidence(analysis, displayClock.now(),screen.subwayChoice)
             val selected = official ?: analysis.estimates.firstOrNull { it.estimate == estimated?.first }?.arrival
             if (selected != null) {
                 screen.confirmedServiceIdentity = selected.identity
@@ -1276,12 +1299,30 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     }
     LaunchedEffect(screen) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (isActive) { now = System.currentTimeMillis(); delay(5_000L) }
+            while (isActive) { now = displayClock.now(); delay(5_000L) }
         }
     }
     LaunchedEffect(screen, screen.boarding, screen.confirmedServiceIdentity, monitorKey) {
-        if (screen.boarding != null) {
+        if (screen.boarding != null && !isMonitored(screen)) {
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                launch {
+                    try {
+                        liveLocationSamples(context).collect { fix ->
+                            if(isActiveTarget(screen) && !isMonitored(screen)) {
+                                applyWalkingLocation(screen,fix)
+                                currentPoint=screen.location?.point
+                            }
+                        }
+                    } catch(cancelled: CancellationException) { throw cancelled }
+                    catch(error: Exception) {
+                        if(error is SecurityException || error is DeviceLocationException && error.failure in
+                            setOf(LocationFailure.PERMISSION_REQUIRED,LocationFailure.SERVICES_DISABLED)) {
+                            screen.discardWalkingResults();screen.location=null
+                            screen.error=friendlyFailure(error,"위치 설정을 확인해 주세요")
+                        }
+                        // The prior fix/path retain their original 30 s / 120 s limits.
+                    }
+                }
                 while (isActive) { refreshWalkingSnapshot(screen); delay(20_000L) }
             }
         }
@@ -1325,7 +1366,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             rootScreen.mapAccessMessage = null
             return@LaunchedEffect
         }
-        if (fix == null || fix.accuracyMeters > 50 || System.currentTimeMillis()-fix.observedAtEpochMillis !in 0L..30_000L)
+        if (fix == null || fix.accuracyMeters > 50 || displayClock.now()-fix.observedAtEpochMillis !in 0L..30_000L)
             return@LaunchedEffect
         if (distanceBetweenMeters(fix.point,destination) <= 15.0) {
             rootScreen.mapAccessSegments = emptyList()
@@ -1405,7 +1446,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     val isBus = screen.isBusJourney
     val configured = if (isBus) (busRepository.isConfigured || gyeonggiRepository.isConfigured)
         else subwayRepository.isConfigured
-    val selectedSnapshot = if (monitored) monitoring.arrivals else screen.activeArrivalSnapshot
+    val selectedSnapshot = if (monitored) monitoring.arrivals else screen.arrivalSnapshotAt(now)
     val analysis = (if (monitored) monitoring.timetableAnalysis else screen.timetableAnalysis)?.takeIf {
         it.stationStopId == (if (monitored) monitoring.request?.subwayStation?.stopId else screen.selectedStation?.stopId) &&
             it.requestedRoute == (if (monitored) monitoring.request?.subwayRoute else screen.subwayDirectionRoute)
@@ -1437,7 +1478,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     } == true
     val paceCalibrator = remember(screen, monitored) { WalkingPaceCalibrator() }
     val measuredPace = (if (monitored) monitoring.calibratedSpeedMetersPerSecond else remember(displayedLocation, paceCalibrator) {
-        paceCalibrator.observe(displayedLocation, System.currentTimeMillis())
+        paceCalibrator.observe(displayedLocation, displayClock.now())
     })?.takeIf { displayedLocation?.let { now - it.observedAtEpochMillis in 0L..30_000L } == true }
     val effectivePace = measuredPace.takeIf { settings.gpsAutoCalibrationEnabled }
     val personalizedWalk = if (monitored) monitoring.walkingRoute?.let { walking ->
@@ -1458,7 +1499,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         arrivalRequestFailed = if (monitored) monitoring.arrivalRequestFailed else screen.arrivalRequestFailed,
         bufferSeconds = settings.bufferSeconds, timetableArrivals = estimatedArrivals,
         furtherServiceEnded = if (monitored) monitoring.assessment?.nextVehicleState == NextVehicleState.SERVICE_ENDED
-            else screen.selectedBusArrival?.isLast == true && activeSnapshot?.nextArrivalAtEpochMillis == null,
+            else screen.currentBusArrival(now)?.isLast == true && activeSnapshot?.usableNextArrivalAt(now) == null,
         previousAssessment = if (monitored) monitoring.assessment else screen.lastGuidanceAssessment), now,
         settings)
     val movementTransitions = remember(screen,screen.confirmedServiceIdentity,screen.subwayChoice,monitored) { MovementAdviceTransitions() }
@@ -1536,7 +1577,23 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         activeSnapshot == null -> if (isBus) "버스 도착정보를 확인하고 있어요." else "선택한 경로의 열차 방향을 공식 도착정보와 자동 대조 중이에요."
         else -> unknownReasonText(assessment.unknownReason)
     }
-    val unknownTitle = movementGuidanceTitle(assessment,now)
+    val responseAt=if(monitored) monitoring.arrivalResponseAtEpochMillis else screen.arrivalResponseAtEpochMillis
+    val observedSeoulRows=if(monitored) monitoring.seoulBusObservations.orEmpty() else screen.busArrivalOptions
+    val observedGyeonggiRows=if(monitored) monitoring.gyeonggiBusObservations.orEmpty() else screen.gyeonggiArrivals
+    val observedSubwayRows=if(monitored) monitoring.subwayObservations else screen.arrivalOptions
+    val noService=when {
+        !isBus -> observedSubwayRows.isEmpty()
+        (if(monitored) monitoring.request?.isGyeonggi==true else screen.selectedGyeonggiMatch!=null) ->
+            observedGyeonggiRows.isEmpty() || observedGyeonggiRows.all { it.serviceEnded }
+        else -> observedSeoulRows.isEmpty() || observedSeoulRows.all { row ->
+            row.issues.any { it in setOf("SERVICE_ENDED","BUS_SERVICE_ENDED") } ||
+                Regex("운행\\s*종료").containsMatchIn(row.officialArrivalMessage)
+        }
+    }
+    val arrivalMissingText=missingArrivalText(responseAt,
+        observedSeoulRows.isNotEmpty() || observedGyeonggiRows.isNotEmpty() || observedSubwayRows.isNotEmpty(),
+        if(monitored) monitoring.arrivalRequestFailed else screen.arrivalRequestFailed,noService,now)
+    val unknownTitle = if(validArrival!=null || estimatedArrivals!=null) "이동 정보 확인 필요" else arrivalMissingText
 
     // The stop picker belongs next to the search that produced the candidates, not below the map.
     val selectionControls: @Composable () -> Unit = {
@@ -1701,16 +1758,19 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         boardingLabel = boarding?.name, unknownMessage = unknownMessage,
                         unknownTitle = unknownTitle,
                         informationReceived = operationGuidance != null,
+                        refreshError = if(monitored) monitoring.arrivalError else
+                            (screen.liveError ?: screen.gyeonggiMessage).takeIf { screen.arrivalRequestFailed },
+                        providerLabel = if((if(monitored) monitoring.request?.isGyeonggi==true else screen.selectedGyeonggiMatch!=null))
+                            "경기도 GBIS" else if(isBus) "서울시 버스" else "서울시 지하철 · 공식 시간표",
                         arrivalLabel = "도착까지",
                         vehicleLabel = if (isBus) "버스" else "열차",
                         movementHint = if (isBus) "정류장 접근과 횡단보도 신호를 확인해 주세요." else "역 내부 이동과 신호 대기는 확인해 주세요.",
                         arrivalInformation = if (validArrival != null) null else estimatedArrivals?.let { timetableArrivalText(it, now) }
                             ?: stationArrivalInformation
-                            ?: "확인 중".takeIf { operationGuidance != null }
-                            ?: if (screen.liveLoading && !hasArrivalOptions) "로딩 중" else "확인 중",
+                            ?: arrivalMissingText,
                         nowEpochMillis = now,
                         firstArrivalAtEpochMillis = validArrival?.firstArrivalAtEpochMillis ?: estimatedArrivals?.first?.midpointArrivalAtEpochMillis(),
-                        nextArrivalAtEpochMillis = validArrival?.nextArrivalAtEpochMillis ?: estimatedArrivals?.next?.midpointArrivalAtEpochMillis(),
+                        nextArrivalAtEpochMillis = validArrival?.usableNextArrivalAt(now) ?: estimatedArrivals?.next?.midpointArrivalAtEpochMillis(),
                         arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis
                             ?: estimatedArrivals?.first?.takeIf { it.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION }
                                 ?.sourceTimestampEpochMillis ?: operationGuidance?.sourceAtEpochMillis,

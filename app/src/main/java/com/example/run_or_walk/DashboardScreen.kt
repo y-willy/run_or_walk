@@ -43,7 +43,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner,session: JourneySess
     Scaffold(bottomBar={ DashboardNavigation(tab) { selected ->
         analysis=false
         if(selected<2 && session.mode!=FeatureMode.entries[selected]) {
-            session.screens.getValue(session.mode).invalidateRequests()
+            session.screens.getValue(session.mode).invalidateRequests(preserveTimetable=true)
             session.mode=FeatureMode.entries[selected]
         }
         tab=selected
@@ -53,7 +53,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner,session: JourneySess
                 analysis -> WalkingAnalysisScreen(session.walkingAnalysis,lifecycleOwner,session.settings,{ session.updateSettings(it)
                     JourneyMonitoringController.updateSettings(context,it,JourneyMonitoringController.state.value.request?.vibrationEnabled ?: false) },{analysis=false})
                 tab<2 -> JourneyDashboardContent(lifecycleOwner,session)
-                tab==2 -> FavoriteBusesScreen(session.favorites,lifecycleOwner,onAdd={if(session.mode!=FeatureMode.STOP) session.screens.getValue(session.mode).invalidateRequests();tab=1;session.mode=FeatureMode.STOP}) { selected ->
+                tab==2 -> FavoriteBusesScreen(session.favorites,lifecycleOwner,onAdd={if(session.mode!=FeatureMode.STOP) session.screens.getValue(session.mode).invalidateRequests(preserveTimetable=true);tab=1;session.mode=FeatureMode.STOP}) { selected ->
                     JourneyMonitoringController.stop(context)
                     restoreFavoriteBus(session.screens.getValue(FeatureMode.STOP),selected)
                     session.mode=FeatureMode.STOP;tab=1

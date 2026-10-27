@@ -37,7 +37,9 @@ data class OfficialSeoulBusArrival(
     val isLast: Boolean? = null,
     val statusMessage: String = "",
     val gatewayFetchedAtEpochMillis: Long? = null,
-    val issues: Set<String> = emptySet()
+    val issues: Set<String> = emptySet(),
+    val officialSlot: Int? = null,
+    val sourceEtaSeconds: Long? = null
 )
 
 internal const val BUS_MAX_SOURCE_AGE_MILLIS = 600_000L
@@ -75,10 +77,19 @@ internal fun chooseMatchingBusArrival(
 ): OfficialSeoulBusArrival? {
     if (verifiedIdentity == null || verifiedIdentity.authority != "seoul-bus" ||
         !verifiedIdentity.isComplete || nowEpochMillis < 0L) return null
-    return arrivals.filter {
+    val rows = arrivals.filter {
         it.identity == verifiedIdentity && it.snapshot.identity == verifiedIdentity &&
             it.isUsableBusArrival(nowEpochMillis)
-    }.minByOrNull { it.snapshot.firstArrivalAtEpochMillis }
+    }.sortedBy { it.snapshot.firstArrivalAtEpochMillis }
+    val first = rows.firstOrNull() ?: return null
+    val next = rows.drop(1).firstOrNull {
+        (first.vehicleId.isBlank() || it.vehicleId.isBlank() || it.vehicleId != first.vehicleId) &&
+            it.snapshot.firstArrivalAtEpochMillis > first.snapshot.firstArrivalAtEpochMillis
+    }
+    return first.copy(snapshot = first.snapshot.copy(
+        nextArrivalAtEpochMillis = next?.snapshot?.firstArrivalAtEpochMillis,
+        nextArrivalPrecision = next?.snapshot?.etaPrecision,
+        nextArrivalValidUntilEpochMillis = next?.snapshot?.let { it.fetchedAtEpochMillis + it.validForMillis }))
 }
 
 internal fun OfficialSeoulBusArrival.isUsableBusArrival(nowEpochMillis: Long): Boolean {

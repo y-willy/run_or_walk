@@ -59,12 +59,12 @@ class GuidanceRefreshUiTest {
                     sourceReceivedAtEpochMillis=time,gatewayFetchedAtEpochMillis=time,gatewayContract=SubwayGatewayContract.RAW_FIELDS))
             }
             compose.onNodeWithText("걸으세요").assertIsDisplayed()
-            compose.onNodeWithText("정보 확인 중").assertDoesNotExist()
+            compose.onNodeWithText("도착정보 확인 중").assertDoesNotExist()
             compose.runOnIdle { loading=false; rows=listOf(row.copy(snapshot=row.snapshot.copy(firstArrivalAtEpochMillis=time+220000),sourceEtaSeconds=220)) }
             compose.onNodeWithText("다음 차량 이용").assertIsDisplayed()
             // A refresh never extends real GPS/source/route validity.
             compose.runOnIdle { clock=time+61000 }
-            compose.onNodeWithText("정보 확인 중").assertIsDisplayed()
+            compose.onNodeWithText("도착정보 확인 중").assertIsDisplayed()
         } finally { lifecycle.pause().stop().destroy() }
     }
 }

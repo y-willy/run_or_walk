@@ -378,11 +378,10 @@ private fun parseArrivalRows(rows: JSONArray, station: OfficialSubwayStation, no
                 it.officialSlot != selected.officialSlot && it.snapshot.reliable &&
                 it.snapshot.firstArrivalAtEpochMillis > selected.snapshot.firstArrivalAtEpochMillis }
             .minByOrNull { it.snapshot.firstArrivalAtEpochMillis } else null
-        val expiry = minOf(selected.snapshot.fetchedAtEpochMillis + selected.snapshot.validForMillis,
-            next?.let { it.snapshot.fetchedAtEpochMillis + it.snapshot.validForMillis } ?: Long.MAX_VALUE)
         selected.copy(snapshot = selected.snapshot.copy(
             nextArrivalAtEpochMillis = next?.snapshot?.firstArrivalAtEpochMillis,
-            validForMillis = expiry - selected.snapshot.fetchedAtEpochMillis))
+            nextArrivalPrecision = next?.snapshot?.etaPrecision,
+            nextArrivalValidUntilEpochMillis = next?.snapshot?.arrivalValidityDeadline()))
     }.sortedWith(compareBy<OfficialSubwayArrival> { !it.snapshot.reliable }
         .thenBy { it.snapshot.firstArrivalAtEpochMillis }.thenBy { it.trainId })
 }

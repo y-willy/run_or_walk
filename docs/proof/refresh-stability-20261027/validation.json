@@ -1,0 +1,32 @@
+{
+  "baseline": "64faca1",
+  "branch": "fix/live-guidance-refresh-stability-20261027",
+  "android": {
+    "tests": 208,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "repositoryTests": 101,
+    "cloudRegressionTests": 107
+  },
+  "worker": {
+    "localTests": 6,
+    "failed": 0,
+    "typeCheck": "passed",
+    "dryRunBuild": "passed",
+    "deployed": false,
+    "budgetStorageConcurrencyTested": false
+  },
+  "apk": {
+    "bytes": 58647245,
+    "sha256": "2268d386757a248045f498be46a9eb2b1047e0aa454933c642c397fb37b5f875"
+  },
+  "operationalHttp": {
+    "seoulBus": 200,
+    "mangpoSubway": 200,
+    "capturedAtKst": "2026-10-27 19:50",
+    "replayedAtOriginalReceipt": true
+  },
+  "deviceVerified": false,
+  "images": "real Compose components with synthetic data; no physical phone capture"
+}

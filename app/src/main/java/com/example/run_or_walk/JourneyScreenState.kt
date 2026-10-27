@@ -93,6 +93,12 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var selectedArrival by mutableStateOf<OfficialSubwayArrival?>(null)
     var subwayChoice by mutableStateOf<SubwayArrivalChoice?>(null)
 
+    /** A completed response omitted this chosen train; a preference is not a live observation. */
+    fun clearMissingSubwayArrival() {
+        selectedArrival=null
+        timetableAnalysis=null
+    }
+
     fun chooseSubwayArrival(row: OfficialSubwayArrival) {
         liveRequestId++
         liveLoading = false
@@ -151,6 +157,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var lastGuidanceAssessment by mutableStateOf<AutoGuidanceAssessment?>(null)
     var liveRetryAtEpochMillis by mutableStateOf<Long?>(null)
     var arrivalRequestFailed by mutableStateOf(false)
+    var arrivalResponseAtEpochMillis by mutableStateOf<Long?>(null)
     var liveLoading by mutableStateOf(false)
     var liveError by mutableStateOf<String?>(null)
     var alertsEnabled by mutableStateOf(false)
@@ -161,6 +168,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var walkFetchedAtEpochMillis by mutableStateOf<Long?>(null)
     var walkOrigin by mutableStateOf<MapPoint?>(null)
     var walkingPoints by mutableStateOf<List<MapPoint>>(emptyList())
+    var walkingTracker: WalkingRouteTracker? = null
     // A feeder alternative is display-only until its own realtime vehicle identity is verified.
     var accessTransitRoutes by mutableStateOf<List<JourneyTransitRoute>>(emptyList())
     var accessJourney by mutableStateOf<JourneyScreenState?>(null)
@@ -199,14 +207,30 @@ internal class JourneyScreenState(val mode: FeatureMode,
         get() = selectedGyeonggiMatch?.takeIf { selectedBusRoute == null }?.let {
             chooseMatchingGyeonggiArrival(it, gyeonggiArrivals, System.currentTimeMillis())?.snapshot
         }
+    fun currentBusArrival(now: Long): OfficialSeoulBusArrival? = selectedBusRoute?.let { route ->
+        if(selectedBusStop?.stopId==route.stopId) chooseMatchingBusArrival(route.identity,busArrivalOptions,now) else null
+    }
     private val activeBusArrival: OfficialSeoulBusArrival?
-        get() = selectedBusArrival?.takeIf {
-            selectedBusStop?.stopId == it.identity.stopId && selectedBusRoute?.identity == it.identity
-        }
+        get() = currentBusArrival(System.currentTimeMillis())
+
+    fun applyBusArrivals(incoming: List<OfficialSeoulBusArrival>,now: Long) {
+        val route=selectedBusRoute ?: return
+        busArrivalOptions=mergeSeoulBusArrivals(route.identity,busArrivalOptions,incoming,now)
+        selectedBusArrival=chooseMatchingBusArrival(route.identity,busArrivalOptions,now)
+        arrivalResponseAtEpochMillis=incoming.mapNotNull { it.gatewayFetchedAtEpochMillis ?: it.snapshot.receivedAtEpochMillis }.maxOrNull() ?: now
+    }
+    fun applyGyeonggiArrivals(incoming: List<GyeonggiBusArrivalDisplay>,now: Long) {
+        gyeonggiArrivals=selectedGyeonggiMatch?.let { mergeGyeonggiBusArrivals(it,gyeonggiArrivals,incoming,now) } ?: incoming
+        arrivalResponseAtEpochMillis=incoming.maxOfOrNull { it.fetchedAtMillis } ?: now
+    }
     val activeArrivalIdentity: OfficialBoardingIdentity?
         get() = if (isBusJourney) activeBusArrival?.identity ?: activeGyeonggiSnapshot?.identity else selectedArrival?.identity
+    fun arrivalSnapshotAt(now: Long): RealtimeArrivalSnapshot? = if(isBusJourney)
+        currentBusArrival(now)?.snapshot ?: selectedGyeonggiMatch?.takeIf { selectedBusRoute==null }?.let {
+            chooseMatchingGyeonggiArrival(it,gyeonggiArrivals,now)?.snapshot
+        } else selectedArrival?.snapshot
     val activeArrivalSnapshot: RealtimeArrivalSnapshot?
-        get() = if (isBusJourney) activeBusArrival?.snapshot ?: activeGyeonggiSnapshot else selectedArrival?.snapshot
+        get() = arrivalSnapshotAt(System.currentTimeMillis())
     val activeArrivalVehicleId: String?
         get() = if (isBusJourney) activeBusArrival?.vehicleId ?:
             (activeGyeonggiSnapshot?.let { snapshot ->
@@ -268,7 +292,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
         busStopQuery = value
     }
 
-    fun invalidateRequests() {
+    fun invalidateRequests(preserveTimetable: Boolean = false) {
         revision++
         requestId++
         liveRequestId++
@@ -277,8 +301,10 @@ internal class JourneyScreenState(val mode: FeatureMode,
         loading = false
         waitingForPermission = false
         liveLoading = false
-        timetableAnalysis = null
-        timetableError = null
+        if(!preserveTimetable) {
+            timetableAnalysis = null
+            timetableError = null
+        }
     }
 
     /** A new destination keeps the selected physical station, but retires its old direction. */
@@ -317,6 +343,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
         walkFetchedAtEpochMillis = null
         walkOrigin = null
         walkingPoints = emptyList()
+        walkingTracker = null
     }
 
     fun clearOfficialSelection() {
@@ -347,6 +374,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
         gyeonggiMessage = null
         gyeonggiLoading = false
         arrivalRequestFailed = false
+        arrivalResponseAtEpochMillis = null
         liveError = null
         liveLoading = false
         guidanceWalkingRoute = null
@@ -364,6 +392,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
         confirmedServiceIdentity = null
         liveRetryAtEpochMillis = null
         arrivalRequestFailed = false
+        arrivalResponseAtEpochMillis = null
         liveError = null
         liveLoading = false
         guidanceWalkingRoute = null
