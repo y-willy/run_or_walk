@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 
 /** Survives Activity recreation and persists only explicit static choices across app restarts. */
 internal class JourneySessionViewModel(application: Application) : AndroidViewModel(application) {
+    val favorites = FavoriteBusStore(application)
     val walkingAnalysis = WalkingAnalysisController(application)
     private val store = JourneySessionStore(application)
     private val saved = store.load()

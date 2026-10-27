@@ -86,12 +86,13 @@ internal fun restoreJourneyScreens(snapshot: JourneySessionSnapshot?): Map<Featu
                         if (selectedBusRoute == null) {
                             selectedGyeonggiMatch = saved.gyeonggiMatch?.takeIf {
                                 it.isValid() && it.point == saved.boarding.point &&
-                                    it.identity == saved.confirmedIdentity && saved.selectedRoute?.kakao?.let { route ->
+                                    it.identity == saved.confirmedIdentity && (saved.selectedRoute?.kakao?.let { route ->
                                         resolveGyeonggiBusMatch(route, listOf(
                                             GyeonggiNearbyStop(it.stationId, saved.boarding.name, it.point, 0.0) to
                                                 GyeonggiStopRoute(it.routeId, it.routeName, it.staOrder, it.destination)
                                         )) == it
-                                    } == true
+                                    } == true || (saved.mode == FeatureMode.STOP && saved.boardingChosenByUser &&
+                                        saved.selectedRoute == null && saved.stop?.isBusStop == true && saved.stop.point == it.point))
                             }
                             confirmedServiceIdentity = selectedGyeonggiMatch?.identity
                             gyeonggiStationId = selectedGyeonggiMatch?.stationId.orEmpty()
