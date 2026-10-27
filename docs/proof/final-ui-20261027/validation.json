@@ -1,0 +1,14 @@
+{
+  "tests": 176,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "repositoryTests": 71,
+  "cloudRegressionTests": 105,
+  "apkSha256": "76fd3dc9a6b8a29895885d8f0e907b5031ebc4506f49ac6dd76d334c0d718368",
+  "apkBytes": 58618328,
+  "baseline": "0e20731",
+  "branch": "feature/final-ui-polish-20261027",
+  "render": "Robolectric native graphics; fixture data; map tiles not rendered",
+  "deviceVerified": false
+}

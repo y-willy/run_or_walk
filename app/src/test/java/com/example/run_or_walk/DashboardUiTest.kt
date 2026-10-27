@@ -11,6 +11,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -33,18 +35,37 @@ class DashboardUiTest {
         try {
             lifecycle.get().setContent { RUN_or_WALKTheme(darkTheme=dark) {
                 Scaffold(bottomBar={DashboardNavigation(0) {}}) { padding ->
-                    Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                         PaceNudgeHeader();Text("수인분당선 · 망포 · 왕십리 방면")
                         JourneyMetrics(1.3,250)
                         AutomaticGuidanceCard(AutoGuidanceAssessment(AutoGuidanceStatus.WALK,walkingSeconds=190,bufferSeconds=60),
-                            "수인분당선","망포역","",time,time+400000,null,time,190)
+                            "수인분당선","망포역","",time,time+400000,null,time,190,arrivalPrecision=ArrivalTimePrecision.MINUTES)
+                        var mapExpanded by remember { mutableStateOf(true) }
+                        JourneyMapCard(mapExpanded,{mapExpanded=!mapExpanded}) {
+                            // Robolectric cannot render native Kakao tiles. Never substitute a fictitious map.
+                            Surface(Modifier.fillMaxWidth().height(if(mapExpanded) 220.dp else 120.dp).testTag("map-slot"),color=MaterialTheme.colorScheme.surfaceVariant) {
+                                Box(contentAlignment=Alignment.Center) { Text("Kakao Map 영역\n실제 지도는 기기에서 표시",style=MaterialTheme.typography.bodySmall) }
+                            }
+                        }
                     }
                 }
             } }
             compose.onNodeWithText("걸으세요").assertIsDisplayed()
             compose.onNodeWithText("현재 이동속도").assertIsDisplayed()
             compose.onNodeWithContentDescription("자주 타는 버스").assertIsDisplayed()
-            compose.onNodeWithText("도착시간 비교").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("이동 여유",substring=true).assertIsDisplayed()
+            compose.onNodeWithText("차량 예정",substring=true).assertDoesNotExist()
+            val card=compose.onNodeWithTag("guidance-card").fetchSemanticsNode().boundsInRoot
+            if(!name.contains("compact")) Assert.assertTrue("compact card height=${card.height}",card.height<310f)
+            compose.onNodeWithText("이동 경로").assertIsDisplayed()
+            compose.onNodeWithTag("map-slot").performScrollTo()
+            compose.onNodeWithText("지도 줄이기").performClick()
+            Assert.assertEquals(120f,compose.onNodeWithTag("map-slot").fetchSemanticsNode().boundsInRoot.height,1f)
+            compose.onNodeWithText("지도 펼치기").performClick()
+            Assert.assertEquals(220f,compose.onNodeWithTag("map-slot").fetchSemanticsNode().boundsInRoot.height,1f)
+
+            // Return to the header for the submitted fixture render.
+            compose.onNodeWithContentDescription("run_or_walk 로고").performScrollTo()
             System.getProperty("pacenudge.proofDir")?.let { directory ->
                 val view=lifecycle.get().window.decorView
                 val bitmap=Bitmap.createBitmap(view.width,view.height,Bitmap.Config.ARGB_8888);view.draw(Canvas(bitmap))
@@ -92,17 +113,21 @@ class DashboardUiTest {
         val loader=FavoriteBusArrivalLoader(seoulRoutes={listOf(route)},seoulArrivals={_,_->queries++;
             listOf(OfficialSeoulBusArrival(route.identity,"vehicle",route.name,route.direction,snapshot)) })
         var chosen: FavoriteBus?=null
+        val restored=JourneyScreenState(FeatureMode.STOP)
         val lifecycle=Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         try {
-            lifecycle.get().setContent { RUN_or_WALKTheme { FavoriteBusesScreen(store,lifecycle.get(),loader) { chosen=it } } }
+            lifecycle.get().setContent { RUN_or_WALKTheme { FavoriteBusesScreen(store,lifecycle.get(),loader) { chosen=it;restoreFavoriteBus(restored,it) } } }
             compose.waitForIdle()
             org.robolectric.shadows.ShadowLooper.idleMainLooper()
             compose.waitUntil(10000) { queries>=1 }
-            compose.onNodeWithText("이 버스로 이동 안내").assertIsEnabled().performClick()
+            compose.onNodeWithText("이동 안내").assertIsEnabled().performClick()
             Assert.assertEquals(favorite.key,chosen!!.key)
-            compose.onNodeWithText("★ 해제").assertIsDisplayed()
-            Assert.assertTrue(compose.onNodeWithText("★ 해제").fetchSemanticsNode().boundsInRoot.right<=320f)
-            compose.onNodeWithText("★ 해제").performClick()
+            Assert.assertEquals(route.identity,restored.confirmedServiceIdentity)
+            Assert.assertEquals(stop,restored.selectedBusStop)
+            Assert.assertTrue(restored.boardingConfirmed)
+            compose.onNodeWithContentDescription("즐겨찾기 해제").assertIsDisplayed()
+            Assert.assertTrue(compose.onNodeWithContentDescription("즐겨찾기 해제").fetchSemanticsNode().boundsInRoot.right<=320f)
+            compose.onNodeWithContentDescription("즐겨찾기 해제").performClick()
             compose.onNodeWithText("아직 저장한 버스가 없어요").assertIsDisplayed()
             Assert.assertEquals(1,queries)
         } finally { lifecycle.pause().stop().destroy() }

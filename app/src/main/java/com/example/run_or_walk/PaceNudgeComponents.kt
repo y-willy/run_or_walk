@@ -2,6 +2,13 @@ package com.example.run_or_walk
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -31,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -46,7 +54,7 @@ import kotlin.math.ceil
 fun PaceNudgeHeader() {
     Row(Modifier.fillMaxWidth().padding(vertical=4.dp),verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.brand_launcher_artwork),
+        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.brand_mark),
             contentDescription="run_or_walk 로고",modifier=Modifier.size(40.dp))
         Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)) {
             Text("run_or_walk",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.ExtraBold)
@@ -172,95 +180,90 @@ fun AutomaticGuidanceCard(
     walkingUnavailableLabel: String = "확인 필요",
     paceStatus: String? = null,
     remainingDistanceMeters: Int? = null,
-    arrivalSource: GuidanceArrivalSource = assessment.arrivalSource
+    arrivalSource: GuidanceArrivalSource = assessment.arrivalSource,
+    validatedEta: Boolean? = null
 ) {
     var detailsExpanded by rememberSaveable { mutableStateOf(false) }
-    val title = movementGuidanceTitle(assessment,nowEpochMillis)
-    val accent = when (assessment.status) {
-        AutoGuidanceStatus.WALK -> Color(0xFF8CECD0)
-        AutoGuidanceStatus.FAST_WALK -> Color(0xFFFFD3D3)
-        AutoGuidanceStatus.NEXT_VEHICLE -> Color(0xFFD1DFFF)
-        AutoGuidanceStatus.UNKNOWN -> Color(0xFFCAD5E3)
+    // Presentation only: the existing assessment/ETA selection remains authoritative.
+    val title = when(assessment.status) {
+        AutoGuidanceStatus.WALK -> "걸으세요"
+        AutoGuidanceStatus.FAST_WALK -> "빠르게 이동하세요"
+        AutoGuidanceStatus.NEXT_VEHICLE -> "다음 차량 이용"
+        AutoGuidanceStatus.UNKNOWN -> "정보 확인 중"
     }
-    val cardColor = when(assessment.status) {
-        AutoGuidanceStatus.WALK -> Color(0xFF115E50)
-        AutoGuidanceStatus.FAST_WALK -> Color(0xFF9F283D)
-        AutoGuidanceStatus.NEXT_VEHICLE -> Color(0xFF284B78)
-        AutoGuidanceStatus.UNKNOWN -> Color(0xFF374151)
+    val accent = when(assessment.status) {
+        AutoGuidanceStatus.FAST_WALK -> Color(0xFFFFD0A1)
+        AutoGuidanceStatus.NEXT_VEHICLE -> Color(0xFFFFD3D3)
+        else -> Color(0xFFB0F6E6)
     }
-    val muted = Color.White.copy(alpha=.8f)
-    Surface(modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
-        shape = RoundedCornerShape(26.dp), color = cardColor,contentColor = Color.White) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
-                horizontalArrangement=Arrangement.SpaceBetween) {
-                Text("지금 이동 안내",style=MaterialTheme.typography.labelMedium,color=muted)
-                Surface(color=accent.copy(alpha=.12f),shape=RoundedCornerShape(50)) {
-                    Text(if (assessment.status==AutoGuidanceStatus.UNKNOWN) "확인 중" else "이동 가이드",
-                        Modifier.padding(horizontal=10.dp,vertical=5.dp),style=MaterialTheme.typography.labelSmall,color=accent)
+    val usableEta = validatedEta ?: (firstArrivalAtEpochMillis?.let { it > nowEpochMillis } == true &&
+        arrivalFetchedAtEpochMillis?.let { nowEpochMillis-it in 0L..600_000L } == true)
+    Surface(modifier = Modifier.fillMaxWidth().testTag("guidance-card").semantics { liveRegion = LiveRegionMode.Polite },
+        shape = RoundedCornerShape(22.dp), color = Color(0xFF075C53),contentColor = Color.White,
+        shadowElevation=3.dp) {
+        Column(Modifier.background(Brush.linearGradient(listOf(Color(0xFF087B70),Color(0xFF064C46))))
+            .padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                Text("지금 이동 안내",style=MaterialTheme.typography.labelMedium,modifier=Modifier.weight(1f))
+                Surface(color=Color.White.copy(alpha=.1f),shape=RoundedCornerShape(50)) {
+                    Text("이동 가이드",Modifier.padding(horizontal=10.dp,vertical=4.dp),style=MaterialTheme.typography.labelSmall)
                 }
             }
-            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                Text(title,style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold,color=accent)
-                if (serviceLabel.isNotBlank()) Text(serviceLabel,style=MaterialTheme.typography.bodyMedium,color=Color.White)
-                boardingLabel?.let { Text("승차 · $it",style=MaterialTheme.typography.bodySmall,color=muted) }
-            }
+            Text(title,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.ExtraBold,color=accent)
+            Text(listOfNotNull(serviceLabel.takeIf { it.isNotBlank() },boardingLabel).joinToString(" · "),
+                style=MaterialTheme.typography.bodySmall,fontWeight=FontWeight.SemiBold)
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val arrival = arrivalInformation ?: arrivalText(firstArrivalAtEpochMillis,nowEpochMillis,arrivalPrecision)
-                val walk = walkingSeconds?.let { durationText(it.toLong()) } ?: walkingUnavailableLabel
-                if (maxWidth / LocalDensity.current.fontScale < 280.dp) {
-                    Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                        GuidanceMetric("도착까지",arrival,Modifier.fillMaxWidth(),accent)
-                        GuidanceMetric("승차점까지 도보",walk,Modifier.fillMaxWidth(),Color.White)
-                    }
-                } else Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                    GuidanceMetric("도착까지",arrival,Modifier.weight(1f).fillMaxHeight(),accent)
-                    GuidanceMetric("승차점까지 도보",walk,Modifier.weight(1f).fillMaxHeight(),Color.White)
+                val walk = walkingSeconds?.let { compactDuration(it.toLong()) } ?: walkingUnavailableLabel
+                val compact = maxWidth / LocalDensity.current.fontScale < 235.dp
+                if (compact) Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    GuidanceMetric(if(vehicleLabel=="버스") R.drawable.ui_bus else R.drawable.ui_train,"$vehicleLabel $arrival",Modifier.fillMaxWidth())
+                    GuidanceMetric(R.drawable.ui_walk,"도보 $walk",Modifier.fillMaxWidth())
+                } else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    GuidanceMetric(if(vehicleLabel=="버스") R.drawable.ui_bus else R.drawable.ui_train,"$vehicleLabel $arrival",Modifier.weight(1f))
+                    GuidanceMetric(R.drawable.ui_walk,"도보 $walk",Modifier.weight(1f))
                 }
             }
-            ArrivalComparisonCard(assessment,nowEpochMillis,firstArrivalAtEpochMillis,walkingSeconds,arrivalSource)
-            remainingDistanceMeters?.let { Text("승차점까지 ${it}m",style=MaterialTheme.typography.bodySmall,color=muted) }
-            if (assessment.status==AutoGuidanceStatus.NEXT_VEHICLE) {
-                Text(nextVehicleGuidanceText(assessment,nowEpochMillis),style=MaterialTheme.typography.bodySmall,color=muted)
-            } else nextArrivalAtEpochMillis?.let {
-                Text("다음 $vehicleLabel · ${arrivalText(it,nowEpochMillis,nextArrivalPrecision)}",style=MaterialTheme.typography.bodySmall,color=muted)
+            ArrivalComparisonCard(assessment,nowEpochMillis,firstArrivalAtEpochMillis.takeIf { usableEta },walkingSeconds,
+                arrivalSource,detailsExpanded) { detailsExpanded=!detailsExpanded }
+            if(!usableEta || walkingSeconds==null) TextButton(onClick={detailsExpanded=!detailsExpanded},
+                colors=androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor=Color.White)) {
+                Text(if(detailsExpanded) "상세정보 접기" else "상세정보")
             }
-            TextButton(onClick={ detailsExpanded=!detailsExpanded },
-                modifier=Modifier.defaultMinSize(minHeight=48.dp),
-                colors=androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor=muted),
-                contentPadding=androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                Text(if(detailsExpanded) "상세정보 접기  −" else "상세정보  +")
-            }
-            if(detailsExpanded) {
-                Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    paceStatus?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=muted) }
-                    if(assessment.status==AutoGuidanceStatus.UNKNOWN && unknownMessage.isNotBlank())
-                        Text(unknownMessage,style=MaterialTheme.typography.bodySmall,color=muted)
-                    if(assessment.status!=AutoGuidanceStatus.UNKNOWN)
-                        Text("여유 ${settingsBufferLabel(assessment.bufferSeconds)} 포함 · $movementHint",style=MaterialTheme.typography.bodySmall,color=muted)
-                    arrivalFetchedAtEpochMillis?.let {
-                        Text("최근 정보 · ${((nowEpochMillis-it)/1000).coerceAtLeast(0)}초 전",style=MaterialTheme.typography.labelSmall,color=muted)
-                    }
-                }
+            if(detailsExpanded) Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                Text(arrivalSourceLabel(arrivalSource),style=MaterialTheme.typography.labelSmall)
+                if(assessment.status==AutoGuidanceStatus.NEXT_VEHICLE)
+                    Text(nextVehicleGuidanceText(assessment,nowEpochMillis),style=MaterialTheme.typography.bodySmall)
+                else nextArrivalAtEpochMillis?.let { Text("다음 $vehicleLabel · ${arrivalText(it,nowEpochMillis,nextArrivalPrecision)}",style=MaterialTheme.typography.bodySmall) }
+                remainingDistanceMeters?.let { Text("승차점까지 ${it}m",style=MaterialTheme.typography.bodySmall) }
+                paceStatus?.let { Text(it,style=MaterialTheme.typography.bodySmall) }
+                if(assessment.status==AutoGuidanceStatus.UNKNOWN && unknownMessage.isNotBlank())
+                    Text(unknownMessage,style=MaterialTheme.typography.bodySmall)
+                Text("승차 준비 ${settingsBufferLabel(assessment.bufferSeconds)} 포함 · $movementHint",style=MaterialTheme.typography.bodySmall)
+                arrivalFetchedAtEpochMillis?.let { Text("최근 정보 · ${((nowEpochMillis-it)/1000).coerceAtLeast(0)}초 전",style=MaterialTheme.typography.labelSmall) }
             }
         }
     }
 }
 
 @Composable
-private fun GuidanceMetric(label:String,value:String,modifier:Modifier,color:Color) {
-    Surface(modifier=modifier.heightIn(min=100.dp),color=Color.White.copy(alpha=.07f),shape=RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            Text(label,style=MaterialTheme.typography.labelSmall,color=Color(0xFFB5C4D5))
-            Text(value,style=if (value.contains('\n') || value.length>7) MaterialTheme.typography.titleMedium
-                else MaterialTheme.typography.titleLarge, fontWeight=FontWeight.Bold,color=color)
+internal fun AppIcon(@DrawableRes resource: Int,description: String?=null,modifier: Modifier=Modifier.size(24.dp),tint: Color=androidx.compose.material3.LocalContentColor.current) {
+    Icon(painterResource(resource),description,modifier,tint=tint)
+}
+
+@Composable
+private fun GuidanceMetric(@DrawableRes icon:Int,value:String,modifier:Modifier) {
+    Surface(modifier=modifier.heightIn(min=54.dp),color=Color.White.copy(alpha=.09f),shape=RoundedCornerShape(14.dp)) {
+        Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            AppIcon(icon,modifier=Modifier.size(20.dp))
+            Text(value,style=MaterialTheme.typography.bodySmall,fontWeight=FontWeight.SemiBold)
         }
     }
 }
 
 private fun arrivalText(arrival: Long?, now: Long, precision: ArrivalTimePrecision = ArrivalTimePrecision.SECONDS): String = when {
-    arrival == null -> "정보 없음"
-    arrival <= now -> "도착 시각 경과 · 갱신 필요"
+    arrival == null -> "확인 중"
+    arrival <= now -> "갱신 중"
     precision == ArrivalTimePrecision.MINUTES -> "약 " + ((arrival - now + 59_999L) / 60_000L).coerceAtLeast(1) + "분 후"
     else -> "${durationText(ceil((arrival - now) / 1000.0).toLong())} 후"
 }
@@ -302,24 +305,49 @@ fun NoticeCard(message: String, isError: Boolean = false) {
 private fun durationText(seconds: Long): String = if (seconds < 60) "${seconds}초"
     else "${seconds / 60}분 ${seconds % 60}초"
 
+internal fun arrivalSourceLabel(source: GuidanceArrivalSource): String = when(source) {
+    GuidanceArrivalSource.OFFICIAL_REALTIME -> "공식 실시간"
+    GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION -> "열차 위치 · 시간표 추정"
+    GuidanceArrivalSource.OFFICIAL_TIMETABLE_SCHEDULE -> "시간표 예정"
+}
+private fun compactDuration(seconds: Long): String = if(seconds<60) "${seconds.coerceAtLeast(0)}초" else "약 ${(seconds+30)/60}분"
+
 @Composable
-internal fun ArrivalComparisonCard(assessment: AutoGuidanceAssessment,now: Long,vehicleAt: Long?,walkSeconds: Int?,source: GuidanceArrivalSource = assessment.arrivalSource) {
+internal fun ArrivalComparisonCard(assessment: AutoGuidanceAssessment,now: Long,vehicleAt: Long?,walkSeconds: Int?,
+    source: GuidanceArrivalSource = assessment.arrivalSource,expanded:Boolean=false,onExpand:()->Unit={}) {
     if(vehicleAt == null || vehicleAt <= now || walkSeconds == null || walkSeconds < 0) return
-    val total=walkSeconds.toLong()+assessment.bufferSeconds
-    val slack=(vehicleAt-now)/1000-total
-    val formatter=java.time.format.DateTimeFormatter.ofPattern("HH:mm")
-    fun clock(value: Long)=formatter.format(java.time.Instant.ofEpochMilli(value).atZone(java.time.ZoneId.systemDefault()))
-    Surface(color=Color.White.copy(alpha=.1f),shape=RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text("도착시간 비교",fontWeight=FontWeight.Bold)
-            Text("차량 예정  ${clock(vehicleAt)} · 내 도착  ${clock(now+walkSeconds*1000L)}",style=MaterialTheme.typography.bodySmall)
-            Text(if(slack>=0) "이동 여유 ${durationText(slack)}" else "이동시간 ${durationText(-slack)} 부족",style=MaterialTheme.typography.bodyMedium)
-            androidx.compose.material3.LinearProgressIndicator(progress={ ((total*1000).toFloat()/(vehicleAt-now)).coerceIn(0f,1f) },modifier=Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.White.copy(alpha=.2f))
-            Text(when(source) {
-                GuidanceArrivalSource.OFFICIAL_REALTIME -> "공식 실시간 ETA"
-                GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION -> "열차 위치 · 공식 시간표 추정"
-                GuidanceArrivalSource.OFFICIAL_TIMETABLE_SCHEDULE -> "공식 시간표 예정"
-            }+" · 여유 ${settingsBufferLabel(assessment.bufferSeconds)} 포함",style=MaterialTheme.typography.labelSmall)
+    val slack=(vehicleAt-now)/1000-walkSeconds-assessment.bufferSeconds
+    val warning=if(slack<0) Color(0xFFFFD0A1) else Color.White
+    Surface(onClick=onExpand,color=Color.White.copy(alpha=.08f),shape=RoundedCornerShape(14.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min=48.dp).padding(horizontal=12.dp,vertical=8.dp),
+            verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            AppIcon(R.drawable.ui_clock,tint=warning,modifier=Modifier.size(20.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if(slack>=0) "이동 여유 ${compactDuration(slack)}" else "이동시간 ${compactDuration(-slack)} 부족",
+                    style=MaterialTheme.typography.labelLarge,color=warning)
+                Text(arrivalSourceLabel(source),style=MaterialTheme.typography.labelSmall,color=Color.White.copy(alpha=.75f))
+            }
+            AppIcon(R.drawable.ui_chevron,if(expanded) "상세정보 접기" else "상세정보 펼치기",Modifier.size(20.dp))
+        }
+    }
+    if(expanded) {
+        val formatter=java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+        fun clock(value: Long)=formatter.format(java.time.Instant.ofEpochMilli(value).atZone(java.time.ZoneId.systemDefault()))
+        Text("차량 예정 ${clock(vehicleAt)} · 내 도착 ${clock(now+walkSeconds*1000L)}",style=MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** The production map is always supplied by KakaoMapPanel; this only frames its controls. */
+@Composable
+internal fun JourneyMapCard(expanded: Boolean,onToggle:()->Unit,content:@Composable ()->Unit) {
+    Surface(shape=RoundedCornerShape(22.dp),color=MaterialTheme.colorScheme.surface,shadowElevation=2.dp,
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant.copy(alpha=.5f))) {
+        Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min=40.dp),verticalAlignment=Alignment.CenterVertically) {
+                Text("이동 경로",style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
+                TextButton(onClick=onToggle) { Text(if(expanded) "지도 줄이기" else "지도 펼치기",style=MaterialTheme.typography.labelSmall) }
+            }
+            content()
         }
     }
 }
@@ -331,8 +359,11 @@ internal fun JourneyMetrics(speed: Double?,distance: Int?) {
             Surface(modifier=modifier,shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surface,shadowElevation=2.dp) {
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(if(isSpeed) "현재 이동속도" else "승차점까지",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    AppIcon(if(isSpeed) R.drawable.ui_walk else R.drawable.ui_pin,tint=MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if(isSpeed) speed?.let { String.format(java.util.Locale.KOREA,"%.1f km/h",it*3.6) } ?: "측정 중"
-                        else distance?.let { "${it}m" } ?: "정보 없음",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                        else distance?.let { "${it}m" } ?: "확인 중",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                    }
                 }
             }
         }

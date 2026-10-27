@@ -1714,6 +1714,8 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis
                             ?: estimatedArrivals?.first?.takeIf { it.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION }
                                 ?.sourceTimestampEpochMillis ?: operationGuidance?.sourceAtEpochMillis,
+                        validatedEta = (validArrival != null || estimatedArrivals != null) &&
+                            rawAssessment.firstArrivalAtEpochMillis != null && rawAssessment.walkingSeconds != null,
                         arrivalSource = if(validArrival!=null) GuidanceArrivalSource.OFFICIAL_REALTIME else if(estimatedArrivals?.first?.source==OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE) GuidanceArrivalSource.OFFICIAL_TIMETABLE_SCHEDULE else GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION,
                         arrivalPrecision = validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
                         nextArrivalPrecision = validArrival?.nextArrivalPrecision ?: validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
@@ -1742,6 +1744,30 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         })
                 } else if (screen.routes.isNotEmpty()) {
                     NoticeCard("위에서 탈 경로를 하나 선택하면 이동 안내가 자동으로 나타나요.")
+                }
+                // A single stable MapView, directly below the guidance card.
+                JourneyMapCard(mapExpanded,{ mapExpanded=!mapExpanded }) {
+                    KakaoMapPanel(lifecycleOwner = lifecycleOwner, center = screen.mapCenter,
+                        routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
+                        accessSegments = rootScreen.mapAccessSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
+                        journeySegments = mapChoice?.pathSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
+                        departurePoint = mapDeparture, destinationPoint = mapDestination,
+                        journeyKey = Triple(mapDeparture,mapDestination,mapChoice?.itineraryKey),
+                        currentPoint = if (monitored) monitoring.location?.point else screen.location?.point ?: currentPoint,
+                        boardingPoint = boarding?.point, recenterRequest = screen.recenterRequest,
+                        onCurrentLocation = {
+                            if (monitored) {
+                                val fix = monitoring.location
+                                if (fix != null && now - fix.observedAtEpochMillis in 0L..30_000L) {
+                                    screen.centerOn(fix.point)
+                                } else {
+                                    monitorRecenterPending = true
+                                    JourneyMonitoringController.refresh(context)
+                                }
+                            } else requestLocation(screen,
+                                if (boarding != null) LocationAction.WALKING else LocationAction.RECENTER)
+                        },
+                        modifier = Modifier.fillMaxWidth().height(if (mapExpanded) 220.dp else 120.dp))
                 }
                 if (!monitored && (screen.arrivalOptions.isNotEmpty() ||
                     screen.busArrivalOptions.isNotEmpty() || screen.gyeonggiArrivals.isNotEmpty())) {
@@ -1800,36 +1826,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                     }
                 }
 
-                // 4. One MapView at a stable call site. Collapsing only changes its height.
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("이동 경로", style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.weight(1f))
-                        TextButton(onClick = { mapExpanded = !mapExpanded }) {
-                            Text(if (mapExpanded) "지도 줄이기" else "지도 펼치기")
-                        }
-                    }
-                    KakaoMapPanel(lifecycleOwner = lifecycleOwner, center = screen.mapCenter,
-                        routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
-                        accessSegments = rootScreen.mapAccessSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
-                        journeySegments = mapChoice?.pathSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
-                        departurePoint = mapDeparture, destinationPoint = mapDestination,
-                        journeyKey = Triple(mapDeparture,mapDestination,mapChoice?.itineraryKey),
-                        currentPoint = if (monitored) monitoring.location?.point else screen.location?.point ?: currentPoint,
-                        boardingPoint = boarding?.point, recenterRequest = screen.recenterRequest,
-                        onCurrentLocation = {
-                            if (monitored) {
-                                val fix = monitoring.location
-                                if (fix != null && now - fix.observedAtEpochMillis in 0L..30_000L) {
-                                    screen.centerOn(fix.point)
-                                } else {
-                                    monitorRecenterPending = true
-                                    JourneyMonitoringController.refresh(context)
-                                }
-                            } else requestLocation(screen,
-                                if (boarding != null) LocationAction.WALKING else LocationAction.RECENTER)
-                        },
-                        modifier = Modifier.fillMaxWidth().height(if (mapExpanded) 360.dp else 180.dp))
                     if (mode == FeatureMode.ROUTE) {
                         rootScreen.mapAccessMessage?.let { NoticeCard(it) }
                         mapJourneyMessage?.let { NoticeCard(it) }
