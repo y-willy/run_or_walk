@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySessionViewModel) {
+internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: JourneySessionViewModel) {
     val context = LocalContext.current
     var showWalkingAnalysis by rememberSaveable { mutableStateOf(false) }
     if (showWalkingAnalysis) {
@@ -1579,13 +1579,11 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                             monitoring.request?.vibrationEnabled ?: screen.alertsEnabled)
                     }
                 }
-                FeatureModeSelector(mode.ordinal, onSelect = { index ->
-                    keyboard?.hide()
-                    if (mode != FeatureMode.entries[index]) {
-                        screen.invalidateRequests()
-                        session.mode = FeatureMode.entries[index]
-                    }
-                })
+                Text((if(screen.isBusJourney) "버스" else "지하철")+" · "+
+                    (screen.selectedBusRoute?.name ?: screen.selectedGyeonggiMatch?.routeName ?: screen.selectedStation?.lineName ?: "교통수단 선택"),
+                    style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
+                screen.boarding?.let { Text(it.name+" · "+(screen.selectedBusRoute?.direction ?: screen.selectedGyeonggiMatch?.destination ?: screen.confirmedServiceIdentity?.directionId.orEmpty()),style=MaterialTheme.typography.bodySmall) }
+
             }
             if (screen !== rootScreen) {
                 SectionCard("출발지 접근 안내", "본래 경로: ${rootScreen.departure.selected?.name.orEmpty()} → ${rootScreen.destination.selected?.name.orEmpty()}") {
@@ -1630,6 +1628,12 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                     }
                 }
                 if(screen.confirmedServiceIdentity==null || screen.detailsExpanded || searchExpanded) selectionControls()
+            }
+            monitoringRequest(screen)?.takeIf { it.isBus }?.let { request ->
+                val favorite=FavoriteBus(request)
+                TextButton(onClick={session.favorites.toggle(favorite)}) {
+                    Text(if(session.favorites.items.any { it.key==favorite.key }) "★ 자주 타는 버스 해제" else "☆ 자주 타는 버스 등록")
+                }
             }
             // 3. Core results and optional selection details.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1686,6 +1690,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                 }
 
                 if (screen.selectedRoute != null || boarding != null || monitored) {
+                    JourneyMetrics(displayedLocation?.takeIf { locationSampleFailure(it,now)==null && it.speedAccuracyMetersPerSecond?.let { value -> value in 0.0..0.75 }==true }?.speedMetersPerSecond?.takeIf { it.isFinite() && it in 0.0..4.5 },
+                        personalizedWalk?.distanceMeters?.takeIf { now-personalizedWalk.fetchedAtEpochMillis in 0..120000L && displayedLocation?.let { fix -> locationSampleFailure(fix,now)==null && pedestrianDistance(fix.point,personalizedWalk.origin)<=35 }==true })
                     AutomaticGuidanceCard(assessment,
                         serviceLabel = if (isBus) screen.selectedBusRoute?.let { "${it.name} · ${it.direction}" }
                             ?: screen.selectedGyeonggiMatch?.let { "${it.routeName} · ${it.destination}" }
@@ -1708,6 +1714,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner, session: JourneySes
                         arrivalFetchedAtEpochMillis = validArrival?.fetchedAtEpochMillis
                             ?: estimatedArrivals?.first?.takeIf { it.source == OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_POSITION }
                                 ?.sourceTimestampEpochMillis ?: operationGuidance?.sourceAtEpochMillis,
+                        arrivalSource = if(validArrival!=null) GuidanceArrivalSource.OFFICIAL_REALTIME else if(estimatedArrivals?.first?.source==OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE) GuidanceArrivalSource.OFFICIAL_TIMETABLE_SCHEDULE else GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION,
                         arrivalPrecision = validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
                         nextArrivalPrecision = validArrival?.nextArrivalPrecision ?: validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
                         walkingUnavailableLabel = if (walkingOutsideRange) "—" else "확인 필요",
