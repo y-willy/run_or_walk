@@ -31,7 +31,10 @@ internal data class JourneyMonitoringState(
     val seoulBusObservations: List<OfficialSeoulBusArrival>? = null,
     val gyeonggiBusObservations: List<GyeonggiBusArrivalDisplay>? = null,
     val arrivalResponseAtEpochMillis: Long? = null,
-    val arrivalError: String? = null
+    val arrivalError: String? = null,
+    val walkingCalculatedAtEpochMillis:Long? = null,
+    val walkingGeometry:WalkingRouteTracker?=null,
+    val walkingRequestElapsed:Long?=null
 ) {
     val isRunning: Boolean get() = running
 }
@@ -154,7 +157,7 @@ internal fun monitoringStateWithSettings(
         else if (state.assessment?.status == AutoGuidanceStatus.UNKNOWN) state.message
         else "최신 위치·도보·도착정보가 확인될 때까지 판단을 보류해요."
     } else if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
-        estimatePrefix + "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, nowEpochMillis)
+        estimatePrefix + movementGuidanceTitle(assessment,nowEpochMillis) + " · " + nextVehicleGuidanceText(assessment, nowEpochMillis)
     else estimatePrefix + movementGuidanceTitle(assessment,nowEpochMillis)
     return state.copy(request = request, walkingRoute = walking, arrivals=currentArrival, assessment = assessment, message = message)
 }
@@ -177,6 +180,24 @@ internal fun monitoringScreenHandover(screen: JourneyScreenState,request: Journe
         walkingPoints=screen.walkingPoints,subwayObservations=screen.arrivalOptions,timetableAnalysis=screen.timetableAnalysis,
         arrivalRequestFailed=screen.arrivalRequestFailed,seoulBusObservations=rows,gyeonggiBusObservations=ggRows,
         arrivalResponseAtEpochMillis=screen.arrivalResponseAtEpochMillis,
-        arrivalError=(screen.liveError ?: screen.gyeonggiMessage).takeIf { screen.arrivalRequestFailed })
+        arrivalError=(screen.liveError ?: screen.gyeonggiMessage).takeIf { screen.arrivalRequestFailed },
+        walkingCalculatedAtEpochMillis=screen.walkingCalculatedAtEpochMillis,
+        calibratedSpeedMetersPerSecond=screen.walkingCalibrationMetersPerSecond,
+        walkingGeometry=screen.walkingTracker,walkingRequestElapsed=screen.walkingRefreshCadence.lastRequestedElapsed)
     return monitoringStateWithSettings(state,request,now,permissionGranted)
+}
+
+/** Same source-aware fallback wording as the foreground; known statuses use the shared title. */
+internal fun monitoringGuidanceHeadline(state:JourneyMonitoringState,now:Long):String {
+    val assessment=state.assessment ?: return "정보 확인 중"
+    if(assessment.status!=AutoGuidanceStatus.UNKNOWN) return movementGuidanceTitle(assessment,now)
+    if(state.arrivals?.hasUsableOfficialEta(now)==true || selectTimetableEvidence(state.timetableAnalysis,now,state.request?.subwayChoice)!=null)
+        return "이동 정보 확인 필요"
+    val seoul=state.seoulBusObservations.orEmpty();val gg=state.gyeonggiBusObservations.orEmpty()
+    val noService=when {
+        state.request?.isGyeonggi==true -> gg.isEmpty() || gg.all {it.serviceEnded}
+        state.request?.isBus==true -> seoul.isEmpty() || seoul.all {row -> row.issues.any {it in setOf("SERVICE_ENDED","BUS_SERVICE_ENDED")} || Regex("운행\\s*종료").containsMatchIn(row.officialArrivalMessage)}
+        else -> state.subwayObservations.isEmpty()
+    }
+    return missingArrivalText(state.arrivalResponseAtEpochMillis,seoul.isNotEmpty() || gg.isNotEmpty() || state.subwayObservations.isNotEmpty(),state.arrivalRequestFailed,noService,now)
 }

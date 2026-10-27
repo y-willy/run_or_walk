@@ -27,6 +27,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -88,9 +90,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: JourneySessionViewModel) {
+internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: JourneySessionViewModel,showMapAndArrivals:Boolean=false) {
     val context = LocalContext.current
     var showWalkingAnalysis by rememberSaveable { mutableStateOf(false) }
+    var showInformation by rememberSaveable { mutableStateOf(false) }
+    var mapOpened by rememberSaveable { mutableStateOf(false) }
     if (showWalkingAnalysis) {
         androidx.activity.compose.BackHandler { showWalkingAnalysis=false }
         WalkingAnalysisScreen(session.walkingAnalysis,lifecycleOwner,session.settings,onSettingsChange={
@@ -122,6 +126,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     val latestScreen by rememberUpdatedState(screen)
     val latestRootScreen by rememberUpdatedState(rootScreen)
     fun isActiveTarget(target: JourneyScreenState) = latestScreen === target || latestRootScreen.accessJourney === target
+    val foregroundPaceCalibrator=remember(screen) {WalkingPaceCalibrator()}
     var currentPoint by remember { mutableStateOf<MapPoint?>(null) }
     var pendingLocation by remember { mutableStateOf<LocationRequest?>(null) }
     // Show the full route by default; the existing toggle keeps the compact option.
@@ -130,7 +135,10 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     var alternativesExpanded by rememberSaveable(mode) { mutableStateOf(false) }
     var officialDetailsExpanded by rememberSaveable(mode) { mutableStateOf(false) }
     val displayClock=remember { GuidanceDisplayClock(System.currentTimeMillis(),SystemClock.elapsedRealtime(),SystemClock::elapsedRealtime) }
-    var now by remember { mutableLongStateOf(displayClock.now()) }
+    var clockPulse by remember { mutableLongStateOf(displayClock.now()) }
+    // Every data-driven composition uses a fresh clock as well as the periodic pulse.
+    // A just-received GPS/API timestamp must not look future-dated against the prior UI tick.
+    val now=maxOf(clockPulse,displayClock.now())
     val vibrationSupported = remember(context) { supportsVibration(context) }
     var pendingMonitoring by remember { mutableStateOf<Triple<JourneyScreenState, Long, JourneyMonitoringRequest>?>(null) }
     var startingMonitoring by remember { mutableStateOf(false) }
@@ -252,9 +260,14 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             return
         }
         val previous=LiveWalkingEvidence(target.location,target.guidanceWalkingRoute,
-            target.walkRoute?.distanceMeters,target.walkRoute?.durationSeconds,target.walkingPoints)
+            target.walkRoute?.distanceMeters,target.walkRoute?.durationSeconds,target.walkingPoints,target.walkingCalculatedAtEpochMillis)
+        val at=displayClock.now()
+        val pace=foregroundPaceCalibrator.observe(fix,at)
+        val due=walkingCalculationDue(target.walkingCalculatedAtEpochMillis,at)
         val result=updateLiveWalkingEvidence(previous,target.walkingTracker,fix,identity,boarding.point,
-            session.settings,null,displayClock.now())
+            session.settings,pace,at,allowRecalculation=due)
+        if(result.calculatedAtEpochMillis!=target.walkingCalculatedAtEpochMillis) target.walkingCalibrationMetersPerSecond=pace
+        target.walkingCalculatedAtEpochMillis=result.calculatedAtEpochMillis
         target.location=result.location
         target.guidanceWalkingRoute=result.walking
         target.walkRoute=if(result.distanceMeters!=null && result.providerSeconds!=null)
@@ -273,13 +286,15 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         }
         if(target.location?.let { pedestrianDistance(it.point,location.point)>35.0 }==true) return
         target.walkingTracker=WalkingRouteTracker(location.point,walk,displayClock.now())
+        target.walkingCalculatedAtEpochMillis=displayClock.now()
+        target.walkingCalibrationMetersPerSecond=foregroundPaceCalibrator.current(displayClock.now())
         target.walkRoute = WalkRoute(walk.distanceMeters, walk.durationSeconds)
         target.walkFetchedAtEpochMillis = target.walkingTracker?.fetchedAt
         target.walkOrigin = location.point
         target.walkingPoints = walk.points
         target.clearAccessTransit()
         target.guidanceWalkingRoute = identity?.let {
-            GuidanceWalkingRoute(location.point, boarding.point, it, walk.durationSeconds,
+            GuidanceWalkingRoute(location.point, boarding.point, it, session.settings.walkingSeconds(walk.distanceMeters,walk.durationSeconds,target.walkingCalibrationMetersPerSecond),
                 requireNotNull(target.walkFetchedAtEpochMillis), 120_000L, walk.distanceMeters)
         }
     }
@@ -363,7 +378,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         if (target.mode == FeatureMode.ROUTE && requiresTransitAccess(location.point, departure)) {
                             startAccessTransitFallback(target, location)
                             LocationWorkResult(location)
-                        } else LocationWorkResult(location, walk = kakaoRepository.searchWalk(location.point, boarding!!.point))
+                        } else if(target.walkingRefreshCadence.tryRequest(SystemClock.elapsedRealtime()))
+                            LocationWorkResult(location, walk = kakaoRepository.searchWalk(location.point, boarding!!.point))
+                        else LocationWorkResult(location)
                     }
                     LocationAction.RECENTER, LocationAction.SET_DEPARTURE -> LocationWorkResult(location)
                 }
@@ -742,6 +759,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                     startAccessTransitFallback(target, location)
                     return
                 }
+                if(!target.walkingRefreshCadence.tryRequest(SystemClock.elapsedRealtime())) return
                 val refreshedWalk = kakaoRepository.searchWalk(location.point, boarding.point)
                 if (active()) storeWalking(target, location, boarding, identity, refreshedWalk)
             }
@@ -1299,7 +1317,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     }
     LaunchedEffect(screen) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (isActive) { now = displayClock.now(); delay(5_000L) }
+            while (isActive) { clockPulse = displayClock.now(); delay(1_000L) }
         }
     }
     LaunchedEffect(screen, screen.boarding, screen.confirmedServiceIdentity, monitorKey) {
@@ -1323,7 +1341,18 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         // The prior fix/path retain their original 30 s / 120 s limits.
                     }
                 }
-                while (isActive) { refreshWalkingSnapshot(screen); delay(20_000L) }
+                launch {
+                    while(isActive) {
+                        if(walkingCalculationDue(screen.walkingCalculatedAtEpochMillis,displayClock.now()) && hasLocationPermission(context))
+                            screen.location?.let { applyWalkingLocation(screen,it) }
+                        delay(1000L)
+                    }
+                }
+                while (isActive) {
+                    val cycleStarted=SystemClock.elapsedRealtime()
+                    refreshWalkingSnapshot(screen)
+                    delay((WALKING_REFRESH_MILLIS-(SystemClock.elapsedRealtime()-cycleStarted)).coerceAtLeast(1000L))
+                }
             }
         }
     }
@@ -1476,11 +1505,11 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     val walkingOutsideRange = boarding != null && displayedLocation?.let { fix ->
         requiresTransitAccess(fix.point, boarding.point)
     } == true
-    val paceCalibrator = remember(screen, monitored) { WalkingPaceCalibrator() }
-    val measuredPace = (if (monitored) monitoring.calibratedSpeedMetersPerSecond else remember(displayedLocation, paceCalibrator) {
-        paceCalibrator.observe(displayedLocation, displayClock.now())
-    })?.takeIf { displayedLocation?.let { now - it.observedAtEpochMillis in 0L..30_000L } == true }
+    val measuredPace = (if(monitored) monitoring.calibratedSpeedMetersPerSecond else foregroundPaceCalibrator.current(now))
+        ?.takeIf { displayedLocation?.let { now-it.observedAtEpochMillis in 0L..30000L }==true }
     val effectivePace = measuredPace.takeIf { settings.gpsAutoCalibrationEnabled }
+    val calculationPace=(if(monitored) monitoring.calibratedSpeedMetersPerSecond else screen.walkingCalibrationMetersPerSecond)
+        .takeIf {settings.gpsAutoCalibrationEnabled}
     val personalizedWalk = if (monitored) monitoring.walkingRoute?.let { walking ->
         val distance = monitoring.walkingDistanceMeters
         val providerSeconds = monitoring.providerWalkingSeconds
@@ -1488,7 +1517,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             settings.walkingSeconds(distance, providerSeconds, effectivePace)) else walking
     } else screen.guidanceWalkingRoute?.let { walking ->
         screen.walkRoute?.let { raw -> walking.copy(durationSeconds =
-            settings.walkingSeconds(raw.distanceMeters, raw.durationSeconds, effectivePace)) }
+            settings.walkingSeconds(raw.distanceMeters, raw.durationSeconds, screen.walkingCalibrationMetersPerSecond)) }
     }
     // Recheck source age on the UI clock even between provider polls.
     val rawAssessment = calculateMovementGuidance(AutoGuidanceInput(
@@ -1503,12 +1532,10 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         previousAssessment = if (monitored) monitoring.assessment else screen.lastGuidanceAssessment), now,
         settings)
     val movementTransitions = remember(screen,screen.confirmedServiceIdentity,screen.subwayChoice,monitored) { MovementAdviceTransitions() }
-    var localAssessment by remember(screen,screen.confirmedServiceIdentity,screen.subwayChoice,monitored) { mutableStateOf(rawAssessment) }
-    val assessment = if(monitored) monitoring.assessment ?: rawAssessment else localAssessment
+    val assessment = rawAssessment
     LaunchedEffect(rawAssessment,now,screen.alertsEnabled,monitored,movementTransitions) {
         if(!monitored) {
-            val change=movementTransitions.observe(rawAssessment,now,screen.alertsEnabled)
-            localAssessment=change.assessment
+            val change=movementTransitions.observe(rawAssessment,SystemClock.elapsedRealtime(),screen.alertsEnabled)
             if(change.vibrationCount > 0 && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
                 playMovementVibration(context,change.vibrationCount)
         }
@@ -1593,7 +1620,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     val arrivalMissingText=missingArrivalText(responseAt,
         observedSeoulRows.isNotEmpty() || observedGyeonggiRows.isNotEmpty() || observedSubwayRows.isNotEmpty(),
         if(monitored) monitoring.arrivalRequestFailed else screen.arrivalRequestFailed,noService,now)
-    val unknownTitle = if(validArrival!=null || estimatedArrivals!=null) "이동 정보 확인 필요" else arrivalMissingText
+    val unknownTitle = if(monitored) monitoringGuidanceHeadline(monitoring.copy(assessment=assessment),now) else if(validArrival!=null || estimatedArrivals!=null) "이동 정보 확인 필요" else arrivalMissingText
 
     // The stop picker belongs next to the search that produced the candidates, not below the map.
     val selectionControls: @Composable () -> Unit = {
@@ -1622,26 +1649,33 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             onGyeonggiLookup = { lookupGyeonggiArrivals(screen) })
     }
 
+    LaunchedEffect(showMapAndArrivals,boarding,screen.selectedRoute) {
+        if(showMapAndArrivals && (boarding!=null || screen.selectedRoute!=null)) mapOpened=true
+    }
+    if(showInformation) GuidanceInformationDialog(settings,
+        displayedWalkingSpeed(displayedLocation,now),
+        session.walkingAnalysis.saved?.takeIf { it.reliableSpeed }?.speedKmh,calculationPace,
+        onDismiss={showInformation=false},onWalkingAnalysis={showInformation=false;showWalkingAnalysis=true})
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()
-            .verticalScroll(screen.scrollState).padding(horizontal = 20.dp, vertical = 12.dp),
+            .verticalScroll(if(showMapAndArrivals) screen.mapScrollState else screen.scrollState).padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             // 1. Tabs. Screen states survive switching; pending responses do not.
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) { PaceNudgeHeader() }
-                    JourneySettingsPanel(settings, onWalkingAnalysis={ showWalkingAnalysis=true }) { value ->
-                        session.updateSettings(value)
-                        JourneyMonitoringController.updateSettings(context,value,
-                            monitoring.request?.vibrationEnabled ?: screen.alertsEnabled)
-                    }
-                }
+                GuidanceHeader {showInformation=true}
                 Text((if(screen.isBusJourney) "버스" else "지하철")+" · "+
                     (screen.selectedBusRoute?.name ?: screen.selectedGyeonggiMatch?.routeName ?: screen.selectedStation?.lineName ?: "교통수단 선택"),
                     style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
                 screen.boarding?.let { Text(it.name+" · "+(screen.selectedBusRoute?.direction ?: screen.selectedGyeonggiMatch?.destination ?: screen.confirmedServiceIdentity?.directionId.orEmpty()),style=MaterialTheme.typography.bodySmall) }
 
             }
+            if(!showMapAndArrivals) {
+            FeatureModeSelector(mode.ordinal,{ index ->
+                if(session.mode!=FeatureMode.entries[index]) {
+                    screen.invalidateRequests(preserveTimetable=true)
+                    session.mode=FeatureMode.entries[index]
+                }
+            })
             if (screen !== rootScreen) {
                 SectionCard("출발지 접근 안내", "본래 경로: ${rootScreen.departure.selected?.name.orEmpty()} → ${rootScreen.destination.selected?.name.orEmpty()}") {
                     Text("현재 위치에서 지정 출발지까지의 첫 교통수단을 안내해요.")
@@ -1747,7 +1781,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 }
 
                 if (screen.selectedRoute != null || boarding != null || monitored) {
-                    JourneyMetrics(displayedLocation?.takeIf { locationSampleFailure(it,now)==null && it.speedAccuracyMetersPerSecond?.let { value -> value in 0.0..0.75 }==true }?.speedMetersPerSecond?.takeIf { it.isFinite() && it in 0.0..4.5 },
+                    JourneyMetrics(displayedWalkingSpeed(displayedLocation,now),
                         personalizedWalk?.distanceMeters?.takeIf { now-personalizedWalk.fetchedAtEpochMillis in 0..120000L && displayedLocation?.let { fix -> locationSampleFailure(fix,now)==null && pedestrianDistance(fix.point,personalizedWalk.origin)<=35 }==true })
                     AutomaticGuidanceCard(assessment,
                         serviceLabel = if (isBus) screen.selectedBusRoute?.let { "${it.name} · ${it.direction}" }
@@ -1781,7 +1815,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         nextArrivalPrecision = validArrival?.nextArrivalPrecision ?: validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
                         walkingUnavailableLabel = if (walkingOutsideRange) "—" else "확인 필요",
                         remainingDistanceMeters = if(monitored) monitoring.walkingDistanceMeters else screen.walkRoute?.distanceMeters,
-                        paceStatus = if (effectivePace != null) "내 걸음속도로 자동 계산 중"
+                        paceStatus = if (calculationPace != null) "내 걸음속도로 자동 계산 중"
                             else if (settings.usePersonalWalkingSpeed && settings.personalWalkingSpeedKmh != null) "내 걷기 분석 기준 · 개인화 도보시간"
                             else if (settings.useProviderWalkingTime) "지도 도보시간 기준으로 계산 중"
                             else "설정한 걸음속도로 계산 중",
@@ -1793,7 +1827,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                                         distanceBetweenMeters(fix.point, personalizedWalk.origin) <= 35.0
                                 } == true
                         }
-                        else screen.walkRoute?.let { settings.walkingSeconds(it.distanceMeters, it.durationSeconds, effectivePace) }?.takeIf {
+                        else screen.walkRoute?.let { settings.walkingSeconds(it.distanceMeters, it.durationSeconds, screen.walkingCalibrationMetersPerSecond) }?.takeIf {
                             screen.location?.let { fix ->
                                 now - fix.observedAtEpochMillis in 0L..30_000L && fix.accuracyMeters <= 50.0
                             } == true && (screen.walkFetchedAtEpochMillis?.let { fetched ->
@@ -1804,37 +1838,6 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         })
                 } else if (screen.routes.isNotEmpty()) {
                     NoticeCard("위에서 탈 경로를 하나 선택하면 이동 안내가 자동으로 나타나요.")
-                }
-                // A single stable MapView, directly below the guidance card.
-                JourneyMapCard(mapExpanded,{ mapExpanded=!mapExpanded }) {
-                    KakaoMapPanel(lifecycleOwner = lifecycleOwner, center = screen.mapCenter,
-                        routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
-                        accessSegments = rootScreen.mapAccessSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
-                        journeySegments = mapChoice?.pathSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
-                        departurePoint = mapDeparture, destinationPoint = mapDestination,
-                        journeyKey = Triple(mapDeparture,mapDestination,mapChoice?.itineraryKey),
-                        currentPoint = if (monitored) monitoring.location?.point else screen.location?.point ?: currentPoint,
-                        boardingPoint = boarding?.point, recenterRequest = screen.recenterRequest,
-                        onCurrentLocation = {
-                            if (monitored) {
-                                val fix = monitoring.location
-                                if (fix != null && now - fix.observedAtEpochMillis in 0L..30_000L) {
-                                    screen.centerOn(fix.point)
-                                } else {
-                                    monitorRecenterPending = true
-                                    JourneyMonitoringController.refresh(context)
-                                }
-                            } else requestLocation(screen,
-                                if (boarding != null) LocationAction.WALKING else LocationAction.RECENTER)
-                        },
-                        modifier = Modifier.fillMaxWidth().height(if (mapExpanded) 220.dp else 120.dp))
-                }
-                if (!monitored && (screen.arrivalOptions.isNotEmpty() ||
-                    screen.busArrivalOptions.isNotEmpty() || screen.gyeonggiArrivals.isNotEmpty())) {
-                    TextButton(onClick = { officialDetailsExpanded = !officialDetailsExpanded }) {
-                        Text(if (officialDetailsExpanded) "공식 도착정보 상세 접기" else "공식 도착정보 상세")
-                    }
-                    if (officialDetailsExpanded) OfficialArrivalStatusCard(screen, now)
                 }
                 if (monitoring.running && boarding == null && screen.selectedRoute == null) {
                     SectionCard("이동 안내 실행 중", monitoring.request?.boardingName) {
@@ -1882,49 +1885,6 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                                         style = MaterialTheme.typography.bodySmall)
                                 }
                             }
-                        }
-                    }
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (mode == FeatureMode.ROUTE) {
-                        rootScreen.mapAccessMessage?.let { NoticeCard(it) }
-                        mapJourneyMessage?.let { NoticeCard(it) }
-                    }
-                    if (screen.walkRoute != null && screen.walkingPoints.size < 2) NoticeCard(
-                        "도보 요약만 제공돼 지도 경로를 표시할 수 없어요.")
-                    if (officialDetailsExpanded) {
-                    TextButton(onClick = {
-                        context.startActivity(Intent(Intent.ACTION_VIEW,
-                            Uri.parse("https://data.seoul.go.kr/dataList/OA-12764/A/1/datasetView.do")))
-                    }) { Text("역·도착정보: 서울특별시 TOPIS · 공공누리 1유형",
-                        style = MaterialTheme.typography.labelSmall) }
-                    if (isBus) TextButton(onClick = {
-                        context.startActivity(Intent(Intent.ACTION_VIEW,
-                            Uri.parse("https://www.data.go.kr/data/15000314/openapi.do")))
-                    }) { Text("버스 도착정보: 서울특별시 · 공공누리 1유형", style = MaterialTheme.typography.labelSmall) }
-                    if (screen.selectedRoute?.kakao?.firstTransitType == "BUS") TextButton(onClick = {
-                        context.startActivity(Intent(Intent.ACTION_VIEW,
-                            Uri.parse("https://www.data.go.kr/data/15080346/openapi.do")))
-                    }) { Text("경기버스 도착정보: 경기도 공공데이터", style = MaterialTheme.typography.labelSmall) }
-                    }
-                }
-                if (officialDetailsExpanded && screen.selectedRoute?.kakao?.firstTransitType == "BUS" &&
-                    screen.gyeonggiMessage != null) {
-                    NoticeCard(screen.gyeonggiMessage.orEmpty())
-                }
-                if (officialDetailsExpanded) screen.selectedGyeonggiMatch?.let { match ->
-                    SectionCard("경기버스 " + match.routeName + " · 공식 도착정보") {
-                        val arrivals = screen.usableGyeonggiArrivals(now)
-                        if (arrivals.isEmpty()) {
-                            Text(if (screen.gyeonggiLoading) "공식 도착정보 조회 중"
-                                else "확인 중",
-                                style = MaterialTheme.typography.bodySmall)
-                        } else arrivals.take(2).forEach { row ->
-                            val remaining = (row.arrivalBasisMillis(now) +
-                                requireNotNull(row.seconds) * 1_000L - now + 59_999L) / 60_000L
-                            Text("약 ${remaining.coerceAtLeast(1)}분 · 경기버스 공식 도착예정",
-                                style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -1981,6 +1941,52 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
                     }) { Text("앱 알림 설정") }
+                }
+            }
+
+            } // route search/guidance content
+            val hasJourney=boarding!=null || screen.selectedRoute!=null
+            if(showMapAndArrivals && !hasJourney) EmptyStateCard("경로를 먼저 선택해 주세요","경로 찾기에서 경로 또는 정류소를 선택하면 지도와 도착정보를 확인할 수 있어요.")
+            if(mapOpened) Box(if(showMapAndArrivals && hasJourney) Modifier.fillMaxWidth()
+                else Modifier.fillMaxWidth().height(0.dp).clipToBounds().clearAndSetSemantics {}) {
+                // A single stable MapView, directly below the guidance card.
+                JourneyMapCard(mapExpanded,{ mapExpanded=!mapExpanded }) {
+                    KakaoMapPanel(lifecycleOwner = lifecycleOwner, center = screen.mapCenter,
+                        routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
+                        accessSegments = rootScreen.mapAccessSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
+                        journeySegments = mapChoice?.pathSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
+                        departurePoint = mapDeparture, destinationPoint = mapDestination,
+                        journeyKey = Triple(mapDeparture,mapDestination,mapChoice?.itineraryKey),
+                        currentPoint = if (monitored) monitoring.location?.point else screen.location?.point ?: currentPoint,
+                        boardingPoint = boarding?.point, recenterRequest = screen.recenterRequest,
+                        onCurrentLocation = {
+                            if (monitored) {
+                                val fix = monitoring.location
+                                if (fix != null && now - fix.observedAtEpochMillis in 0L..30_000L) {
+                                    screen.centerOn(fix.point)
+                                } else {
+                                    monitorRecenterPending = true
+                                    JourneyMonitoringController.refresh(context)
+                                }
+                            } else requestLocation(screen,
+                                if (boarding != null) LocationAction.WALKING else LocationAction.RECENTER)
+                        },
+                        modifier = Modifier.fillMaxWidth().height(if (mapExpanded) 220.dp else 120.dp))
+                }
+            }
+            if(showMapAndArrivals && hasJourney) {
+                Text("지도·도착정보",style=MaterialTheme.typography.titleLarge)
+                if(mode==FeatureMode.ROUTE) {
+                    rootScreen.mapAccessMessage?.let {NoticeCard(it)}
+                    mapJourneyMessage?.let {NoticeCard(it)}
+                }
+                MapArrivalOverview(screen.selectedBusRoute?.name ?: screen.selectedGyeonggiMatch?.routeName ?: screen.selectedStation?.lineName.orEmpty(),
+                    boarding?.name.orEmpty(),screen.selectedBusRoute?.direction ?: screen.selectedGyeonggiMatch?.destination ?: identity?.directionId.orEmpty(),
+                    validArrival,estimatedArrivals,now,arrivalMissingText,
+                    if(monitored) monitoring.arrivalError else (screen.liveError ?: screen.gyeonggiMessage).takeIf { screen.arrivalRequestFailed })
+                if(!monitored) {
+                    TextButton(onClick={officialDetailsExpanded=!officialDetailsExpanded}) {Text(if(officialDetailsExpanded) "원본 수신 상세 접기" else "원본 수신 상세")}
+                    if(officialDetailsExpanded) OfficialArrivalStatusCard(screen,now)
                 }
             }
 
@@ -2310,7 +2316,7 @@ fun playVibration(
         -1
     )
 
-    vibrator.vibrate(effect)
+    ProcessVibrationGate.gate.emit(SystemClock.elapsedRealtime()) { runCatching { vibrator.vibrate(effect);true }.getOrDefault(false) }
 }
 
 
@@ -2348,5 +2354,7 @@ internal fun playMovementVibration(context: Context,count: Int) {
     if(pattern.isEmpty()) return
     val vibrator=if(Build.VERSION.SDK_INT >= 31) context.getSystemService(VibratorManager::class.java)?.defaultVibrator
         else context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-    if(vibrator?.hasVibrator() == true) runCatching { vibrator.vibrate(VibrationEffect.createWaveform(pattern,-1)) }
+    ProcessVibrationGate.gate.emit(SystemClock.elapsedRealtime()) {
+        vibrator?.hasVibrator()==true && runCatching { vibrator.vibrate(VibrationEffect.createWaveform(pattern,-1));true }.getOrDefault(false)
+    }
 }

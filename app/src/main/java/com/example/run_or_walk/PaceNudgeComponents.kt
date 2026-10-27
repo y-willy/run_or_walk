@@ -69,7 +69,7 @@ fun FeatureModeSelector(selectedIndex: Int, onSelect: (Int) -> Unit, enabled: Bo
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)) {
         Row(Modifier.fillMaxWidth().selectableGroup().padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            listOf("경로 찾기", "정류장 찾기").forEachIndexed { index, title ->
+            listOf("경로 검색", "정류소 직접 검색").forEachIndexed { index, title ->
                 val selected = selectedIndex == index
                 val background by animateColorAsState(
                     if (selected) MaterialTheme.colorScheme.surface else Color.Transparent, label = "tabColor")
@@ -187,23 +187,28 @@ fun AutomaticGuidanceCard(
 ) {
     var detailsExpanded by rememberSaveable { mutableStateOf(false) }
     // Presentation only: the existing assessment/ETA selection remains authoritative.
-    val title = when(assessment.status) {
-        AutoGuidanceStatus.WALK -> "걸으세요"
-        AutoGuidanceStatus.FAST_WALK -> "빠르게 이동하세요"
-        AutoGuidanceStatus.NEXT_VEHICLE -> "다음 차량 이용"
-        AutoGuidanceStatus.UNKNOWN -> unknownTitle
+    val title=if(assessment.status==AutoGuidanceStatus.UNKNOWN) unknownTitle else movementGuidanceTitle(assessment,nowEpochMillis)
+    val accent=when(assessment.status) {
+        AutoGuidanceStatus.RELAXED -> Color(0xFFB0F6E6)
+        AutoGuidanceStatus.WALK -> Color(0xFFACF5BE)
+        AutoGuidanceStatus.CAUTION -> Color(0xFFFFD099)
+        AutoGuidanceStatus.FAST_WALK -> Color(0xFFFFB5BE)
+        AutoGuidanceStatus.NEXT_VEHICLE -> Color(0xFFBEDAFF)
+        AutoGuidanceStatus.UNKNOWN -> Color(0xFFCDD5E0)
     }
-    val accent = when(assessment.status) {
-        AutoGuidanceStatus.FAST_WALK -> Color(0xFFFFD0A1)
-        AutoGuidanceStatus.NEXT_VEHICLE -> Color(0xFFFFD3D3)
-        else -> Color(0xFFB0F6E6)
+    val cardColors=when(assessment.status) {
+        AutoGuidanceStatus.CAUTION -> listOf(Color(0xFF80511D),Color(0xFF573612))
+        AutoGuidanceStatus.FAST_WALK -> listOf(Color(0xFF912C3C),Color(0xFF5D1D2B))
+        AutoGuidanceStatus.NEXT_VEHICLE -> listOf(Color(0xFF28597F),Color(0xFF153852))
+        AutoGuidanceStatus.UNKNOWN -> listOf(Color(0xFF475569),Color(0xFF293548))
+        else -> listOf(Color(0xFF087B70),Color(0xFF064C46))
     }
     val usableEta = validatedEta ?: (firstArrivalAtEpochMillis?.let { it > nowEpochMillis } == true &&
         arrivalFetchedAtEpochMillis?.let { nowEpochMillis-it in 0L..600_000L } == true)
     Surface(modifier = Modifier.fillMaxWidth().testTag("guidance-card").semantics { liveRegion = LiveRegionMode.Polite },
         shape = RoundedCornerShape(22.dp), color = Color(0xFF075C53),contentColor = Color.White,
         shadowElevation=3.dp) {
-        Column(Modifier.background(Brush.linearGradient(listOf(Color(0xFF087B70),Color(0xFF064C46))))
+        Column(Modifier.background(Brush.linearGradient(cardColors))
             .padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Text("지금 이동 안내",style=MaterialTheme.typography.labelMedium,modifier=Modifier.weight(1f))
@@ -215,14 +220,18 @@ fun AutomaticGuidanceCard(
             Text(listOfNotNull(serviceLabel.takeIf { it.isNotBlank() },boardingLabel).joinToString(" · "),
                 style=MaterialTheme.typography.bodySmall,fontWeight=FontWeight.SemiBold)
             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val arrival = arrivalInformation ?: arrivalText(firstArrivalAtEpochMillis,nowEpochMillis,arrivalPrecision)
+                val recommended=assessment.recommendedArrivalAtEpochMillis?.takeIf {
+                    assessment.status==AutoGuidanceStatus.NEXT_VEHICLE && assessment.nextVehicleState==NextVehicleState.ETA_AVAILABLE && it>nowEpochMillis }
+                val metricVehicle=if(assessment.status==AutoGuidanceStatus.NEXT_VEHICLE) (if(recommended!=null) "다음 " else "현재 ")+vehicleLabel else vehicleLabel
+                val arrival = recommended?.let { arrivalText(it,nowEpochMillis,assessment.recommendedArrivalPrecision) }
+                    ?: arrivalInformation ?: arrivalText(firstArrivalAtEpochMillis,nowEpochMillis,arrivalPrecision)
                 val walk = walkingSeconds?.let { compactDuration(it.toLong()) } ?: walkingUnavailableLabel
                 val compact = maxWidth / LocalDensity.current.fontScale < 235.dp
                 if (compact) Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                    GuidanceMetric(if(vehicleLabel=="버스") R.drawable.ui_bus else R.drawable.ui_train,"$vehicleLabel $arrival",Modifier.fillMaxWidth())
+                    GuidanceMetric(if(vehicleLabel=="버스") R.drawable.ui_bus else R.drawable.ui_train,"$metricVehicle $arrival",Modifier.fillMaxWidth())
                     GuidanceMetric(R.drawable.ui_walk,"도보 $walk",Modifier.fillMaxWidth())
                 } else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    GuidanceMetric(if(vehicleLabel=="버스") R.drawable.ui_bus else R.drawable.ui_train,"$vehicleLabel $arrival",Modifier.weight(1f))
+                    GuidanceMetric(if(vehicleLabel=="버스") R.drawable.ui_bus else R.drawable.ui_train,"$metricVehicle $arrival",Modifier.weight(1f))
                     GuidanceMetric(R.drawable.ui_walk,"도보 $walk",Modifier.weight(1f))
                 }
             }
@@ -322,14 +331,17 @@ private fun compactDuration(seconds: Long): String = if(seconds<60) "${seconds.c
 internal fun ArrivalComparisonCard(assessment: AutoGuidanceAssessment,now: Long,vehicleAt: Long?,walkSeconds: Int?,
     source: GuidanceArrivalSource = assessment.arrivalSource,expanded:Boolean=false,onExpand:()->Unit={}) {
     if(vehicleAt == null || vehicleAt <= now || walkSeconds == null || walkSeconds < 0) return
-    val slack=(vehicleAt-now)/1000-walkSeconds-assessment.bufferSeconds
-    val warning=if(slack<0) Color(0xFFFFD0A1) else Color.White
+    val slackMillis=vehicleAt-now-(walkSeconds.toLong()+assessment.bufferSeconds)*1000L
+    val slackMagnitude=kotlin.math.abs(slackMillis)
+    val slackDuration=if(slackMagnitude in 1L..999L) "1초 미만" else compactDuration((slackMagnitude+999L)/1000L)
+    val warning=if(slackMillis<=0) Color(0xFFFFD0A1) else Color.White
     Surface(onClick=onExpand,color=Color.White.copy(alpha=.08f),shape=RoundedCornerShape(14.dp)) {
         Row(Modifier.fillMaxWidth().heightIn(min=48.dp).padding(horizontal=12.dp,vertical=8.dp),
             verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             AppIcon(R.drawable.ui_clock,tint=warning,modifier=Modifier.size(20.dp))
             Column(Modifier.weight(1f)) {
-                Text(if(slack>=0) "이동 여유 ${compactDuration(slack)}" else "이동시간 ${compactDuration(-slack)} 부족",
+                Text((if(assessment.status==AutoGuidanceStatus.NEXT_VEHICLE) "현재 차량 · " else "")+
+                    if(slackMillis>=0) "이동 여유 $slackDuration" else "이동시간 $slackDuration 부족",
                     style=MaterialTheme.typography.labelLarge,color=warning)
                 Text(arrivalSourceLabel(source),style=MaterialTheme.typography.labelSmall,color=Color.White.copy(alpha=.75f))
             }

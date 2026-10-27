@@ -73,7 +73,7 @@ class SubwayRefreshHandoffTest {
             GuidanceWalkingRoute(point,point,id,120,now-95000,120000,120),row.snapshot,true,
             bufferSeconds=60)
         val settings=JourneySettings(bufferSeconds=60)
-        assertEquals(MovementAdvice.WALK,calculateMovementGuidance(input,now,settings).movementAdvice())
+        assertEquals(MovementAdvice.CAUTION,calculateMovementGuidance(input,now,settings).movementAdvice())
         assertEquals(MovementAdvice.UNKNOWN,calculateMovementGuidance(input.copy(
             walkingRoute=input.walkingRoute!!.copy(fetchedAtEpochMillis=now-121000)),now,settings).movementAdvice())
         assertEquals(MovementAdvice.UNKNOWN,calculateMovementGuidance(input.copy(

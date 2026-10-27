@@ -6,7 +6,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-enum class AutoGuidanceStatus { WALK, FAST_WALK, NEXT_VEHICLE, UNKNOWN }
+enum class AutoGuidanceStatus { RELAXED, WALK, CAUTION, FAST_WALK, NEXT_VEHICLE, UNKNOWN }
 
 /** Source-data trust, distinct from transport success and boarding identity matching. */
 enum class ArrivalTrustState { VALID, STALE, FUTURE_TIMESTAMP, INVALID_ETA, UNKNOWN }
@@ -171,31 +171,6 @@ fun calculateAutoGuidance(
     policy: AutoGuidancePolicy = AutoGuidancePolicy()
 ): AutoGuidanceAssessment {
     fun unknown(reason: AutoGuidanceUnknownReason): AutoGuidanceAssessment {
-        val previous = input.previousAssessment
-        val location = input.location
-        val walking = input.walkingRoute
-        val boarding = input.boarding
-        if (reason in setOf(AutoGuidanceUnknownReason.ARRIVAL_UNAVAILABLE, AutoGuidanceUnknownReason.ARRIVAL_FAILED,
-                AutoGuidanceUnknownReason.ARRIVAL_STALE) && previous?.status == AutoGuidanceStatus.NEXT_VEHICLE &&
-            previous.boardingIdentity == boarding?.identity && boarding?.confirmed == true &&
-            input.locationPermissionGranted && location != null && walking != null &&
-            location.accuracyMeters in 0.0..policy.maxLocationAccuracyMeters &&
-            isFresh(location.observedAtEpochMillis, nowEpochMillis, policy.maxLocationAgeMillis) &&
-            isFresh(walking.fetchedAtEpochMillis, nowEpochMillis, minOf(walking.validForMillis,policy.maxWalkingAgeMillis)) &&
-            walking.boardingIdentity == boarding.identity &&
-            walking.distanceMeters != null && walking.distanceMeters >= 0 &&
-            previous.firstArrivalAtEpochMillis?.let { it-nowEpochMillis <
-                (minOf(walking.durationSeconds,ceil(walking.distanceMeters*3.6/policy.fastSpeedKmh).toInt()).toLong()+input.bufferSeconds)*1000L } == true &&
-            distanceMeters(walking.origin,location.point) <= policy.maxWalkingOriginDistanceMeters &&
-            distanceMeters(walking.destination,boarding.point) <= policy.maxWalkingDestinationDistanceMeters &&
-            previous.firstArrivalAtEpochMillis?.let { nowEpochMillis-it in -3_600_000L..3_600_000L } == true) {
-            return previous.copy(nextArrivalAtEpochMillis = null, recommendedArrivalAtEpochMillis = null,
-                nextVehicleState = when {
-                    input.furtherServiceEnded -> NextVehicleState.SERVICE_ENDED
-                    input.arrivalRequestFailed -> NextVehicleState.API_ERROR
-                    else -> NextVehicleState.ETA_PENDING
-                })
-        }
         return AutoGuidanceAssessment(
         status = AutoGuidanceStatus.UNKNOWN,
         unknownReason = reason,
@@ -228,7 +203,7 @@ fun calculateAutoGuidance(
     }
     if (requiresTransitAccess(location.point, boarding.point))
         return unknown(AutoGuidanceUnknownReason.WALKING_OUTSIDE_RANGE)
-    // A refresh error does not erase a still-valid received ETA or a proved missed-vehicle decision.
+    // A refresh error does not erase a still-valid received ETA.
     if (input.arrivalRequestFailed && input.arrivals?.hasUsableOfficialEta(nowEpochMillis) != true && input.timetableArrivals == null)
         return unknown(AutoGuidanceUnknownReason.ARRIVAL_FAILED)
     val arrivals = input.arrivals
@@ -281,7 +256,7 @@ fun calculateAutoGuidance(
             !isFresh(actual.fetchedAtEpochMillis, nowEpochMillis,
                 minOf(actual.validForMillis, policy.maxArrivalAgeMillis)) ||
             (received != null && nowEpochMillis - received > policy.maxArrivalReceiptAgeMillis) ||
-            actual.firstArrivalAtEpochMillis < nowEpochMillis) {
+            actual.firstArrivalAtEpochMillis <= nowEpochMillis) {
             return unknown(AutoGuidanceUnknownReason.ARRIVAL_STALE)
         }
         firstArrival = actual.firstArrivalAtEpochMillis
@@ -321,21 +296,7 @@ fun calculateAutoGuidance(
     val fastSeconds = minOf(walking.durationSeconds, estimate)
     val remainingMillis = firstArrival - nowEpochMillis
     val walkingWithBufferMillis = (walking.durationSeconds.toLong() + input.bufferSeconds) * 1_000L
-    val fastWithBufferMillis = (fastSeconds.toLong() + input.bufferSeconds) * 1_000L
-    val rawStatus = when {
-        remainingMillis >= walkingWithBufferMillis -> AutoGuidanceStatus.WALK
-        remainingMillis >= fastWithBufferMillis -> AutoGuidanceStatus.FAST_WALK
-        else -> AutoGuidanceStatus.NEXT_VEHICLE
-    }
-    // Escalate immediately when time is short. Relax FAST_WALK back to WALK only
-    // after a small positive margin, so GPS velocity jitter cannot alternate advice.
-    val previous = input.previousAssessment
-    val status = if (rawStatus == AutoGuidanceStatus.WALK &&
-        previous?.status == AutoGuidanceStatus.FAST_WALK &&
-        previous.boardingIdentity == boarding.identity &&
-        previous.firstArrivalAtEpochMillis?.let { kotlin.math.abs(it - firstArrival) <= 15_000L } == true &&
-        remainingMillis - walkingWithBufferMillis < 20_000L
-    ) AutoGuidanceStatus.FAST_WALK else rawStatus
+    val status = movementStatusForSlackMillis(remainingMillis-walkingWithBufferMillis)
     val recommended = (listOfNotNull(nextArrival) + if (useTimetable) scheduled?.later.orEmpty()
         .filter { it.validUntilEpochMillis >= nowEpochMillis && it.identity.directionId == boarding.identity.directionId }
         .map { it.midpointArrivalAtEpochMillis() }
@@ -376,10 +337,21 @@ fun calculateAutoGuidance(
 internal fun OfficialTimetableEstimate.midpointArrivalAtEpochMillis(): Long =
     earliestArrivalAtEpochMillis + (latestArrivalAtEpochMillis-earliestArrivalAtEpochMillis)/2L
 
+internal fun movementStatusForSlackMillis(slack: Long): AutoGuidanceStatus = when {
+    slack>240_000L -> AutoGuidanceStatus.RELAXED
+    slack>120_000L -> AutoGuidanceStatus.WALK
+    slack>0L -> AutoGuidanceStatus.CAUTION
+    slack>=-90_000L -> AutoGuidanceStatus.FAST_WALK
+    else -> AutoGuidanceStatus.NEXT_VEHICLE
+}
+
 internal fun movementGuidanceTitle(assessment: AutoGuidanceAssessment, now: Long): String = when (assessment.status) {
-    AutoGuidanceStatus.NEXT_VEHICLE -> "다음 차량을 기다리세요"
-    AutoGuidanceStatus.FAST_WALK -> "뛰세요"
+    AutoGuidanceStatus.RELAXED -> "여유 있어요"
     AutoGuidanceStatus.WALK -> "걸으세요"
+    AutoGuidanceStatus.CAUTION -> "놓칠 수 있어요"
+    AutoGuidanceStatus.FAST_WALK -> "뛰세요"
+    AutoGuidanceStatus.NEXT_VEHICLE -> if(assessment.nextVehicleState==NextVehicleState.ETA_AVAILABLE &&
+        assessment.recommendedArrivalAtEpochMillis?.let { it>now }==true) "다음 차량을 탑승하세요" else "다음 차량 정보 확인 필요"
     AutoGuidanceStatus.UNKNOWN -> "정보 확인 중"
 }
 

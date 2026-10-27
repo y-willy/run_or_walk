@@ -1,0 +1,29 @@
+{
+  "baseline": "f03951ca6488259ed832c84c94cacd88397e0826",
+  "branch": "feature/guidance-threshold-navigation-refresh-20261027",
+  "verifiedAtKst": "2026-10-27T22:12:20.278503+09:00",
+  "android": {
+    "tests": 222,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "repositoryTests": 115,
+  "cloudRegressionTests": 107,
+  "worker": {
+    "localTests": 6,
+    "failures": 0,
+    "typecheck": "passed",
+    "deployDryRun": "passed",
+    "productionDeployment": false,
+    "sourceChanged": false
+  },
+  "apk": {
+    "path": "app/build/outputs/apk/debug/app-debug.apk",
+    "bytes": 57854026,
+    "sha256": "58cd2239442bdf10618051a00ce8167ffdb94c6a10902bacfe4baf031d0ce9f1"
+  },
+  "images": "Actual Compose rendered with mock data in Robolectric. Not physical-device screenshots. Native Kakao map is explicitly a placeholder only in test rendering.",
+  "liveApiValidation": "Prior operational captures from 2026-10-27 19:50 KST replayed at original receipt time; no fresh operating API fetch in this task.",
+  "physicalDeviceTested": false
+}

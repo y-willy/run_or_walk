@@ -66,6 +66,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     val destination = JourneySearchState()
     val stop = JourneySearchState()
     val scrollState = ScrollState(0)
+    val mapScrollState = ScrollState(0)
     var routes by mutableStateOf<List<JourneyTransitRoute>>(emptyList())
     var routeSearchCompleted by mutableStateOf(false)
     var selectedRoute by mutableStateOf<JourneyTransitRoute?>(null)
@@ -169,6 +170,9 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var walkOrigin by mutableStateOf<MapPoint?>(null)
     var walkingPoints by mutableStateOf<List<MapPoint>>(emptyList())
     var walkingTracker: WalkingRouteTracker? = null
+    var walkingRefreshCadence=WalkingRefreshCadence()
+    var walkingCalculatedAtEpochMillis:Long?=null
+    var walkingCalibrationMetersPerSecond:Double?=null
     // A feeder alternative is display-only until its own realtime vehicle identity is verified.
     var accessTransitRoutes by mutableStateOf<List<JourneyTransitRoute>>(emptyList())
     var accessJourney by mutableStateOf<JourneyScreenState?>(null)
@@ -344,6 +348,9 @@ internal class JourneyScreenState(val mode: FeatureMode,
         walkOrigin = null
         walkingPoints = emptyList()
         walkingTracker = null
+        walkingRefreshCadence=WalkingRefreshCadence()
+        walkingCalculatedAtEpochMillis=null
+        walkingCalibrationMetersPerSecond=null
     }
 
     fun clearOfficialSelection() {

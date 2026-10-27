@@ -27,36 +27,32 @@ import androidx.lifecycle.repeatOnLifecycle
 internal fun DashboardNavigation(selected: Int,onSelect: (Int)->Unit) {
     val compact=LocalConfiguration.current.screenWidthDp<360 || LocalDensity.current.fontScale>1.15f
     NavigationBar(containerColor=MaterialTheme.colorScheme.surface,tonalElevation=2.dp) {
-        listOf("경로 찾기","정류장 찾기","자주 타는 버스","설정").forEachIndexed { i,label ->
-            NavigationBarItem(modifier=Modifier.semantics { contentDescription=label },selected=selected==i,onClick={onSelect(i)},icon={ AppIcon(listOf(R.drawable.ui_route,R.drawable.ui_bus,R.drawable.ui_star,R.drawable.ui_settings)[i]) },
+        listOf("경로 찾기","지도·도착정보","자주 타는 버스","설정").forEachIndexed { i,label ->
+            NavigationBarItem(modifier=Modifier.semantics { contentDescription=label },selected=selected==i,onClick={onSelect(i)},icon={ AppIcon(listOf(R.drawable.ui_route,R.drawable.ui_map,R.drawable.ui_star,R.drawable.ui_settings)[i]) },
                 colors=NavigationBarItemDefaults.colors(selectedIconColor=MaterialTheme.colorScheme.primary,selectedTextColor=MaterialTheme.colorScheme.primary,indicatorColor=MaterialTheme.colorScheme.secondaryContainer,unselectedIconColor=MaterialTheme.colorScheme.onSurfaceVariant,unselectedTextColor=MaterialTheme.colorScheme.onSurfaceVariant),
-                label={ Text(if(compact) listOf("경로","정류장","즐겨찾기","설정")[i] else label,style=MaterialTheme.typography.labelSmall,maxLines=1) })
+                label={ Text(if(compact) listOf("경로","지도·도착","즐겨찾기","설정")[i] else label,style=MaterialTheme.typography.labelSmall,maxLines=1) })
         }
     }
 }
 @Composable
 internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner,session: JourneySessionViewModel) {
-    var tab by rememberSaveable { mutableIntStateOf(session.mode.ordinal) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     var analysis by rememberSaveable { mutableStateOf(false) }
     val context=LocalContext.current
-    androidx.activity.compose.BackHandler(enabled=tab>=2 || analysis) { if(analysis) analysis=false else tab=session.mode.ordinal }
+    androidx.activity.compose.BackHandler(enabled=tab>=2 || analysis) { if(analysis) analysis=false else tab=0 }
     Scaffold(bottomBar={ DashboardNavigation(tab) { selected ->
         analysis=false
-        if(selected<2 && session.mode!=FeatureMode.entries[selected]) {
-            session.screens.getValue(session.mode).invalidateRequests(preserveTimetable=true)
-            session.mode=FeatureMode.entries[selected]
-        }
         tab=selected
     } }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 analysis -> WalkingAnalysisScreen(session.walkingAnalysis,lifecycleOwner,session.settings,{ session.updateSettings(it)
                     JourneyMonitoringController.updateSettings(context,it,JourneyMonitoringController.state.value.request?.vibrationEnabled ?: false) },{analysis=false})
-                tab<2 -> JourneyDashboardContent(lifecycleOwner,session)
-                tab==2 -> FavoriteBusesScreen(session.favorites,lifecycleOwner,onAdd={if(session.mode!=FeatureMode.STOP) session.screens.getValue(session.mode).invalidateRequests(preserveTimetable=true);tab=1;session.mode=FeatureMode.STOP}) { selected ->
+                tab<2 -> JourneyDashboardContent(lifecycleOwner,session,showMapAndArrivals=tab==1)
+                tab==2 -> FavoriteBusesScreen(session.favorites,lifecycleOwner,onAdd={if(session.mode!=FeatureMode.STOP) session.screens.getValue(session.mode).invalidateRequests(preserveTimetable=true);tab=0;session.mode=FeatureMode.STOP}) { selected ->
                     JourneyMonitoringController.stop(context)
                     restoreFavoriteBus(session.screens.getValue(FeatureMode.STOP),selected)
-                    session.mode=FeatureMode.STOP;tab=1
+                    session.mode=FeatureMode.STOP;tab=0
                 }
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                     PaceNudgeHeader();Text("설정",style=MaterialTheme.typography.headlineMedium)

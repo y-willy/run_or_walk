@@ -56,7 +56,7 @@ class FinalUiPresentationTest {
         withActivity({RUN_or_WALKTheme { AutomaticGuidanceCard(
             AutoGuidanceAssessment(AutoGuidanceStatus.FAST_WALK,bufferSeconds=60),"수인분당선","망포역","",time,time+180000,null,time,180,
             arrivalSource=GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION,validatedEta=true) }}) {
-            compose.onNodeWithText("빠르게 이동하세요").assertIsDisplayed()
+            compose.onNodeWithText("뛰세요").assertIsDisplayed()
             compose.onNodeWithText("이동시간 약 1분 부족").assertIsDisplayed()
             compose.onNodeWithText("열차 위치 · 시간표 추정").assertIsDisplayed()
         }
@@ -67,7 +67,7 @@ class FinalUiPresentationTest {
             var selected by remember { mutableIntStateOf(0) }
             DashboardNavigation(selected) { selected=it }
         }}) {
-            for(label in listOf("경로 찾기","정류장 찾기","자주 타는 버스","설정")) {
+            for(label in listOf("경로 찾기","지도·도착정보","자주 타는 버스","설정")) {
                 compose.onNodeWithContentDescription(label).performClick().assertIsSelected()
             }
         }

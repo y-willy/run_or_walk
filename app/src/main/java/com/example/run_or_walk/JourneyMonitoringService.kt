@@ -37,12 +37,14 @@ class JourneyMonitoringService : Service() {
     private var walkingJob: Job? = null
     private var routeTracker: WalkingRouteTracker? = null
     private var lastWalkingRequestAt = 0L
+    private var lastWalkingRequestElapsed:Long?=null
     private var generation = 0L
     private var transitions = MovementAdviceTransitions()
     private var livePaceCalibrator = WalkingPaceCalibrator()
     private var currentRequest: JourneyMonitoringRequest? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val refreshRequests = Channel<Unit>(Channel.CONFLATED)
+    private var lastOngoingNotificationAt:Long?=null
     private var finishMessage = "이동 안내를 종료했어요."
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
     private val subway by lazy { SeoulSubwayRepository(this) }
@@ -113,6 +115,11 @@ class JourneyMonitoringService : Service() {
             else monitoringSelectionHandover(prior,request,displayClock.now(),hasLocationPermission(this))
         JourneyMonitoringController.publish(handover ?: JourneyMonitoringState(running = true, request = request,
             message = "화면이 꺼져도 이동 안내를 확인해요. 최대 60분 후 종료돼요."))
+        routeTracker=handover?.walkingGeometry
+        lastWalkingRequestElapsed=handover?.walkingRequestElapsed
+        lastWalkingRequestAt=lastWalkingRequestElapsed?.let {
+            displayClock.now()-(android.os.SystemClock.elapsedRealtime()-it).coerceAtLeast(0L)
+        } ?: 0L
         startLocationTracking(request)
         monitoringJob = scope.launch { monitor() }
         timeoutJob = scope.launch {
@@ -268,14 +275,16 @@ class JourneyMonitoringService : Service() {
                 else (evidence?.takeIf { assessment.arrivalSource != GuidanceArrivalSource.OFFICIAL_REALTIME }
                     ?.let { timetableArrivalText(it,checkedAt) + " · " } ?: "") +
                     if (assessment.status == AutoGuidanceStatus.NEXT_VEHICLE)
-                        "다음 차량을 기다리세요. " + nextVehicleGuidanceText(assessment, checkedAt)
+                        movementGuidanceTitle(assessment,checkedAt) + " · " + nextVehicleGuidanceText(assessment, checkedAt)
                     else movementGuidanceTitle(assessment,checkedAt)
             publishMovement(JourneyMonitoringState(true, active, assessment,
                 location, walking, arrivals, summary, checkedAt, retryAt,
                 live.walkingDistanceMeters.takeIf { walking != null },
                 live.providerWalkingSeconds.takeIf { walking != null },
                 live.walkingPoints.takeIf { walking != null }.orEmpty(), subwayObservations, timetableAnalysis,
-                measuredPace, failure,seoulRows,gyeonggiRows,responseAt,arrivalError=message.takeIf { failure }))
+                measuredPace, failure,seoulRows,gyeonggiRows,responseAt,arrivalError=message.takeIf { failure },
+                walkingCalculatedAtEpochMillis=live.walkingCalculatedAtEpochMillis,
+                walkingGeometry=routeTracker,walkingRequestElapsed=lastWalkingRequestElapsed))
 
             val displayedAssessment=JourneyMonitoringController.state.value.assessment ?: assessment
             if (displayedAssessment.status == AutoGuidanceStatus.UNKNOWN) notifications.cancel(ARRIVAL_ID)
@@ -305,7 +314,7 @@ class JourneyMonitoringService : Service() {
         locationJob=scope.launch {
             val health=launch {
                 while(isActive) {
-                    delay(4_000L)
+                    delay(1_000L)
                     if(token != generation) break
                     val active=currentRequest ?: break
                     if(!hasLocationPermission(this@JourneyMonitoringService) || !JourneyMonitoringController.notificationsAllowed(this@JourneyMonitoringService)) {
@@ -313,8 +322,9 @@ class JourneyMonitoringService : Service() {
                     }
                     val latest=JourneyMonitoringController.state.value
                     val now=displayClock.now()
-                    if(latest.lastUpdatedEpochMillis?.let { now-it in 0..3_500L } == true) continue
-                    publishMovement(monitoringStateWithSettings(latest,active,now,true))
+                    if(walkingCalculationDue(latest.walkingCalculatedAtEpochMillis,now) && latest.location!=null)
+                        updateWalkingLocation(latest.location)
+                    else publishMovement(monitoringStateWithSettings(latest,active,now,true))
                 }
             }
             try {
@@ -324,6 +334,7 @@ class JourneyMonitoringService : Service() {
                     val now=displayClock.now()
                     if(walkingJob?.isActive != true && shouldRefreshWalkingRoute(routeTracker,fix,now,lastWalkingRequestAt)) {
                         lastWalkingRequestAt=now
+                        lastWalkingRequestElapsed=android.os.SystemClock.elapsedRealtime()
                         walkingJob=scope.launch {
                             try {
                                 val route=kakao.searchWalk(fix.point,request.boardingPoint)
@@ -363,11 +374,15 @@ class JourneyMonitoringService : Service() {
         if(old.request?.isSameJourney(request) != true) return
         val pace=livePaceCalibrator.observe(fix,now)
         val result=updateLiveWalkingEvidence(LiveWalkingEvidence(old.location,old.walkingRoute,
-            old.walkingDistanceMeters,old.providerWalkingSeconds,old.walkingPoints),routeTracker,fix,
-            request.identity,request.boardingPoint,request.settings,pace,now)
+            old.walkingDistanceMeters,old.providerWalkingSeconds,old.walkingPoints,old.walkingCalculatedAtEpochMillis),routeTracker,fix,
+            request.identity,request.boardingPoint,request.settings,pace,now,
+            allowRecalculation=walkingCalculationDue(old.walkingCalculatedAtEpochMillis,now))
+        val calculationChanged=result.calculatedAtEpochMillis!=old.walkingCalculatedAtEpochMillis
         val next=old.copy(location=result.location,walkingRoute=result.walking,walkingDistanceMeters=result.distanceMeters,
             providerWalkingSeconds=result.providerSeconds,walkingPoints=result.points,
-            calibratedSpeedMetersPerSecond=pace,lastUpdatedEpochMillis=now)
+            calibratedSpeedMetersPerSecond=if(calculationChanged) pace else old.calibratedSpeedMetersPerSecond,
+            walkingCalculatedAtEpochMillis=result.calculatedAtEpochMillis,lastUpdatedEpochMillis=now,
+            walkingGeometry=routeTracker,walkingRequestElapsed=lastWalkingRequestElapsed)
         publishMovement(monitoringStateWithSettings(next,request,now,true))
     }
 
@@ -376,10 +391,14 @@ class JourneyMonitoringService : Service() {
         if(!state.running || !JourneyMonitoringController.state.value.running || state.request?.isSameJourney(request) != true) return
         val assessment=state.assessment ?: return
         val now=displayClock.now()
-        val change=transitions.observe(assessment,now,request.vibrationEnabled)
-        val message=movementGuidanceTitle(change.assessment,now)
+        val change=transitions.observe(assessment,android.os.SystemClock.elapsedRealtime(),request.vibrationEnabled)
+        val message=monitoringGuidanceHeadline(state.copy(assessment=change.assessment),now)
+        val previousMessage=JourneyMonitoringController.state.value.message
         JourneyMonitoringController.publish(state.copy(assessment=change.assessment,message=message))
-        notifySafely(ONGOING_ID,ongoingNotification(request,message,state.arrivals,now))
+        if(previousMessage!=message || lastOngoingNotificationAt?.let {now-it>=5000L} != false) {
+            notifySafely(ONGOING_ID,ongoingNotification(request,message,state.arrivals,now))
+            lastOngoingNotificationAt=now
+        }
         if(change.vibrationCount > 0) playMovementVibration(this,change.vibrationCount)
     }
 
@@ -387,7 +406,7 @@ class JourneyMonitoringService : Service() {
         generation++
         locationJob?.cancel(); locationJob=null
         walkingJob?.cancel(); walkingJob=null
-        routeTracker=null; lastWalkingRequestAt=0L
+        routeTracker=null; lastWalkingRequestAt=0L;lastWalkingRequestElapsed=null
     }
 
     private fun createChannels() {
@@ -492,11 +511,8 @@ class JourneyMonitoringService : Service() {
     }
 }
 
-internal fun monitoringAssessmentMessage(status: AutoGuidanceStatus, isBus: Boolean): String = when (status) {
-    AutoGuidanceStatus.WALK -> "걸으세요"
-    AutoGuidanceStatus.FAST_WALK -> "뛰세요"
-    AutoGuidanceStatus.NEXT_VEHICLE -> "다음 차량을 기다리세요."
-    AutoGuidanceStatus.UNKNOWN -> "최신 정보를 확인하고 있어요."
-}
+internal fun monitoringAssessmentMessage(status: AutoGuidanceStatus, isBus: Boolean): String =
+    movementGuidanceTitle(AutoGuidanceAssessment(status),0L)
+
 private fun clockTime(epochMillis: Long): String = DateTimeFormatter.ofPattern("HH:mm:ss")
     .format(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()))

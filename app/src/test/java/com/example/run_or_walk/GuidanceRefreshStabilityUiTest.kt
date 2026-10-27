@@ -83,20 +83,20 @@ class GuidanceRefreshStabilityUiTest {
                 }
             }
         }) { activity ->
-            compose.onNodeWithText("걸으세요").assertIsDisplayed()
+            compose.onNodeWithText("놓칠 수 있어요").assertIsDisplayed()
             compose.onNodeWithText("버스 5분 0초 후").assertIsDisplayed()
             compose.onNodeWithText("이동 여유 약 1분").performClick()
             compose.onNodeWithText("다음 버스 · 13분 0초 후").assertIsDisplayed()
             save(activity,"refresh-before.png")
             compose.runOnIdle { screen.beginLiveRequest();clock=time+15000 }
-            compose.onNodeWithText("걸으세요").assertIsDisplayed()
+            compose.onNodeWithText("놓칠 수 있어요").assertIsDisplayed()
             compose.onNodeWithText("버스 4분 45초 후").assertIsDisplayed()
             compose.onNodeWithText("다음 버스 · 12분 45초 후").assertIsDisplayed()
             compose.onNodeWithText("도보 약 3분").assertIsDisplayed()
             compose.onNodeWithText("도착정보 확인 중").assertDoesNotExist()
             save(activity,"refresh-during.png")
             compose.runOnIdle { screen.applyBusArrivals(listOf(row("105000001",1,185,time+15000)),clock);screen.liveLoading=false }
-            compose.onNodeWithText("빠르게 이동하세요").assertIsDisplayed()
+            compose.onNodeWithText("뛰세요").assertIsDisplayed()
             compose.onNodeWithText("버스 3분 5초 후").assertIsDisplayed()
             compose.onNodeWithText("다음 버스 · 12분 45초 후").assertIsDisplayed()
             compose.onNodeWithText("도보 약 3분").assertIsDisplayed()

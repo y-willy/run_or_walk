@@ -75,7 +75,7 @@ fun JourneySettingsPanel(settings: JourneySettings, onWalkingAnalysis: () -> Uni
                     androidx.compose.material3.OutlinedTextField(value=runningText,onValueChange={ runningText=it },
                         label={ Text("직접 측정한 달리기 속도 (km/h · 선택)") },singleLine=true,
                         keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal),
-                        supportingText={ Text("측정값이 없으면 비워 두세요. 임의의 속도로 뛰기를 안내하지 않아요.") },modifier=Modifier.fillMaxWidth())
+                        supportingText={ Text("측정값은 달리기 예상시간에 사용해요. 이동 안내는 여유시간 기준이에요.") },modifier=Modifier.fillMaxWidth())
                     val runningValue=runningText.toDoubleOrNull()?.takeIf { it.isFinite() && it in 3.0..12.0 }
                     TextButton(onClick={ onSettingsChange(settings.copy(measuredRunningSpeedKmh=runningValue)) },
                         enabled=runningText.isBlank() || runningValue != null) { Text("달리기 속도 저장") }

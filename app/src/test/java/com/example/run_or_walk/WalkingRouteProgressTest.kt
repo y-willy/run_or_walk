@@ -32,9 +32,9 @@ class WalkingRouteProgressTest {
         assertFalse(shouldRefreshWalkingRoute(tracker,fix(0.0,4),now+4000,now))
         assertFalse(shouldRefreshWalkingRoute(tracker,fix(3.0,20),now+20000,now))
         assertTrue(shouldRefreshWalkingRoute(tracker,fix(80.0,80),now+80000,now))
-        val off=fix(10.0,20).copy(point=MapPoint(origin.x+0.002,origin.y))
-        assertTrue(shouldRefreshWalkingRoute(tracker,off,now+20000,now))
-        assertFalse(tracker.update(off,now+20000)!!.onRoute)
+        val off=fix(10.0,32).copy(point=MapPoint(origin.x+0.002,origin.y))
+        assertTrue(shouldRefreshWalkingRoute(tracker,off,now+32000,now))
+        assertFalse(tracker.update(off,now+32000)!!.onRoute)
         assertTrue(shouldRefreshWalkingRoute(tracker,fix(0.0,92),now+92000,now))
         assertNull(tracker.update(fix(0.0,124),now+124000))
     }
