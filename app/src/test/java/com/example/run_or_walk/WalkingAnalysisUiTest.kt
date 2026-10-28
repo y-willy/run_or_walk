@@ -49,8 +49,7 @@ class WalkingAnalysisUiTest {
         val bitmap=Bitmap.createBitmap(view.width,view.height,Bitmap.Config.ARGB_8888);view.draw(Canvas(bitmap))
         File(directory).apply { mkdirs() }.resolve("walking-summary.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }
     }
-    compose.onNodeWithText("설정").performClick()
-    compose.onAllNodesWithText("내 걷기 분석")[1].performClick()
+    compose.onAllNodesWithText("내 걷기 분석")[1].performScrollTo().performClick()
     assertTrue(opened)
     controller.pause().stop().destroy()
  }
@@ -69,7 +68,7 @@ class WalkingAnalysisUiTest {
     val activity=controller.get()
     val store=JourneySettingsStore(activity)
     activity.setContent { RUN_or_WALKTheme { Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(20.dp)) {
+        Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState())) {
             JourneySettingsPanel(settings) { value ->
                 settings=value
                 store.save(value)
@@ -77,8 +76,6 @@ class WalkingAnalysisUiTest {
             }
         }
     } } }
-    compose.onNodeWithText("설정").performClick()
-    compose.onNodeWithText("안전 여유·기존 지도 시간 설정").performScrollTo().performClick()
     compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement("9.0")
     compose.onNodeWithText("달리기 속도 저장").performScrollTo().assertIsEnabled().performClick()
     compose.runOnIdle {

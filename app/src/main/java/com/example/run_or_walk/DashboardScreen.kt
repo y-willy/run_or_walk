@@ -97,12 +97,10 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner,session: JourneySess
                 }
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                     PaceNudgeHeader();Text("설정",style=MaterialTheme.typography.headlineMedium)
-                    SectionCard("내 이동 설정","내 속도와 승차 여유시간을 설정하세요.") {
-                        JourneySettingsPanel(session.settings,onWalkingAnalysis={analysis=true}) {
-                            session.updateSettings(it)
-                            JourneyMonitoringController.updateSettings(context,it,JourneyMonitoringController.state.value.request?.vibrationEnabled ?: false)
-                        }
-                        OutlinedButton(onClick={analysis=true}) { Text("내 걷기 분석") }
+                    Text("내 이동 설정",style=MaterialTheme.typography.titleMedium)
+                    JourneySettingsPanel(session.settings,onWalkingAnalysis={analysis=true}) {
+                        session.updateSettings(it)
+                        JourneyMonitoringController.updateSettings(context,it,JourneyMonitoringController.state.value.request?.vibrationEnabled ?: false)
                     }
                 }
             }

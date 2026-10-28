@@ -187,6 +187,7 @@ internal class JourneyScreenState(val mode: FeatureMode,
     var mapCenter by mutableStateOf<MapPoint?>(null)
     val mapAccessRequests=MapGeometryRequestGate()
     val mapJourneyRequests=MapGeometryRequestGate()
+    var mapAccessWalking:WalkingRouteTracker? by mutableStateOf(null)
     var mapAccessIsReference by mutableStateOf(false)
     var mapAccessSegments by mutableStateOf<List<List<MapPoint>>>(emptyList())
     var mapAccessOrigin by mutableStateOf<MapPoint?>(null)

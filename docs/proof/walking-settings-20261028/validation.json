@@ -1,0 +1,15 @@
+{
+  "tests": 256,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "base": "900284523b284ea493ad8b1c53e9e52182ae0084",
+  "branch": "fix/walking-access-guidance-20261028",
+  "apkBuild": "success",
+  "apkSha256": "7ff2c90706b9338e4964180cdab98f0fc1d8b165b4e7395e3887e58c9fe6592e",
+  "apkBytes": 58794053,
+  "composeImages": "actual Compose, synthetic data, Robolectric",
+  "physicalDeviceVerified": false,
+  "liveApiFetched": false,
+  "workerChanged": false
+}
