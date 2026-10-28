@@ -83,7 +83,7 @@ class WalkingAndroidLifecycleTest {
     @Test @Config(sdk=[28]) fun realVibratorInvocationUsesTwoPulsesWithoutRepeating() {
         val vibrator=app.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         val shadow=Shadows.shadowOf(vibrator); shadow.setHasVibrator(true)
-        playMovementVibration(app,2)
+        playMovementVibration(app,MovementVibration.TWO_PULSES)
         assertArrayEquals(longArrayOf(0,100,150,100),shadow.pattern)
         assertEquals(-1,shadow.repeat)
     }
@@ -134,7 +134,7 @@ class WalkingAndroidLifecycleTest {
             fun advance(ms:Long)=org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(ms))
             update(AutoGuidanceStatus.WALK);advance(1000);update(AutoGuidanceStatus.FAST_WALK)
             advance(3000);update(AutoGuidanceStatus.FAST_WALK)
-            assertArrayEquals(longArrayOf(0,100,150,100),shadow.pattern)
+            assertArrayEquals(longArrayOf(0,100,150,100,150,100),shadow.pattern)
             vibrator.cancel()
             advance(10000);update(AutoGuidanceStatus.NEXT_VEHICLE)
             assertEquals("다음 차량 정보 확인 필요",JourneyMonitoringController.state.value.message)
@@ -144,6 +144,15 @@ class WalkingAndroidLifecycleTest {
             advance(3000);update(AutoGuidanceStatus.CAUTION)
             assertTrue(shadow.isVibrating)
             assertEquals("놓칠 수 있어요",JourneyMonitoringController.state.value.message)
+            vibrator.cancel()
+            advance(30000);update(AutoGuidanceStatus.NEXT_VEHICLE)
+            advance(3000);update(AutoGuidanceStatus.NEXT_VEHICLE)
+            assertArrayEquals(longArrayOf(0,2000),shadow.pattern)
+            assertEquals(-1,shadow.repeat)
+            vibrator.cancel()
+            advance(30000);update(AutoGuidanceStatus.RELAXED)
+            advance(3000);update(AutoGuidanceStatus.RELAXED)
+            assertFalse(shadow.isVibrating)
         } finally {lifecycle.destroy()}
     }
 }

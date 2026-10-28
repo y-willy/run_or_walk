@@ -20,12 +20,24 @@ internal fun calculateMovementGuidance(input: AutoGuidanceInput,now: Long,settin
     return checked.copy(fastTravelSeconds=runSeconds)
 }
 
-internal data class MovementTransition(val assessment: AutoGuidanceAssessment,val vibrationCount: Int)
-internal fun movementPulseCount(status: AutoGuidanceStatus):Int = when(status) {
-    AutoGuidanceStatus.RELAXED,AutoGuidanceStatus.WALK -> 1
-    AutoGuidanceStatus.CAUTION,AutoGuidanceStatus.FAST_WALK -> 2
-    AutoGuidanceStatus.NEXT_VEHICLE -> 3
-    AutoGuidanceStatus.UNKNOWN -> 0
+internal enum class MovementVibration(val description: String) {
+    NONE("진동 없음"), ONE_PULSE("1회"), TWO_PULSES("2회"), THREE_PULSES("3회"), LONG_TWO_SECONDS("2초 연속")
+}
+internal data class MovementTransition(val assessment: AutoGuidanceAssessment,val vibration: MovementVibration)
+internal fun movementVibration(status: AutoGuidanceStatus): MovementVibration = when(status) {
+    AutoGuidanceStatus.RELAXED,AutoGuidanceStatus.UNKNOWN -> MovementVibration.NONE
+    AutoGuidanceStatus.WALK -> MovementVibration.ONE_PULSE
+    AutoGuidanceStatus.CAUTION -> MovementVibration.TWO_PULSES
+    AutoGuidanceStatus.FAST_WALK -> MovementVibration.THREE_PULSES
+    AutoGuidanceStatus.NEXT_VEHICLE -> MovementVibration.LONG_TWO_SECONDS
+}
+
+internal fun movementVibrationPattern(vibration: MovementVibration): LongArray = when(vibration) {
+    MovementVibration.NONE -> longArrayOf()
+    MovementVibration.ONE_PULSE -> longArrayOf(0,100)
+    MovementVibration.TWO_PULSES -> longArrayOf(0,100,150,100)
+    MovementVibration.THREE_PULSES -> longArrayOf(0,100,150,100,150,100)
+    MovementVibration.LONG_TWO_SECONDS -> longArrayOf(0,2000)
 }
 
 /** UI changes immediately. Only haptics require the changed state twice, >=3 seconds apart.
@@ -40,14 +52,14 @@ internal class MovementAdviceTransitions {
         if(raw.boardingIdentity!=null && raw.boardingIdentity!=identity) {
             identity=raw.boardingIdentity;established=null;candidate=null
         }
-        if(raw.status==AutoGuidanceStatus.UNKNOWN) {candidate=null;return MovementTransition(raw,0)}
+        if(raw.status==AutoGuidanceStatus.UNKNOWN) {candidate=null;return MovementTransition(raw,MovementVibration.NONE)}
         val previous=established
-        if(previous==null) {established=raw.status;return MovementTransition(raw,0)}
-        if(previous==raw.status) {candidate=null;return MovementTransition(raw,0)}
-        if(candidate!=raw.status || now<candidateAt) {candidate=raw.status;candidateAt=now;return MovementTransition(raw,0)}
-        if(now-candidateAt<3000L) return MovementTransition(raw,0)
+        if(previous==null) {established=raw.status;return MovementTransition(raw,MovementVibration.NONE)}
+        if(previous==raw.status) {candidate=null;return MovementTransition(raw,MovementVibration.NONE)}
+        if(candidate!=raw.status || now<candidateAt) {candidate=raw.status;candidateAt=now;return MovementTransition(raw,MovementVibration.NONE)}
+        if(now-candidateAt<3000L) return MovementTransition(raw,MovementVibration.NONE)
         established=raw.status;candidate=null
-        return MovementTransition(raw,if(vibrationEnabled) movementPulseCount(raw.status) else 0)
+        return MovementTransition(raw,if(vibrationEnabled) movementVibration(raw.status) else MovementVibration.NONE)
     }
 }
 

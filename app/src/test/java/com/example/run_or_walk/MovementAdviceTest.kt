@@ -25,20 +25,20 @@ class MovementAdviceTest {
     @Test fun firstStateIsSilentChangedStateIsImmediateAndPulsesRequireStability() {
         val gate=MovementAdviceTransitions()
         fun advice(status:AutoGuidanceStatus)=AutoGuidanceAssessment(status,boardingIdentity=id)
-        assertEquals(0,gate.observe(advice(AutoGuidanceStatus.WALK),0,true).vibrationCount)
+        assertEquals(MovementVibration.NONE,gate.observe(advice(AutoGuidanceStatus.WALK),0,true).vibration)
         val immediate=gate.observe(advice(AutoGuidanceStatus.FAST_WALK),4000,true)
-        assertEquals(AutoGuidanceStatus.FAST_WALK,immediate.assessment.status);assertEquals(0,immediate.vibrationCount)
-        assertEquals(2,gate.observe(advice(AutoGuidanceStatus.FAST_WALK),7000,true).vibrationCount)
-        assertEquals(0,gate.observe(advice(AutoGuidanceStatus.FAST_WALK),40000,true).vibrationCount)
+        assertEquals(AutoGuidanceStatus.FAST_WALK,immediate.assessment.status);assertEquals(MovementVibration.NONE,immediate.vibration)
+        assertEquals(MovementVibration.THREE_PULSES,gate.observe(advice(AutoGuidanceStatus.FAST_WALK),7000,true).vibration)
+        assertEquals(MovementVibration.NONE,gate.observe(advice(AutoGuidanceStatus.FAST_WALK),40000,true).vibration)
     }
     @Test fun disabledChangesAreConsumedAndUnknownDoesNotBecomeAQueuedPulse() {
         val gate=MovementAdviceTransitions()
         fun value(status:AutoGuidanceStatus)=AutoGuidanceAssessment(status,boardingIdentity=id)
         gate.observe(value(AutoGuidanceStatus.WALK),0,true)
         gate.observe(value(AutoGuidanceStatus.FAST_WALK),4000,false)
-        assertEquals(0,gate.observe(value(AutoGuidanceStatus.FAST_WALK),7000,false).vibrationCount)
-        assertEquals(0,gate.observe(value(AutoGuidanceStatus.UNKNOWN),10000,true).vibrationCount)
-        assertEquals(0,gate.observe(value(AutoGuidanceStatus.FAST_WALK),40000,true).vibrationCount)
+        assertEquals(MovementVibration.NONE,gate.observe(value(AutoGuidanceStatus.FAST_WALK),7000,false).vibration)
+        assertEquals(MovementVibration.NONE,gate.observe(value(AutoGuidanceStatus.UNKNOWN),10000,true).vibration)
+        assertEquals(MovementVibration.NONE,gate.observe(value(AutoGuidanceStatus.FAST_WALK),40000,true).vibration)
     }
     @Test fun missingStaleLocationOrEtaCannotReusePreviousCatchRecommendation() {
         val previous=calculateMovementGuidance(input(220),now,settings)
@@ -48,13 +48,13 @@ class MovementAdviceTest {
             assertEquals(MovementAdvice.UNKNOWN,calculateMovementGuidance(value.copy(previousAssessment=previous),now,settings).movementAdvice())
         }
     }
-    @Test fun vibrationWaveformsContainOneTwoThreePulsesAndNoRepeatSlot() {
-        for(count in 1..3) {
-            val pattern=movementVibrationPattern(count)
-            assertEquals(count*2,pattern.size)
-            assertEquals(count,pattern.filterIndexed { i,_ -> i%2==1 }.count { it==100L })
-        }
-        assertTrue(movementVibrationPattern(0).isEmpty())
+    @Test fun vibrationWaveformsMatchEveryGuidanceStateIncludingContinuousTwoSeconds() {
+        val patterns=mapOf(
+            AutoGuidanceStatus.RELAXED to longArrayOf(),AutoGuidanceStatus.WALK to longArrayOf(0,100),
+            AutoGuidanceStatus.CAUTION to longArrayOf(0,100,150,100),
+            AutoGuidanceStatus.FAST_WALK to longArrayOf(0,100,150,100,150,100),
+            AutoGuidanceStatus.NEXT_VEHICLE to longArrayOf(0,2000),AutoGuidanceStatus.UNKNOWN to longArrayOf())
+        patterns.forEach { (status,expected) -> assertArrayEquals(expected,movementVibrationPattern(movementVibration(status))) }
     }
     @Test fun savedSpeedIsExplicitPersonalizationAndSettingsRemainBackwardsCompatible() {
         val personal=settings.copy(personalWalkingSpeedKmh=3.6,usePersonalWalkingSpeed=true)

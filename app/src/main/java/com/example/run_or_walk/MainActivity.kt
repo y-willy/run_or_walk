@@ -1536,8 +1536,8 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     LaunchedEffect(rawAssessment,now,screen.alertsEnabled,monitored,movementTransitions) {
         if(!monitored) {
             val change=movementTransitions.observe(rawAssessment,SystemClock.elapsedRealtime(),screen.alertsEnabled)
-            if(change.vibrationCount > 0 && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-                playMovementVibration(context,change.vibrationCount)
+            if(change.vibration != MovementVibration.NONE && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+                playMovementVibration(context,change.vibration)
         }
     }
     LaunchedEffect(screen, assessment) {
@@ -1649,7 +1649,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             onGyeonggiLookup = { lookupGyeonggiArrivals(screen) })
     }
 
-    val favoriteBus = monitoringRequest(screen)?.takeIf { it.isBus }?.let(::FavoriteBus)
+    val selectedMonitoringRequest = monitoringRequest(screen)
+    val canMonitor = selectedMonitoringRequest != null
+    val favoriteBus = selectedMonitoringRequest?.takeIf { it.isBus }?.let(::FavoriteBus)
     val routeChoices: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1760,6 +1762,8 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 }
 
                 if (screen.selectedRoute != null || boarding != null || monitored) {
+                    JourneyMetrics(displayedWalkingSpeed(displayedLocation,now),
+                        personalizedWalk?.distanceMeters?.takeIf { now-personalizedWalk.fetchedAtEpochMillis in 0..120000L && displayedLocation?.let { fix -> locationSampleFailure(fix,now)==null && pedestrianDistance(fix.point,personalizedWalk.origin)<=35 }==true })
                     AutomaticGuidanceCard(assessment,
                         favoriteBusSaved = favoriteBus?.let { favorite -> session.favorites.items.any { it.key == favorite.key } } == true,
                         onToggleFavoriteBus = favoriteBus?.let { favorite -> { session.favorites.toggle(favorite) } },
@@ -1815,34 +1819,48 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                                 } == true
                             } ?: false)
                         })
+                    if (monitored) {
+                        OutlinedButton(onClick = { JourneyMonitoringController.stop(context) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                            AppIcon(R.drawable.ui_stop,modifier=Modifier.size(20.dp));Spacer(Modifier.width(8.dp))
+                            Text("이동 안내 종료")
+                        }
+                    } else {
+                        Button(onClick = { requestMonitoring(screen) },
+                            enabled = canMonitor && !screen.busy && pendingLocation == null &&
+                                pendingMonitoring == null && !startingMonitoring,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+                            AppIcon(R.drawable.ui_play,modifier=Modifier.size(20.dp));Spacer(Modifier.width(8.dp))
+                            Text(if (startingMonitoring) "이동 안내 시작 중" else if (monitoring.running)
+                                "이 선택으로 이동 안내 변경" else "이동 안내 시작")
+                        }
+                        if (monitoring.running) JourneyActionButton("현재 이동 안내 종료",R.drawable.ui_stop,
+                            onClick = { JourneyMonitoringController.stop(context) })
+                    }
                 } else if (screen.routes.isNotEmpty()) {
                     NoticeCard("위에서 탈 경로를 하나 선택하면 이동 안내가 자동으로 나타나요.")
                 }
-                if (screen.selectedRoute != null || boarding != null || monitored) {
-                    JourneyMetrics(displayedWalkingSpeed(displayedLocation,now),
-                        personalizedWalk?.distanceMeters?.takeIf { now-personalizedWalk.fetchedAtEpochMillis in 0..120000L && displayedLocation?.let { fix -> locationSampleFailure(fix,now)==null && pedestrianDistance(fix.point,personalizedWalk.origin)<=35 }==true })
-                }
                 if (screen.selectedRoute != null && screen.routes.isNotEmpty()) {
-                    TextButton(onClick = { alternativesExpanded = !alternativesExpanded }) {
-                        Text(if (alternativesExpanded) "다른 경로 접기" else "다른 경로 보기")
-                    }
+                    JourneyActionButton(if (alternativesExpanded) "다른 경로 접기" else "다른 경로 보기",R.drawable.ui_route,
+                        onClick = { alternativesExpanded = !alternativesExpanded })
                     if (alternativesExpanded) routeChoices()
                 }
                 if (screen.busy) LoadingStateCard(screen.status)
                 screen.error?.let {
                     NoticeCard(it, isError = true)
-                    if (it.contains("위치 권한")) TextButton(onClick = {
+                    if (it.contains("위치 권한")) JourneyActionButton("위치 권한 설정",R.drawable.ui_settings,onClick = {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                             Uri.parse("package:${context.packageName}")))
-                    }) { Text("위치 권한 설정") }
-                    TextButton(onClick = { requestLocation(screen,
+                    })
+                    JourneyActionButton("현재 위치·경로 다시 확인",R.drawable.ui_refresh,onClick = { requestLocation(screen,
                         if (screen.boarding != null) LocationAction.WALKING
-                        else LocationAction.RECENTER) }, enabled = !screen.busy) {
-                        Text("현재 위치·경로 다시 확인")
-                    }
-                    if (it.contains("위치 서비스") || it.contains("위치 설정")) TextButton(onClick = {
+                        else LocationAction.RECENTER) }, enabled = !screen.busy)
+                    if (it.contains("위치 서비스") || it.contains("위치 설정")) JourneyActionButton("기기 위치 설정",R.drawable.ui_settings,onClick = {
                         context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                    }) { Text("기기 위치 설정") }
+                    })
                 }
                 if (monitoring.running && boarding == null && screen.selectedRoute == null) {
                     SectionCard("이동 안내 실행 중", monitoring.request?.boardingName) {
@@ -1916,27 +1934,14 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                             }, enabled = vibrationSupported,
                             modifier = Modifier.semantics { contentDescription = "진동 알림" })
                     }
-                    val canMonitor = monitoringRequest(screen) != null
                     if (monitored) {
                         NoticeCard("화면이 꺼져도 이동 안내 중 · $monitoringMessage")
-                        OutlinedButton(onClick = { JourneyMonitoringController.stop(context) },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("이동 안내 종료") }
                     } else {
                         if (monitoring.running) NoticeCard(
                             "다른 승차 장소를 안내 중이에요: ${monitoring.request?.boardingName.orEmpty()}")
-                        Button(onClick = { requestMonitoring(screen) },
-                            enabled = canMonitor && !screen.busy && pendingLocation == null &&
-                                pendingMonitoring == null && !startingMonitoring,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                            Text(if (startingMonitoring) "이동 안내 시작 중" else if (monitoring.running)
-                                "이 선택으로 이동 안내 변경" else "이동 안내 시작")
-                        }
                         if (!canMonitor) NoticeCard(if (screen.selectedGyeonggiMatch != null)
                             "공식 정류장·노선·방향 연결을 확인하면 화면 꺼짐 안내를 시작할 수 있어요."
                             else "공식 승차 장소·노선·방향 및 검증된 도착정보가 필요해요.")
-                        if (monitoring.running) TextButton(onClick = { JourneyMonitoringController.stop(context) }) {
-                            Text("현재 이동 안내 종료")
-                        }
                     }
                     Text("최대 60분 동안 안내하며 알림창에서 종료할 수 있어요. 절전 상태에서는 갱신이 지연될 수 있어요.",
                         style = MaterialTheme.typography.labelSmall,
@@ -2350,12 +2355,9 @@ internal fun SubwayArrivalPicker(screen: JourneyScreenState, station: OfficialSu
     }
 }
 
-internal fun movementVibrationPattern(count: Int): LongArray =
-    if(count !in 1..3) longArrayOf() else LongArray(count*2) { index -> if(index == 0) 0 else if(index%2 == 0) 150 else 100 }
-
 @Suppress("DEPRECATION")
-internal fun playMovementVibration(context: Context,count: Int) {
-    val pattern=movementVibrationPattern(count)
+internal fun playMovementVibration(context: Context,vibration: MovementVibration) {
+    val pattern=movementVibrationPattern(vibration)
     if(pattern.isEmpty()) return
     val vibrator=if(Build.VERSION.SDK_INT >= 31) context.getSystemService(VibratorManager::class.java)?.defaultVibrator
         else context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator

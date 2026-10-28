@@ -40,7 +40,8 @@ class GuidanceRevisionTimingTest {
   assertEquals(now,next.walking.fetchedAtEpochMillis);assertEquals(now+30000,next.calculatedAtEpochMillis)
  }
  @Test fun informationPulseDescriptionMatchesAllFiveActualPatterns() {
-  assertEquals(listOf(1,1,2,2,3,0),AutoGuidanceStatus.entries.map(::movementPulseCount))
+  assertEquals(listOf(MovementVibration.NONE,MovementVibration.ONE_PULSE,MovementVibration.TWO_PULSES,
+   MovementVibration.THREE_PULSES,MovementVibration.LONG_TWO_SECONDS,MovementVibration.NONE),AutoGuidanceStatus.entries.map(::movementVibration))
   assertEquals(5,guidanceBands.size);assertTrue(guidanceDataSources.all { it.url.startsWith("https://") })
  }
  @Test fun genuineBacktrackingInvalidatesAnOverlyOptimisticCachedDistance() {

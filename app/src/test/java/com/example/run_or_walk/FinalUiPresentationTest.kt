@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -62,6 +63,21 @@ class FinalUiPresentationTest {
             compose.onNodeWithText("이동시간 약 1분 부족").assertIsDisplayed()
             compose.onNodeWithText("열차 위치 · 시간표 추정").assertIsDisplayed()
         }
+    }
+    private fun assertSpeedFitsOneLine() {
+        withActivity({RUN_or_WALKTheme {
+            Column(Modifier.padding(20.dp)) { JourneyMetrics(4.5,390) }
+        }}) { activity ->
+            val layouts=mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            compose.onNodeWithText("16.2 km/h").assertIsDisplayed()
+                .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            org.junit.Assert.assertEquals(1,layouts.single().lineCount)
+            org.junit.Assert.assertFalse(layouts.single().didOverflowWidth)
+        }
+    }
+    @Test fun speedAndUnitStayOnOneLineAt360Dp()=assertSpeedFitsOneLine()
+    @Test @Config(qualifiers="w320dp-h1000dp-mdpi") fun speedAndUnitStayOnOneLineAt320DpAnd130Percent() {
+        RuntimeEnvironment.setFontScale(1.3f);assertSpeedFitsOneLine()
     }
     @Test fun fourMaterialTabsKeepClickSelectionAt360DpAnd130Percent() {
         RuntimeEnvironment.setFontScale(1.3f)

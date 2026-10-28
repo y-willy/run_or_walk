@@ -1,6 +1,8 @@
 package com.example.run_or_walk
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -381,15 +383,18 @@ internal fun JourneyMapCard(expanded: Boolean,onToggle:()->Unit,content:@Composa
 
 @Composable
 internal fun JourneyMetrics(speed: Double?,distance: Int?) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    BoxWithConstraints(Modifier.fillMaxWidth().testTag("journey-metrics")) {
         val cards: @Composable (Modifier,Boolean)->Unit = { modifier,isSpeed ->
             Surface(modifier=modifier,shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surface,shadowElevation=2.dp) {
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(if(isSpeed) "현재 이동속도" else "승차점까지",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     AppIcon(if(isSpeed) R.drawable.ui_walk else R.drawable.ui_pin,tint=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if(isSpeed) speed?.let { String.format(java.util.Locale.KOREA,"%.1f km/h",it*3.6) } ?: "0.0 km/h"
-                        else distance?.let { "${it}m" } ?: "확인 중",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                    BasicText(if(isSpeed) speed?.let { String.format(java.util.Locale.KOREA,"%.1f km/h",it*3.6) } ?: "0.0 km/h"
+                        else distance?.let { "${it}m" } ?: "확인 중",
+                        modifier=Modifier.weight(1f),maxLines=1,softWrap=false,
+                        style=MaterialTheme.typography.titleLarge.copy(fontWeight=FontWeight.Bold,color=androidx.compose.material3.LocalContentColor.current),
+                        autoSize=TextAutoSize.StepBased(minFontSize=14.sp,maxFontSize=22.sp,stepSize=1.sp))
                     }
                 }
             }
@@ -397,5 +402,17 @@ internal fun JourneyMetrics(speed: Double?,distance: Int?) {
         if(maxWidth / LocalDensity.current.fontScale < 280.dp) Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
             cards(Modifier.fillMaxWidth(),true);cards(Modifier.fillMaxWidth(),false)
         } else Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) { cards(Modifier.weight(1f),true);cards(Modifier.weight(1f),false) }
+    }
+}
+
+/** Consistent touch targets for secondary route/location actions; callbacks stay with the screen. */
+@Composable
+internal fun JourneyActionButton(label: String,@DrawableRes icon: Int,onClick: () -> Unit,enabled: Boolean=true) {
+    androidx.compose.material3.FilledTonalButton(onClick=onClick,enabled=enabled,
+        modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),shape=RoundedCornerShape(16.dp),
+        contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp)) {
+        AppIcon(icon,modifier=Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label,style=MaterialTheme.typography.labelLarge,textAlign=TextAlign.Center)
     }
 }

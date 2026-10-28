@@ -399,7 +399,7 @@ class JourneyMonitoringService : Service() {
             notifySafely(ONGOING_ID,ongoingNotification(request,message,state.arrivals,now))
             lastOngoingNotificationAt=now
         }
-        if(change.vibrationCount > 0) playMovementVibration(this,change.vibrationCount)
+        if(change.vibration != MovementVibration.NONE) playMovementVibration(this,change.vibration)
     }
 
     private fun stopLocationTracking() {

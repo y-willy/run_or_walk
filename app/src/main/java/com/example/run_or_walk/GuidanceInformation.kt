@@ -56,8 +56,12 @@ internal fun GuidanceInformationContent(settings:JourneySettings,currentSpeed:Do
             Text("승차 준비 여유 ${settingsBufferLabel(settings.bufferSeconds)} · 초 단위 원본으로 판단해요.",style=MaterialTheme.typography.bodySmall)
         }
         SectionCard("진동별 의미") {
-            Text("여유 있어요·걸으세요: 1회\n놓칠 수 있어요·뛰세요: 2회\n다음 차량: 3회\n정보 부족: 진동 없음")
-            Text("1회는 100ms, 반복 간격은 150ms예요. 최초 상태 설정은 조용하며, 변경된 상태가 3초 이상 유지된 뒤 진동해요.",style=MaterialTheme.typography.bodySmall)
+            val hapticStates = listOf("여유 있어요" to AutoGuidanceStatus.RELAXED,
+                "걸으세요" to AutoGuidanceStatus.WALK,"놓칠 수 있어요" to AutoGuidanceStatus.CAUTION,
+                "뛰세요" to AutoGuidanceStatus.FAST_WALK,"다음 차량 안내" to AutoGuidanceStatus.NEXT_VEHICLE,
+                "정보 부족" to AutoGuidanceStatus.UNKNOWN)
+            hapticStates.forEach { (label,status) -> Text("$label: ${movementVibration(status).description}") }
+            Text("짧은 진동 1회는 100ms, 반복 간격은 150ms예요. 다음 차량은 끊김 없이 2초 동안 진동해요. 최초 상태 설정은 조용하며, 변경된 상태가 3초 이상 유지된 뒤 진동해요.",style=MaterialTheme.typography.bodySmall)
             Text("실제 진동 후 30초 동안 모든 새 진동을 차단해요. 긴급도가 높아져도 동일하며 화면 문구는 즉시 바뀌어요. 차단된 진동을 나중에 몰아서 실행하지 않아요.",style=MaterialTheme.typography.bodySmall)
             Text("화면과 백그라운드가 같은 제한을 공유해요. 진동 설정을 끄면 발생하지 않아요.",style=MaterialTheme.typography.bodySmall)
         }
