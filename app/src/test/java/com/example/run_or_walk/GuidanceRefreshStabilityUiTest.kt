@@ -130,4 +130,69 @@ class GuidanceRefreshStabilityUiTest {
             compose.onNodeWithText("운행정보 없음").assertIsDisplayed()
         }
     }
+    @Test fun independentEtaAndThirtySecondWalkingRefreshNeverEraseValidGuidance() {
+        val screen=JourneyScreenState(FeatureMode.STOP)
+        val stop=OfficialSeoulBusStop(route.stopId,"06510","경희대의료원",boarding)
+        screen.selectedBusStop=stop;screen.selectedBusRoute=route
+        screen.applyBusArrivals(listOf(row("105000001",1,300),row("105000002",2,780)),time)
+        var clock by mutableLongStateOf(time)
+        var locationPoint by mutableStateOf(origin)
+        var walking by mutableStateOf(GuidanceWalkingRoute(origin,boarding,route.identity,180,time,120000,234))
+        var walkingPending by mutableStateOf(false)
+        var rendered:AutoGuidanceAssessment?=null
+        val settings=JourneySettings(bufferSeconds=60,useProviderWalkingTime=true)
+        val request=JourneyMonitoringRequest(stop.name,boarding,route.identity,busStop=stop,busRoute=route,settings=settings)
+        activity({
+            val first=screen.currentBusArrival(clock)?.snapshot
+            val location=GuidanceLocation(locationPoint,3.0,clock)
+            val value=calculateMovementGuidance(AutoGuidanceInput(location,GuidanceBoarding(route.identity,boarding,true),walking,first,true,
+                arrivalRequestFailed=screen.arrivalRequestFailed),clock,settings)
+            rendered=value
+            Column(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                PaceNudgeHeader();JourneyMetrics(null,walking.distanceMeters)
+                AutomaticGuidanceCard(value,route.name,stop.name,"",clock,first?.firstArrivalAtEpochMillis,first?.usableNextArrivalAt(clock),
+                    first?.fetchedAtEpochMillis,walking.durationSeconds,vehicleLabel="버스",
+                    unknownTitle=missingArrivalText(screen.arrivalResponseAtEpochMillis,screen.busArrivalOptions.isNotEmpty(),screen.arrivalRequestFailed,false,clock))
+                if(walkingPending) Text("도보 경로를 새로 계산하고 있어요",style=MaterialTheme.typography.labelSmall)
+            }
+        }) { activity ->
+            fun foregroundMatchesService() {
+                val expected=monitoringStateWithSettings(JourneyMonitoringState(true,request,location=GuidanceLocation(locationPoint,3.0,clock),
+                    walkingRoute=walking,arrivals=screen.currentBusArrival(clock)?.snapshot,walkingDistanceMeters=walking.distanceMeters,
+                    providerWalkingSeconds=walking.durationSeconds,arrivalRequestFailed=screen.arrivalRequestFailed),request,clock,true)
+                Assert.assertEquals(rendered,expected.assessment)
+            }
+            val cardId=compose.onNodeWithTag("guidance-card").fetchSemanticsNode().id
+            compose.onNodeWithText("버스 5분 0초 후").assertIsDisplayed()
+            compose.onNodeWithText("놓칠 수 있어요").assertIsDisplayed();foregroundMatchesService()
+            save(activity,"continuity-before.png")
+            compose.runOnIdle {clock=time+30000;screen.beginLiveRequest();walkingPending=true}
+            compose.onNodeWithText("버스 4분 30초 후").assertIsDisplayed()
+            compose.onNodeWithText("도보 약 3분").assertIsDisplayed();compose.onNodeWithText("234m").assertIsDisplayed()
+            compose.onNodeWithText("놓칠 수 있어요").assertIsDisplayed()
+            Assert.assertEquals(cardId,compose.onNodeWithTag("guidance-card").fetchSemanticsNode().id)
+            foregroundMatchesService();save(activity,"continuity-during.png")
+            compose.runOnIdle {screen.applyBusArrivals(listOf(row("105000001",1,185,clock)),clock);screen.liveLoading=false}
+            compose.onNodeWithText("버스 3분 5초 후").assertIsDisplayed()
+            compose.onNodeWithText("도보 약 3분").assertIsDisplayed();compose.onNodeWithText("234m").assertIsDisplayed()
+            compose.onNodeWithText("뛰세요").assertIsDisplayed();foregroundMatchesService()
+            compose.runOnIdle {
+                locationPoint=origin.copy(y=origin.y+0.000126)
+                walking=GuidanceWalkingRoute(locationPoint,boarding,route.identity,165,clock,120000,220)
+                walkingPending=false
+            }
+            compose.onNodeWithText("220m").assertIsDisplayed();compose.onNodeWithText("도보 약 3분").assertIsDisplayed()
+            compose.onNodeWithText("뛰세요").assertIsDisplayed();foregroundMatchesService()
+            Assert.assertEquals(cardId,compose.onNodeWithTag("guidance-card").fetchSemanticsNode().id)
+            compose.onNodeWithText("도착정보 확인 중").assertDoesNotExist()
+            save(activity,"continuity-after.png")
+            compose.runOnIdle {clock=time+45000;screen.arrivalRequestFailed=true}
+            compose.onNodeWithText("버스 2분 50초 후").assertIsDisplayed()
+            compose.onNodeWithText("220m").assertIsDisplayed();compose.onNodeWithText("뛰세요").assertIsDisplayed();foregroundMatchesService()
+            compose.runOnIdle {clock=time+101000}
+            compose.onNodeWithText("도착정보를 불러오지 못했어요").assertIsDisplayed()
+            compose.onNodeWithText("뛰세요").assertDoesNotExist();foregroundMatchesService()
+        }
+    }
+
 }

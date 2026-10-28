@@ -82,11 +82,12 @@ fun FeatureModeSelector(selectedIndex: Int, onSelect: (Int) -> Unit, enabled: Bo
                             onClick = { onSelect(index) })
                         .defaultMinSize(minHeight = 48.dp)
                 ) {
-                    Text(title, style = MaterialTheme.typography.labelLarge,
+                    BasicText(title, style = MaterialTheme.typography.labelLarge.copy(
                         fontWeight = FontWeight.Bold,
                         color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 14.dp))
+                        textAlign = TextAlign.Center),maxLines=1,softWrap=false,
+                        autoSize=TextAutoSize.StepBased(minFontSize=11.sp,maxFontSize=14.sp,stepSize=0.5.sp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 14.dp))
                 }
             }
         }
@@ -209,7 +210,7 @@ fun AutomaticGuidanceCard(
     }
     val usableEta = validatedEta ?: (firstArrivalAtEpochMillis?.let { it > nowEpochMillis } == true &&
         arrivalFetchedAtEpochMillis?.let { nowEpochMillis-it in 0L..600_000L } == true)
-    Surface(modifier = Modifier.fillMaxWidth().testTag("guidance-card").semantics { liveRegion = LiveRegionMode.Polite },
+    Surface(modifier = Modifier.fillMaxWidth().testTag("guidance-card"),
         shape = RoundedCornerShape(22.dp), color = Color(0xFF075C53),contentColor = Color.White,
         shadowElevation=3.dp) {
         Column(Modifier.background(Brush.linearGradient(cardColors))
@@ -227,7 +228,14 @@ fun AutomaticGuidanceCard(
                         style = MaterialTheme.typography.labelSmall)
                 }
             }
-            Text(title,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.ExtraBold,color=accent)
+            Text(title,Modifier.semantics {liveRegion=LiveRegionMode.Polite},style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.ExtraBold,color=accent)
+            if(assessment.status==AutoGuidanceStatus.FAST_WALK) Text("주변 안전을 먼저 확인해 주세요. 탑승을 보장하는 안내는 아니에요.",style=MaterialTheme.typography.labelSmall)
+            if(assessment.status==AutoGuidanceStatus.NEXT_VEHICLE) {
+                Text("현재 차량 · 탑승 어려움",style=MaterialTheme.typography.labelSmall)
+                if(assessment.recommendedArrivalAtEpochMillis==null) Text(
+                    if(assessment.nextVehicleState==NextVehicleState.ETA_PENDING) "다음 차량 · 공식 도착정보 조회 중" else nextVehicleGuidanceText(assessment,nowEpochMillis),
+                    style=MaterialTheme.typography.labelSmall)
+            }
             Text(listOfNotNull(serviceLabel.takeIf { it.isNotBlank() },boardingLabel).joinToString(" · "),
                 style=MaterialTheme.typography.bodySmall,fontWeight=FontWeight.SemiBold)
             BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -387,7 +395,11 @@ internal fun JourneyMetrics(speed: Double?,distance: Int?) {
         val cards: @Composable (Modifier,Boolean)->Unit = { modifier,isSpeed ->
             Surface(modifier=modifier,shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surface,shadowElevation=2.dp) {
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text(if(isSpeed) "현재 이동속도" else "승차점까지",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                        Text(if(isSpeed) "현재 이동속도" else "승차점까지",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(isSpeed) AppIcon(R.drawable.ui_pin,if(speed==null) "GPS 속도 정보 없음. 도보 계산에는 기본 설정을 사용합니다." else "유효한 GPS 속도 수신",
+                            Modifier.size(12.dp),tint=if(speed==null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+                    }
                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     AppIcon(if(isSpeed) R.drawable.ui_walk else R.drawable.ui_pin,tint=MaterialTheme.colorScheme.onSurfaceVariant)
                     BasicText(if(isSpeed) speed?.let { String.format(java.util.Locale.KOREA,"%.1f km/h",it*3.6) } ?: "0.0 km/h"

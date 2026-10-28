@@ -185,6 +185,8 @@ internal class JourneyScreenState(val mode: FeatureMode,
         private set
     fun beginAccessTransitRequest(): Long = ++accessTransitGeneration
     var mapCenter by mutableStateOf<MapPoint?>(null)
+    val mapAccessRequests=MapGeometryRequestGate()
+    val mapJourneyRequests=MapGeometryRequestGate()
     var mapAccessSegments by mutableStateOf<List<List<MapPoint>>>(emptyList())
     var mapAccessOrigin by mutableStateOf<MapPoint?>(null)
     var mapAccessDestination by mutableStateOf<MapPoint?>(null)

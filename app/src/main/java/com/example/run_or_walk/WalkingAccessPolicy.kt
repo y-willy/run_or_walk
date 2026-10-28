@@ -40,3 +40,25 @@ private fun walkingAccessDistance(a: MapPoint, b: MapPoint): Double {
         cos(Math.toRadians(b.y)) * sin(lon / 2).let { it * it }
     return 6_371_000.0 * 2 * asin(sqrt(h.coerceIn(0.0, 1.0)))
 }
+
+/** Map-only requests: visibility, one in-flight request, 30s floor and bounded failure backoff. */
+internal class MapGeometryRequestGate {
+    private var key:Any?=null
+    private var due=Long.MIN_VALUE
+    private var failures=0
+    private var inFlight=false
+    var lastSuccessElapsed:Long?=null; private set
+    fun begin(queryKey:Any,nowElapsed:Long,visible:Boolean):Boolean {
+        if(!visible || inFlight) return false
+        if(key!=queryKey) {key=queryKey;due=Long.MIN_VALUE;failures=0;lastSuccessElapsed=null}
+        if(nowElapsed<due) return false
+        inFlight=true;due=nowElapsed+30000L
+        return true
+    }
+    fun complete(success:Boolean,nowElapsed:Long) {
+        inFlight=false
+        if(success) {failures=0;lastSuccessElapsed=nowElapsed}
+        else {failures++;due=maxOf(due,nowElapsed+minOf(300000L,30000L*(1L shl minOf(failures-1,4))))}
+    }
+    fun isGeometryFresh(nowElapsed:Long):Boolean=lastSuccessElapsed?.let {nowElapsed-it in 0L..120000L}==true
+}

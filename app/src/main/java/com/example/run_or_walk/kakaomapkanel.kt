@@ -42,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -88,9 +89,12 @@ fun KakaoMapPanel(
     journeySegments: List<List<MapPoint>> = emptyList(),
     departurePoint: MapPoint? = null,
     destinationPoint: MapPoint? = null,
-    journeyKey: Any? = null
+    journeyKey: Any? = null,
+    active: Boolean = true,
+    showControls: Boolean = true
 ) {
     val context = LocalContext.current
+    val latestActive by rememberUpdatedState(active)
     var retryCount by remember { mutableIntStateOf(0) }
     // Ordinary recomposition retains the View; only an explicit retry replaces it.
     val mapView = remember(context, lifecycleOwner, retryCount) { MapView(context) }
@@ -122,7 +126,7 @@ fun KakaoMapPanel(
         }
 
         if (kakaoMap != null && mapFailure == null) {
-            Surface(
+            if(showControls) Surface(
                 modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
@@ -134,7 +138,7 @@ fun KakaoMapPanel(
                     style = MaterialTheme.typography.labelSmall
                 )
             }
-            Column(
+            if(showControls) Column(
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -163,7 +167,7 @@ fun KakaoMapPanel(
                     shape = RoundedCornerShape(12.dp)
                 ) { Text("−", style = MaterialTheme.typography.titleLarge) }
             }
-            FilledTonalButton(
+            if(showControls) FilledTonalButton(
                 onClick = { userMovedCamera = true; recenterAfterLocation = true; onCurrentLocation() },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
                 shape = RoundedCornerShape(14.dp)
@@ -217,7 +221,6 @@ fun KakaoMapPanel(
     }
 
     DisposableEffect(mapView, lifecycleOwner) {
-        var resumed = false
         var disposed = false
         var startSucceeded = false
         var startAttempted = false
@@ -299,14 +302,12 @@ fun KakaoMapPanel(
         }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> if (startSucceeded && !resumed) {
+                Lifecycle.Event.ON_RESUME -> if (startSucceeded && !mapResumed && latestActive) {
                     mapView.resume()
-                    resumed = true
                     mapResumed = true
                 }
-                Lifecycle.Event.ON_PAUSE -> if (resumed) {
+                Lifecycle.Event.ON_PAUSE -> if (mapResumed) {
                     mapView.pause()
-                    resumed = false
                     mapResumed = false
                 }
                 else -> Unit
@@ -317,14 +318,23 @@ fun KakaoMapPanel(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             disposed = true
+            val wasResumed=mapResumed
             mapResumed = false
             lifecycleOwner.lifecycle.removeObserver(observer)
             touchSurface?.parent?.requestDisallowInterceptTouchEvent(false)
             touchSurface?.setOnTouchListener(null)
             mapView.parent?.requestDisallowInterceptTouchEvent(false)
-            if (resumed) mapView.pause()
+            if (wasResumed) mapView.pause()
             if (startAttempted) mapView.finish()
             mainHandler.removeCallbacksAndMessages(null)
+        }
+    }
+
+    // Keep the same View/camera across tabs, but pause its renderer when the panel is hidden.
+    LaunchedEffect(active,mapView,kakaoMap) {
+        if(!active && mapResumed) {mapView.pause();mapResumed=false}
+        else if(active && kakaoMap!=null && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && !mapResumed) {
+            mapView.resume();mapResumed=true
         }
     }
 

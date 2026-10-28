@@ -128,6 +128,7 @@ class DashboardUiTest {
             compose.onNodeWithContentDescription("즐겨찾기 해제").assertIsDisplayed()
             Assert.assertTrue(compose.onNodeWithContentDescription("즐겨찾기 해제").fetchSemanticsNode().boundsInRoot.right<=320f)
             compose.onNodeWithContentDescription("즐겨찾기 해제").performClick()
+        compose.onNodeWithText("삭제").performClick()
             compose.onNodeWithText("아직 저장한 버스가 없어요").assertIsDisplayed()
             Assert.assertEquals(1,queries)
         } finally { lifecycle.pause().stop().destroy() }

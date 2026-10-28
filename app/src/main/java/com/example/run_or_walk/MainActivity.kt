@@ -142,6 +142,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     val vibrationSupported = remember(context) { supportsVibration(context) }
     var pendingMonitoring by remember { mutableStateOf<Triple<JourneyScreenState, Long, JourneyMonitoringRequest>?>(null) }
     var startingMonitoring by remember { mutableStateOf(false) }
+    var replacementConfirmation by remember { mutableStateOf<Triple<JourneyScreenState,Long,JourneyMonitoringRequest>?>(null) }
     var monitorRecenterPending by remember { mutableStateOf(false) }
     val monitorKey = monitoring.request?.takeIf { monitoring.running }?.let { it.identity to it.boardingPoint }
     fun isMonitored(target: JourneyScreenState): Boolean = latestMonitoring.running &&
@@ -185,7 +186,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         val handover=monitoringScreenHandover(target,activeRequest,displayClock.now(),hasLocationPermission(context))
                         target.invalidateRequests(preserveTimetable=true)
                         if (!JourneyMonitoringController.start(context,activeRequest,handover)) {
-                            target.error = JourneyMonitoringController.state.value.message
+                            target.error = JourneyMonitoringController.lastStartError ?: JourneyMonitoringController.state.value.message
                         }
                     }
                 }
@@ -205,9 +206,14 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         }
     }
 
-    fun requestMonitoring(target: JourneyScreenState) {
+    fun requestMonitoring(target: JourneyScreenState,confirmedChange:Boolean=false) {
         val request = monitoringRequest(target) ?: return
         if (startingMonitoring || pendingMonitoring != null || pendingLocation != null) return
+        val current=JourneyMonitoringController.state.value
+        if(!confirmedChange && current.running && current.request?.isSameJourney(request)!=true) {
+            replacementConfirmation=Triple(target,target.revision,request)
+            return
+        }
         val permissions = buildList {
             if (!hasLocationPermission(context)) {
                 add(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -281,7 +287,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         boarding: JourneyPlace, identity: OfficialBoardingIdentity?, walk: KakaoWalkingRoute) {
         // A complete walking polyline must actually connect the live GPS to this boarding place.
         if (!validWalkingAccess(walk, location.point, boarding.point)) {
-            target.discardWalkingResults()
+            // Reject this response; it does not invalidate an independent, still-valid prior route.
             throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
         }
         if(target.location?.let { pedestrianDistance(it.point,location.point)>35.0 }==true) return
@@ -387,7 +393,6 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             },
             onResult = { result ->
                 if (action == LocationAction.SET_DEPARTURE) {
-                    if (isMonitored(target)) JourneyMonitoringController.stop(context)
                     target.clearRoutesAndBoarding()
                     target.departure.apply {
                         query = "현재 위치"
@@ -459,7 +464,6 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             return
         }
         if (target.busy) return
-        if (isMonitored(target)) JourneyMonitoringController.stop(context)
         target.clearRoutesAndBoarding()
         target.centerOn(endpoints.first)
         runRequest(target, "선택한 출발지에서 목적지까지 경로를 찾고 있어요",
@@ -1134,7 +1138,6 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
 
     fun selectPlace(target: JourneyScreenState, field: SearchField, place: JourneyPlace) {
         val officialStop = target.busStopOptions.firstOrNull { "seoul-bus-${it.stopId}" == place.id }
-        if (isMonitored(target)) JourneyMonitoringController.stop(context)
         if (target.mode == FeatureMode.STOP && field == SearchField.DESTINATION) target.clearStopDestinationDirection()
         else target.clearRoutesAndBoarding()
         target.search(field).apply { query = place.name; selected = place; options = emptyList() }
@@ -1200,7 +1203,6 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
 
     fun selectRoute(target: JourneyScreenState, route: JourneyTransitRoute) {
         if (target.busy) return
-        if (isMonitored(target)) JourneyMonitoringController.stop(context)
         target.clearWalking()
         target.clearOfficialSelection()
         target.selectedRoute = route
@@ -1361,103 +1363,95 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     val mapDestination = rootScreen.destination.selected?.point.takeIf { mode == FeatureMode.ROUTE }
     val mapChoice = rootScreen.selectedRoute?.kakao
     val mapGps = (if (isMonitored(screen)) monitoring.location else screen.location) ?: rootScreen.location
-    var mapJourneyMessage by remember(rootScreen) { mutableStateOf<String?>(null) }
-    LaunchedEffect(rootScreen, mapDeparture, mapDestination, mapChoice?.itineraryKey) {
-        mapJourneyMessage = null
-        val origin = mapDeparture ?: return@LaunchedEffect
-        val destination = mapDestination ?: return@LaunchedEffect
-        val selected = mapChoice ?: return@LaunchedEffect
-        if (selected.pathSegments.isNotEmpty()) return@LaunchedEffect
-        if (selected.itineraryKey.isBlank()) {
-            mapJourneyMessage = "이전에 저장한 경로에 지도 좌표가 없어요. 경로를 다시 선택해 주세요."
-            return@LaunchedEffect
-        }
-        try {
-            val updated = kakaoRepository.searchPublicTransit(origin, destination)
-                .firstOrNull { it.itineraryKey == selected.itineraryKey && it.pathSegments.isNotEmpty() }
-            if (rootScreen.departure.selected?.point == origin && rootScreen.destination.selected?.point == destination &&
-                rootScreen.selectedRoute?.kakao == selected) {
-                if (updated != null) rootScreen.selectedRoute = rootScreen.selectedRoute?.copy(kakao = updated)
-                else mapJourneyMessage = "선택한 경로의 실제 지도 좌표가 제공되지 않았어요. 경로를 다시 선택해 주세요."
-            }
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { mapJourneyMessage = "출발지에서 목적지까지 지도 경로를 조회하지 못했어요." }
-    }
+    var mapJourneyMessage by remember(rootScreen,mapDeparture,mapDestination,mapChoice?.itineraryKey) { mutableStateOf<String?>(null) }
+    val latestMapGps by rememberUpdatedState(mapGps)
     val chosenAccess = rootScreen.accessJourney?.selectedRoute?.kakao
-    LaunchedEffect(rootScreen, mapDeparture, mapGps?.point, chosenAccess?.itineraryKey,
-        rootScreen.accessTransitLoading, rootScreen.accessTransitRoutes, rootScreen.busy, rootScreen.walkingPoints) {
-        val destination = mapDeparture
-        val fix = mapGps
-        if (destination == null) {
-            rootScreen.mapAccessSegments = emptyList()
-            rootScreen.mapAccessOrigin = null
-            rootScreen.mapAccessDestination = null
-            rootScreen.mapAccessMessage = null
-            return@LaunchedEffect
-        }
-        if (fix == null || fix.accuracyMeters > 50 || displayClock.now()-fix.observedAtEpochMillis !in 0L..30_000L)
-            return@LaunchedEffect
-        if (distanceBetweenMeters(fix.point,destination) <= 15.0) {
-            rootScreen.mapAccessSegments = emptyList()
-            rootScreen.mapAccessOrigin = fix.point
-            rootScreen.mapAccessDestination = destination
-            rootScreen.mapAccessMessage = "현재 위치가 지정 출발지에 있어요."
-            return@LaunchedEffect
-        }
-        val accessScreen = rootScreen.accessJourney
-        val selectedOrigin = accessScreen?.departure?.selected?.point
-        if (chosenAccess?.pathSegments?.isNotEmpty() == true && accessScreen?.destination?.selected?.point == destination &&
-            selectedOrigin != null && distanceBetweenMeters(selectedOrigin,fix.point) <= 35.0) {
-            rootScreen.mapAccessSegments = chosenAccess.pathSegments
-            rootScreen.mapAccessOrigin = selectedOrigin
-            rootScreen.mapAccessDestination = destination
-            rootScreen.mapAccessMessage = null
-            return@LaunchedEffect
-        }
-        if (!shouldRefreshAccessMap(rootScreen.mapAccessOrigin, rootScreen.mapAccessDestination,
-                fix.point,destination,rootScreen.mapAccessSegments.isNotEmpty())) return@LaunchedEffect
-        if (rootScreen.accessTransitLoading || rootScreen.busy) return@LaunchedEffect
-        val sharedOrigin = rootScreen.accessTransitOrigin
-        val shared = rootScreen.accessTransitRoutes.firstOrNull()?.kakao?.pathSegments.orEmpty()
-        if (shared.isNotEmpty() && sharedOrigin != null && rootScreen.departure.selected?.point == destination &&
-            distanceBetweenMeters(sharedOrigin,fix.point) <= 35.0) {
-            rootScreen.mapAccessSegments = shared
-            rootScreen.mapAccessOrigin = sharedOrigin
-            rootScreen.mapAccessDestination = destination
-            rootScreen.mapAccessMessage = null
-            return@LaunchedEffect
-        }
-        val walked = rootScreen.walkingPoints
-        if (walked.size >= 2 && distanceBetweenMeters(walked.first(),fix.point) <= 35.0 &&
-            distanceBetweenMeters(walked.last(),destination) <= 20.0) {
-            rootScreen.mapAccessSegments = listOf(walked)
-            rootScreen.mapAccessOrigin = walked.first()
-            rootScreen.mapAccessDestination = destination
-            rootScreen.mapAccessMessage = null
-            return@LaunchedEffect
-        }
-        rootScreen.mapAccessSegments = emptyList()
-        rootScreen.mapAccessMessage = "현재 위치에서 지정 출발지까지 지도 경로를 조회하고 있어요."
-        try {
-            suspend fun transitGeometry(): List<List<MapPoint>> {
-                val choices = kakaoRepository.searchPublicTransit(fix.point,destination)
-                val selected = if (chosenAccess?.itineraryKey?.isNotBlank() == true)
-                    choices.firstOrNull { it.itineraryKey == chosenAccess.itineraryKey } else choices.firstOrNull()
-                return selected?.pathSegments.orEmpty()
+    LaunchedEffect(rootScreen,mapDeparture,mapDestination,mapChoice?.itineraryKey,showMapAndArrivals) {
+        if(!showMapAndArrivals) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while(isActive) {
+                val origin=mapDeparture;val destination=mapDestination;val selected=rootScreen.selectedRoute?.kakao
+                if(origin!=null && destination!=null && selected!=null && selected.pathSegments.isEmpty()) {
+                    if(selected.itineraryKey.isBlank()) mapJourneyMessage="이전에 저장한 경로에 지도 좌표가 없어요. 경로를 다시 선택해 주세요."
+                    else if(rootScreen.mapJourneyRequests.begin(Triple(origin,destination,selected.itineraryKey),SystemClock.elapsedRealtime(),true)) {
+                        var success=false
+                        try {
+                            val updated=kakaoRepository.searchPublicTransit(origin,destination).firstOrNull {
+                                it.itineraryKey==selected.itineraryKey && it.pathSegments.isNotEmpty() }
+                            if(rootScreen.departure.selected?.point==origin && rootScreen.destination.selected?.point==destination && rootScreen.selectedRoute?.kakao==selected) {
+                                if(updated!=null) {rootScreen.selectedRoute=rootScreen.selectedRoute?.copy(kakao=updated);success=true;mapJourneyMessage=null}
+                                else mapJourneyMessage="선택한 경로의 지도 좌표가 제공되지 않았어요. 잠시 후 다시 확인해요."
+                            }
+                        } catch(cancelled:CancellationException) {throw cancelled}
+                        catch(_:Exception) {mapJourneyMessage="지도 경로를 조회하지 못했어요. 잠시 후 다시 확인해요."}
+                        finally {rootScreen.mapJourneyRequests.complete(success,SystemClock.elapsedRealtime())}
+                    }
+                }
+                delay(1000L)
             }
-            val paths = if (requiresTransitAccess(fix.point,destination)) transitGeometry()
-            else try { listOf(kakaoRepository.searchWalk(fix.point,destination).points) }
-            catch (error: KakaoApiException) {
-                if (error.failure == KakaoFailure.NO_ROUTE) transitGeometry() else throw error
+        }
+    }
+    LaunchedEffect(rootScreen,mapDeparture,mapDestination,mapChoice?.itineraryKey,showMapAndArrivals) {
+        val destination=mapDeparture
+        if(rootScreen.mapAccessDestination!=destination) {
+            rootScreen.mapAccessSegments=emptyList();rootScreen.mapAccessOrigin=null
+            rootScreen.mapAccessDestination=destination;rootScreen.mapAccessMessage=null
+        }
+        if(!showMapAndArrivals || destination==null) return@LaunchedEffect
+        suspend fun refreshGeometry() {
+            val fix=latestMapGps ?: return
+            if(fix.accuracyMeters>50 || displayClock.now()-fix.observedAtEpochMillis !in 0L..30000L) return
+            val time=SystemClock.elapsedRealtime()
+            if(distanceBetweenMeters(fix.point,destination)<=15.0) {
+                rootScreen.mapAccessSegments=emptyList();rootScreen.mapAccessOrigin=fix.point
+                rootScreen.mapAccessMessage="현재 위치가 지정 출발지에 있어요."
+                return
             }
-            if (rootScreen.departure.selected?.point == destination) {
-                rootScreen.mapAccessOrigin = fix.point
-                rootScreen.mapAccessDestination = destination
-                rootScreen.mapAccessSegments = paths
-                rootScreen.mapAccessMessage = if (paths.isEmpty()) "현재 위치에서 출발지까지 실제 경로 좌표가 제공되지 않았어요." else null
+            val access=rootScreen.accessJourney
+            val chosen=access?.selectedRoute?.kakao
+            val sharedOrigin=access?.departure?.selected?.point
+            if(chosen?.pathSegments?.isNotEmpty()==true && access.destination.selected?.point==destination && sharedOrigin!=null && distanceBetweenMeters(sharedOrigin,fix.point)<=35.0) {
+                rootScreen.mapAccessSegments=chosen.pathSegments;rootScreen.mapAccessOrigin=sharedOrigin;rootScreen.mapAccessMessage=null
+                return
             }
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { rootScreen.mapAccessMessage = "현재 위치에서 지정 출발지까지 지도 경로를 조회하지 못했어요." }
+            val shared=rootScreen.accessTransitRoutes.firstOrNull()?.kakao?.pathSegments.orEmpty()
+            val sharedStart=rootScreen.accessTransitOrigin
+            if(shared.isNotEmpty() && sharedStart!=null && distanceBetweenMeters(sharedStart,fix.point)<=35.0 &&
+                rootScreen.accessTransitFetchedAtMillis?.let {displayClock.now()-it in 0L..120000L}==true) {
+                rootScreen.mapAccessSegments=shared;rootScreen.mapAccessOrigin=sharedStart;rootScreen.mapAccessMessage=null
+                return
+            }
+            val walked=rootScreen.walkingPoints
+            if(walked.size>=2 && distanceBetweenMeters(walked.first(),fix.point)<=35.0 && distanceBetweenMeters(walked.last(),destination)<=20.0 &&
+                rootScreen.walkFetchedAtEpochMillis?.let {displayClock.now()-it in 0L..120000L}==true) {
+                rootScreen.mapAccessSegments=listOf(walked);rootScreen.mapAccessOrigin=walked.first();rootScreen.mapAccessMessage=null
+                return
+            }
+            val fresh=rootScreen.mapAccessRequests.isGeometryFresh(time)
+            if(fresh && !shouldRefreshAccessMap(rootScreen.mapAccessOrigin,rootScreen.mapAccessDestination,fix.point,destination,rootScreen.mapAccessSegments.isNotEmpty())) return
+            if(!fresh) rootScreen.mapAccessSegments=emptyList()
+            if(rootScreen.accessTransitLoading || rootScreen.busy) return
+            if(!rootScreen.mapAccessRequests.begin(destination to chosen?.itineraryKey,time,true)) return
+            var success=false
+            try {
+                suspend fun transitGeometry():List<List<MapPoint>> {
+                    val choices=kakaoRepository.searchPublicTransit(fix.point,destination)
+                    return (if(chosen?.itineraryKey?.isNotBlank()==true) choices.firstOrNull {it.itineraryKey==chosen.itineraryKey} else choices.firstOrNull())?.pathSegments.orEmpty()
+                }
+                val paths=if(requiresTransitAccess(fix.point,destination)) transitGeometry()
+                    else try {listOf(kakaoRepository.searchWalk(fix.point,destination).points)}
+                    catch(error:KakaoApiException) {if(error.failure==KakaoFailure.NO_ROUTE) transitGeometry() else throw error}
+                if(rootScreen.departure.selected?.point==destination && paths.any {it.size>=2}) {
+                    rootScreen.mapAccessOrigin=fix.point;rootScreen.mapAccessDestination=destination
+                    rootScreen.mapAccessSegments=paths;rootScreen.mapAccessMessage=null;success=true
+                } else rootScreen.mapAccessMessage="실제 지도 경로 좌표가 제공되지 않았어요. 잠시 후 다시 확인해요."
+            } catch(cancelled:CancellationException) {throw cancelled}
+            catch(_:Exception) {rootScreen.mapAccessMessage="지도 경로를 조회하지 못했어요. 잠시 후 다시 확인해요."}
+            finally {rootScreen.mapAccessRequests.complete(success,SystemClock.elapsedRealtime())}
+        }
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while(isActive) {refreshGeometry();delay(1000L)}
+        }
     }
     LaunchedEffect(screen, screen.selectedStation, screen.selectedBusStop, screen.selectedBusRoute,
         screen.selectedGyeonggiMatch, screen.confirmedServiceIdentity, monitorKey) {
@@ -1620,7 +1614,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     val arrivalMissingText=missingArrivalText(responseAt,
         observedSeoulRows.isNotEmpty() || observedGyeonggiRows.isNotEmpty() || observedSubwayRows.isNotEmpty(),
         if(monitored) monitoring.arrivalRequestFailed else screen.arrivalRequestFailed,noService,now)
-    val unknownTitle = if(monitored) monitoringGuidanceHeadline(monitoring.copy(assessment=assessment),now) else if(validArrival!=null || estimatedArrivals!=null) "이동 정보 확인 필요" else arrivalMissingText
+    val unknownTitle = unknownGuidanceTitle(assessment.unknownReason,if(monitored) monitoringGuidanceHeadline(monitoring.copy(assessment=assessment),now) else if(validArrival!=null || estimatedArrivals!=null) "이동 정보 확인 필요" else arrivalMissingText)
 
     // The stop picker belongs next to the search that produced the candidates, not below the map.
     val selectionControls: @Composable () -> Unit = {
@@ -1637,9 +1631,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             onFindStations = { findOfficialStations(screen) },
             onChooseStation = { selectOfficialStation(screen, it) },
             onChooseArrival = {
-                val wasMonitored = isMonitored(screen)
                 screen.chooseSubwayArrival(it)
-                if(wasMonitored) monitoringRequest(screen)?.let { request -> JourneyMonitoringController.start(context,request) }
             },
             onRefresh = {
                 if (monitored) JourneyMonitoringController.refresh(context)
@@ -1680,6 +1672,15 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     LaunchedEffect(showMapAndArrivals,boarding,screen.selectedRoute) {
         if(showMapAndArrivals && (boarding!=null || screen.selectedRoute!=null)) mapOpened=true
     }
+    replacementConfirmation?.let { pending ->
+        AlertDialog(onDismissRequest={replacementConfirmation=null},title={Text("이동 안내 변경")},
+            text={Text("현재 다른 경로를 안내 중입니다. 새로운 경로로 변경하시겠어요?")},
+            confirmButton={TextButton(onClick={
+                replacementConfirmation=null
+                if(isActiveTarget(pending.first) && pending.first.revision==pending.second && monitoringRequest(pending.first)?.isSameJourney(pending.third)==true)
+                    requestMonitoring(pending.first,confirmedChange=true)
+            }) {Text("새 경로로 변경")}},dismissButton={TextButton(onClick={replacementConfirmation=null}) {Text("기존 안내 유지")}})
+    }
     if(showInformation) GuidanceInformationDialog(settings,
         displayedWalkingSpeed(displayedLocation,now),
         session.walkingAnalysis.saved?.takeIf { it.reliableSpeed }?.speedKmh,calculationPace,
@@ -1719,7 +1720,6 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 "어디로 이동하시나요?" else "어느 정류장을 찾으세요?") {
                 SearchContent(screen, onSearch = { searchPlaces(screen, it) },
                 onEdit = { field, value ->
-                    if (isMonitored(screen)) JourneyMonitoringController.stop(context)
                     screen.editQuery(field, value)
                 },
                 onChoose = { field, place ->
@@ -1981,7 +1981,10 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                             } else requestLocation(screen,
                                 if (boarding != null) LocationAction.WALKING else LocationAction.RECENTER)
                         },
-                        modifier = Modifier.fillMaxWidth().height(if (mapExpanded) 220.dp else 120.dp))
+                        active = showMapAndArrivals && hasJourney,
+                        showControls = mapExpanded,
+                        modifier = Modifier.fillMaxWidth().height(if (mapExpanded)
+                            (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp*0.48f).coerceIn(280f,440f).dp else 112.dp))
                 }
             }
             if(showMapAndArrivals && hasJourney) {

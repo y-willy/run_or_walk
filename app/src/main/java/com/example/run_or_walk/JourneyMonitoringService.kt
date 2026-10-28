@@ -92,11 +92,13 @@ class JourneyMonitoringService : Service() {
             return START_NOT_STICKY
         }
         try {
-            createChannels()
-            val initial = ongoingNotification(request, "현재 위치와 실시간 도착정보를 확인하고 있어요.")
-            if (Build.VERSION.SDK_INT >= 29) startForeground(ONGOING_ID, initial, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-            else startForeground(ONGOING_ID, initial)
-            acquireSessionWakeLock()
+            if(currentRequest==null) {
+                createChannels()
+                val initial = ongoingNotification(request, "현재 위치와 실시간 도착정보를 확인하고 있어요.")
+                if (Build.VERSION.SDK_INT >= 29) startForeground(ONGOING_ID, initial, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                else startForeground(ONGOING_ID, initial)
+                acquireSessionWakeLock()
+            }
         } catch (_: Exception) {
             finishSession("화면 꺼짐 안내를 시작하지 못했어요. 위치·알림 권한과 기기의 위치 설정을 확인해 주세요.")
             return START_NOT_STICKY
@@ -110,7 +112,9 @@ class JourneyMonitoringService : Service() {
         currentRequest = request
         finishMessage = "이동 안내를 종료했어요."
         val prior=JourneyMonitoringController.state.value
-        val handover=if(prior.request?.isSameJourney(request)==true)
+        val staged=JourneyMonitoringController.consumeHandover(request)
+        val handover=if(staged!=null) monitoringStateWithSettings(staged.copy(running=true),request,displayClock.now(),hasLocationPermission(this))
+            else if(prior.request?.isSameJourney(request)==true)
             monitoringStateWithSettings(prior.copy(running=true),request,displayClock.now(),hasLocationPermission(this))
             else monitoringSelectionHandover(prior,request,displayClock.now(),hasLocationPermission(this))
         JourneyMonitoringController.publish(handover ?: JourneyMonitoringState(running = true, request = request,

@@ -96,8 +96,8 @@ class GuidanceRevisionUiTest {
      }
     }
    }}
-   compose.onNodeWithText("첫 번째 차량 · 약 9분 0초 후 도착").assertIsDisplayed()
-   compose.onNodeWithText("다음 차량 · 약 25분 0초 후 도착").assertIsDisplayed()
+   compose.onNodeWithText("첫 번째 차량 · 약 9분 0초 후 도착 · 공식 실시간").assertIsDisplayed()
+   compose.onNodeWithText("다음 차량 · 약 25분 0초 후 도착 · 공식 실시간").assertIsDisplayed()
    save(a.get(),"guidance-map-arrivals.png")
   } finally {a.pause().stop().destroy()}
  }
@@ -111,7 +111,8 @@ class GuidanceRevisionUiTest {
    compose.onNodeWithContentDescription("지도·도착정보").performClick()
    compose.onNodeWithText("경로를 먼저 선택해 주세요").assertIsDisplayed()
    Assert.assertEquals(FeatureMode.ROUTE,vm.mode)
-   compose.onNodeWithContentDescription("경로 찾기").performClick()
+   compose.runOnIdle {a.get().onBackPressedDispatcher.onBackPressed()}
+   compose.onNodeWithContentDescription("경로 찾기").assertIsSelected()
    compose.onNodeWithText("정류소 직접 검색").performClick()
    Assert.assertEquals(FeatureMode.STOP,vm.mode)
    compose.runOnIdle {vm.screens.getValue(FeatureMode.STOP).stop.query="망포"}
@@ -124,6 +125,10 @@ class GuidanceRevisionUiTest {
    compose.onNodeWithText("닫기").performClick()
    compose.onNodeWithText("앱 정보").assertDoesNotExist()
    Assert.assertEquals(FeatureMode.STOP,vm.mode)
+   compose.onNodeWithContentDescription("설정").performClick()
+   compose.onNodeWithText("내 이동 설정").assertIsDisplayed()
+   compose.runOnIdle {a.get().onBackPressedDispatcher.onBackPressed()}
+   compose.onNodeWithContentDescription("경로 찾기").assertIsSelected()
   } finally {a.pause().stop().destroy()}
  }
  @Test fun validLiveDataOverridesAnOldUnknownMonitoringAssessmentImmediately() {
@@ -151,12 +156,17 @@ class GuidanceRevisionUiTest {
   } finally {a.pause().stop().destroy();JourneyMonitoringController.publish(JourneyMonitoringState())}
  }
 
- @Test fun selectedRouteShowsGuideBeforeSecondaryActionsAndSavesFavoritesInsideTheCard() {
+ @Test fun selectedRouteShowsGuideBeforeSecondaryActionsAndSavesFavoritesInsideTheCard()=selectedRouteGuide(false,"final-route-light.png")
+ @Test fun selectedRouteGuideInDarkMode()=selectedRouteGuide(true,"final-route-dark.png")
+ @Test @Config(qualifiers="w320dp-h1100dp-mdpi") fun selectedRouteGuideAt320DpAnd130Percent()=selectedRouteGuide(false,"final-route-compact.png",1.3f)
+ private fun selectedRouteGuide(dark:Boolean,proofName:String,fontScale:Float=1f) {
+  RuntimeEnvironment.setFontScale(fontScale)
   Shadows.shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(android.Manifest.permission.ACCESS_FINE_LOCATION)
   RuntimeEnvironment.getApplication().getSharedPreferences("favorite_buses",0).edit().clear().commit()
   val a=Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
   try {
    val vm=ViewModelProvider(a.get())[JourneySessionViewModel::class.java]
+   vm.favorites.items.toList().forEach {vm.favorites.remove(it.key)}
    vm.screens.values.forEach {it.clearRoutesAndBoarding()};vm.mode=FeatureMode.ROUTE
    vm.updateSettings(JourneySettings(bufferSeconds=60))
    val screen=vm.screens.getValue(FeatureMode.ROUTE)
@@ -173,8 +183,11 @@ class GuidanceRevisionUiTest {
     location=GuidanceLocation(point,3.0,time),walkingRoute=GuidanceWalkingRoute(point,point,id,300,time,120000,390),
     arrivals=RealtimeArrivalSnapshot(route.identity,time+540000,fetchedAtEpochMillis=time,validForMillis=600000,receivedAtEpochMillis=time),
     walkingDistanceMeters=390,providerWalkingSeconds=300))
-   a.get().setContent {RUN_or_WALKTheme {PaceNudgeScreen(a.get(),vm)}}
+   a.get().setContent {RUN_or_WALKTheme(darkTheme=dark) {PaceNudgeScreen(a.get(),vm)}}
    compose.onNodeWithText("이동가이드").assertIsDisplayed()
+   val selectorLayouts=mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+   compose.onNodeWithText("정류소 직접 검색").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) {it(selectorLayouts)}
+   Assert.assertEquals(1,selectorLayouts.single().lineCount);Assert.assertFalse(selectorLayouts.single().didOverflowWidth)
    compose.onNodeWithText("지금 이동 안내").assertDoesNotExist()
    compose.onNodeWithText("이동 가이드").assertDoesNotExist()
    val summary=compose.onNodeWithText("총 20분 · 동대문01").getUnclippedBoundsInRoot()
@@ -189,15 +202,15 @@ class GuidanceRevisionUiTest {
    compose.onNodeWithText("자주 타는 버스 등록").assert(hasAnyAncestor(hasTestTag("guidance-card"))).performClick()
    Assert.assertEquals(route.identity,vm.favorites.items.single().request.identity)
    compose.onNodeWithText("자주 타는 버스 해제").assertIsDisplayed()
-   save(a.get(),"guide-controls-haptics.png")
+   save(a.get(),proofName)
    compose.onNodeWithText("자주 타는 버스 해제").performClick()
    Assert.assertTrue(vm.favorites.items.isEmpty())
    for(label in listOf("다른 경로 보기","현재 위치·경로 다시 확인","기기 위치 설정")) {
     val bounds=compose.onNodeWithText(label).getUnclippedBoundsInRoot()
-    Assert.assertTrue(bounds.bottom-bounds.top>=52.dp);Assert.assertTrue(bounds.right-bounds.left>=300.dp)
+    Assert.assertTrue(bounds.bottom-bounds.top>=52.dp);Assert.assertTrue(bounds.right-bounds.left>=(a.get().resources.configuration.screenWidthDp-40).dp)
    }
    compose.onNodeWithText("기기 위치 설정").performScrollTo()
-   save(a.get(),"guide-action-buttons.png")
+   if(!dark && fontScale==1f) save(a.get(),"final-route-actions.png")
    compose.onNodeWithText("다른 경로 보기").performScrollTo().performClick()
    compose.onNodeWithText("다른 경로 접기").assertIsDisplayed()
    compose.onNodeWithTag("guidance-card").performScrollTo()
