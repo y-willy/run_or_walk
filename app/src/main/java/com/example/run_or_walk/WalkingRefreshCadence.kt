@@ -17,8 +17,10 @@ internal class WalkingRefreshCadence(initialRequestElapsed:Long?=null) {
     fun requestDelay(elapsed:Long):Long=maxOf(1000L,maxOf(due,(lastRequestElapsed ?: elapsed)+WALKING_REFRESH_MILLIS)-elapsed)
     fun acceptExternalResult() {error=null;failures=0;configurationBlocked=false}
     fun permitConfigurationRetry() {configurationBlocked=false}
+    fun isRequestDue(elapsed:Long):Boolean = !requesting && !configurationBlocked && elapsed>=due &&
+        lastRequestElapsed?.let {elapsed-it>=WALKING_REFRESH_MILLIS}!=false
     fun tryRequest(elapsed:Long):Boolean {
-        if(requesting || configurationBlocked || elapsed<due || lastRequestElapsed?.let {elapsed-it<WALKING_REFRESH_MILLIS}==true) return false
+        if(!isRequestDue(elapsed)) return false
         lastRequestElapsed=elapsed;return true
     }
     suspend fun fetch(origin:MapPoint,end:MapPoint,elapsed:()->Long,epoch:()->Long,

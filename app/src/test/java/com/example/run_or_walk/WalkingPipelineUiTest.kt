@@ -45,7 +45,10 @@ class WalkingPipelineUiTest {
             val vm=ViewModelProvider(activity.get(),ViewModelProvider.AndroidViewModelFactory(activity.get().application))[JourneySessionViewModel::class.java]
             vm.screens.values.forEach {it.clearRoutesAndBoarding()};vm.mode=FeatureMode.ROUTE
             vm.updateSettings(JourneySettings(useProviderWalkingTime=true,gpsAutoCalibrationEnabled=false))
-            vm.walkingLocations={gps};vm.walkingLocation={gps.first {locationSampleFailure(it,System.currentTimeMillis())==null}}
+            vm.walkingLocations={gps}
+            vm.walkingLocation={gps.first {sample ->
+                locationSampleFailure(vm.displayClock.alignLocation(sample),vm.displayClock.now())==null
+            }}
             vm.walkingSearch={_,_->calls++;answers.receive().getOrThrow()}
             val screen=vm.screens.getValue(FeatureMode.ROUTE)
             screen.boarding=JourneyPlace("boarding","승차점","",end)

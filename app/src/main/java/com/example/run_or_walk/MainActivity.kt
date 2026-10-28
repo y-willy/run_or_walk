@@ -1347,7 +1347,10 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                             if(isActiveTarget(screen) && !isMonitored(screen)) {
                                 applyWalkingLocation(screen,fix)
                                 currentPoint=screen.location?.point
-                                if(screen.walkRoute==null && locationSampleFailure(fix,displayClock.now())==null)
+                                // A due refresh may have waited for GPS while its old path was still cached.
+                                // Resume on the fresh fix, without waiting for another polling cycle.
+                                if(locationSampleFailure(fix,displayClock.now())==null &&
+                                    (screen.walkRoute==null || screen.walkingRefreshCadence.isRequestDue(SystemClock.elapsedRealtime())))
                                     launch {refreshWalkingSnapshot(screen)}
                             }
                         }
