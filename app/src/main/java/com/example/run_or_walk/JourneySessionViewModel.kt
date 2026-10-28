@@ -19,6 +19,15 @@ internal class JourneySessionViewModel(application: Application) : AndroidViewMo
     val favorites = FavoriteBusStore(application)
     val favoriteArrivals = FavoriteBusArrivalLoader()
     val walkingAnalysis = WalkingAnalysisController(application)
+    // GPS is physical session state, independent of the selected route/vehicle. Never persisted.
+    var latestLocation:GuidanceLocation? by mutableStateOf(null);private set
+    fun observeLocation(sample:GuidanceLocation,now:Long):Boolean {
+        if(locationSampleFailure(sample,now)!=null || latestLocation?.let {sample.observedAtEpochMillis<it.observedAtEpochMillis}==true) return false
+        latestLocation=sample;return true
+    }
+    fun locationAt(now:Long,vararg candidates:GuidanceLocation?):GuidanceLocation? =
+        (candidates.toList()+latestLocation).filterNotNull().filter {locationSampleFailure(it,now)==null}
+            .maxByOrNull {it.observedAtEpochMillis}
     private val store = JourneySessionStore(application)
     private val saved = store.load()
     val screens = restoreJourneyScreens(saved)

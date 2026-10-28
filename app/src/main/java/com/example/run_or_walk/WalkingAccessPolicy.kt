@@ -91,3 +91,43 @@ internal fun JourneyScreenState.reuseMapWalkingForBoarding(location:GuidanceLoca
         !validWalkingAccess(cached.route,location.point,place.point)) return false
     return storeWalkingResult(location,place,confirmedServiceIdentity,cached.route,settings,pace,cached.fetchedAt,now)
 }
+
+/** Display a verified physical walking route even while official service binding is pending.
+ * The movement calculator still independently requires the official boarding identity/ETA.
+ */
+internal fun JourneyScreenState.walkingDisplay(location:GuidanceLocation?,settings:JourneySettings,
+    pace:Double?,now:Long):WalkRoute? {
+    val fix=location?.takeIf {locationSampleFailure(it,now)==null} ?: return null
+    val place=boarding ?: return null
+    val raw=walkRoute ?: return null
+    val origin=walkOrigin ?: return null
+    val fetched=walkFetchedAtEpochMillis ?: return null
+    val tracker=walkingTracker
+    val source=tracker?.route ?: KakaoWalkingRoute(raw.distanceMeters,raw.durationSeconds,walkingPoints)
+    val sourceOrigin=tracker?.origin ?: origin
+    if(now-fetched !in 0L..120_000L || pedestrianDistance(origin,fix.point)>35.0 ||
+        raw.distanceMeters<0 || raw.durationSeconds<0 || raw.distanceMeters>source.distanceMeters ||
+        tracker?.let {it.fetchedAt!=fetched}==true || !validWalkingAccess(source,sourceOrigin,place.point)) return null
+    return raw.copy(durationSeconds=settings.walkingSeconds(raw.distanceMeters,raw.durationSeconds,pace))
+}
+
+/** Physical route progress can be displayed before an official vehicle identity is connected. */
+internal fun JourneyScreenState.updateUnboundWalkingDisplay(fix:GuidanceLocation,now:Long) {
+    if(confirmedServiceIdentity!=null || locationSampleFailure(fix,now)!=null ||
+        location?.let {fix.observedAtEpochMillis<it.observedAtEpochMillis}==true) return
+    location=fix
+    val place=boarding ?: return
+    val tracker=walkingTracker ?: return
+    if(!validWalkingAccess(tracker.route,tracker.origin,place.point)) return
+    val progress=tracker.update(fix,now) ?: return
+    if(!progress.onRoute) {
+        walkRoute=null;walkOrigin=null;walkFetchedAtEpochMillis=null;walkingPoints=emptyList()
+        return
+    }
+    if(walkingCalculationDue(walkingCalculatedAtEpochMillis,now) || walkRoute==null ||
+        progress.remainingMeters>(walkRoute?.distanceMeters ?: 0)) {
+        walkRoute=WalkRoute(progress.remainingMeters,progress.providerSeconds)
+        walkingCalculatedAtEpochMillis=now
+    }
+    walkOrigin=fix.point;walkFetchedAtEpochMillis=tracker.fetchedAt;walkingPoints=tracker.route.points
+}
