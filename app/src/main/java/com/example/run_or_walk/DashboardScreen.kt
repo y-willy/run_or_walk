@@ -46,7 +46,8 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner,session: JourneySess
     val changeScope=rememberCoroutineScope()
     var validatingChange by remember { mutableStateOf(false) }
     var changeRevision by remember { mutableLongStateOf(0L) }
-    fun cancelFavoriteChange() {changeRevision++;pendingFavorite=null;validatingChange=false}
+    var favoriteChangeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun cancelFavoriteChange() {changeRevision++;favoriteChangeJob?.cancel();pendingFavorite=null;validatingChange=false}
     var changeError by remember { mutableStateOf<String?>(null) }
     fun openFavorite(selected:FavoriteBus) {
         restoreFavoriteBus(session.screens.getValue(FeatureMode.STOP),selected)
@@ -60,7 +61,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner,session: JourneySess
                 validatingChange=true;changeRevision++
                 val token=changeRevision
                 val previous=JourneyMonitoringController.state.value.request
-                changeScope.launch {
+                favoriteChangeJob=changeScope.launch {
                     try {
                         val checked=session.favoriteArrivals.load(selected)
                         if(token!=changeRevision || pendingFavorite?.key!=selected.key) return@launch
@@ -72,7 +73,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner,session: JourneySess
                         val validated=checked.selection
                         if(validated==null || checked.failed) {changeError=checked.message;return@launch}
                         val request=validated.request.copy(settings=session.settings,vibrationEnabled=active.request.vibrationEnabled)
-                        if(JourneyMonitoringController.start(context,request)) openFavorite(validated.copy(request=request))
+                        if(JourneyMonitoringController.startAndAwait(context,request,canActivate={token==changeRevision})) openFavorite(validated.copy(request=request))
                         else changeError=JourneyMonitoringController.lastStartError
                     } finally {if(token==changeRevision) validatingChange=false}
                 }
@@ -137,9 +138,11 @@ internal fun FavoriteBusesScreen(store: FavoriteBusStore,lifecycleOwner: Lifecyc
                                 clockPulse=displayClock.now();kotlinx.coroutines.delay(1000)
                             }
                         }
+                        var configurationRecheck=true // Once per visible/resume/manual event, never every countdown tick.
                         while(kotlinx.coroutines.currentCoroutineContext().isActive) {
-                            result=loader.load(value)
-                            kotlinx.coroutines.delay(1000)
+                            result=loader.load(value,recheckConfiguration=configurationRecheck)
+                            configurationRecheck=false
+                            kotlinx.coroutines.delay((loader.nextRefreshAt(value)-displayClock.now()).coerceAtLeast(1000L))
                         }
                     }
                 }
@@ -167,11 +170,16 @@ internal fun FavoriteBusesScreen(store: FavoriteBusStore,lifecycleOwner: Lifecyc
                     }
                     if(value.alias.isNotBlank()) Text(value.request.boardingName,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=.5f))
-                    val response=result
+                    val refreshed=result // Always subscribe to completion, even when a cached row exists.
+                    val response=refreshed?.let {loader.cached(value) ?: it}
                     // Read the clock in the same restart scope as the new response, not just the parent item's tick.
                     val now=maxOf(clockPulse,displayClock.now())
                     val snapshot=response?.snapshot?.takeIf { it.hasUsableOfficialEta(now) }
-                    val etaText=snapshot?.let { officialEtaText(it,now) } ?: if(result==null) "첫 도착정보를 연결하고 있어요" else result?.message.orEmpty()
+                    val etaText=snapshot?.let { officialEtaText(it,now) } ?: if(result==null) "첫 도착정보를 연결하고 있어요" else response?.message.orEmpty()
+                    if(snapshot!=null && response?.failed==true) Text(response.message,style=MaterialTheme.typography.labelSmall,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    if(snapshot==null && response?.selection!=null) Text("승차정보 확인됨 · 실시간 ETA가 있어야 이동 판단을 시작해요.",
+                        style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     snapshot?.receivedAtEpochMillis?.let { Text("공식 실시간 · 마지막 수신 ${((now-it)/1000).coerceAtLeast(0)}초 전",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
                     BoxWithConstraints {
                         val compact=maxWidth / LocalDensity.current.fontScale < 260.dp
@@ -183,7 +191,7 @@ internal fun FavoriteBusesScreen(store: FavoriteBusStore,lifecycleOwner: Lifecyc
                         }
                         val action: @Composable ()->Unit = {
                             FilledTonalButton(onClick={result?.selection?.let(onSelect)},enabled=result?.selection!=null,contentPadding=PaddingValues(horizontal=14.dp)) {
-                                Text("이동 안내",style=MaterialTheme.typography.labelLarge);AppIcon(R.drawable.ui_chevron,modifier=Modifier.size(18.dp))
+                                Text(if(snapshot==null && response?.selection!=null) "도착정보 없이 열기" else "이동 안내",style=MaterialTheme.typography.labelLarge);AppIcon(R.drawable.ui_chevron,modifier=Modifier.size(18.dp))
                             }
                         }
                         if(compact) Column(verticalArrangement=Arrangement.spacedBy(8.dp)) { status(Modifier.fillMaxWidth());action() }

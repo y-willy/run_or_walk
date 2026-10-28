@@ -63,7 +63,7 @@ class FinalReliabilityPolicyTest {
         assertNotNull(recovered.snapshot);assertFalse(recovered.failed);assertNull(recovered.failureType)
         now+=30000;val previous=calls;loader.load(favorite);assertEquals(previous+1,calls)
     }
-    @Test fun authenticationAndConfigurationFailuresAreDistinctAndAutomaticallyRecheckedSafely()=runBlocking {
+    @Test fun authenticationFailuresWaitForSafeExplicitRecheckInsteadOfRetryingForever()=runBlocking {
         var now=initial;var configured=false
         val loader=FavoriteBusArrivalLoader(seoulRoutes={if(!configured) throw SeoulBusApiException("auth",SeoulBusFailure.ACCESS_DENIED) else listOf(route)},
             seoulArrivals={_,_->listOf(row(now,1,240))},clock={now})
@@ -71,7 +71,9 @@ class FinalReliabilityPolicyTest {
         assertEquals(FavoriteBusFailure.CONFIGURATION,rejected.failureType)
         assertEquals(initial+300000,rejected.retryAtEpochMillis)
         configured=true;now=requireNotNull(rejected.retryAtEpochMillis)
-        assertNotNull(loader.load(favorite).snapshot)
+        assertTrue(loader.load(favorite).failed)
+        assertEquals(Long.MAX_VALUE,loader.nextRefreshAt(favorite))
+        assertNotNull(loader.load(favorite,recheckConfiguration=true).snapshot)
     }
     @Test fun providerConfirmedDirectionChangeRetiresFavoriteAndItsOldEta()=runBlocking {
         var now=initial;var moved=false
@@ -80,14 +82,14 @@ class FinalReliabilityPolicyTest {
         assertNotNull(loader.load(favorite).snapshot);now+=30000;moved=true
         val result=loader.load(favorite);assertNull(result.selection);assertNull(result.snapshot)
     }
-    @Test fun sameStopFavoritesShareRoutesAndConcurrentQueriesAreSerialized()=runBlocking {
+    @Test fun sameStopFavoritesShareRoutesAndConcurrentQueriesAreBounded()=runBlocking {
         var routeCalls=0;var active=0;var maximum=0
         val routeTwo=route.copy(routeId="105900004")
         val loader=FavoriteBusArrivalLoader(seoulRoutes={routeCalls++;listOf(route,routeTwo)},seoulArrivals={_,_->
             active++;maximum=maxOf(maximum,active);yield();active--;emptyList()},clock={initial})
         val second=FavoriteBus(favorite.request.copy(busRoute=routeTwo,identity=routeTwo.identity))
         coroutineScope { listOf(favorite,second,favorite).map {async {loader.load(it)}}.awaitAll() }
-        assertEquals(1,routeCalls);assertEquals(1,maximum)
+        assertEquals(1,routeCalls);assertEquals(2,maximum)
     }
     @Test fun mapOnlyRequestsObeyVisibilityInFlightAndBackoffWithoutDeletingSuccessAge() {
         val gate=MapGeometryRequestGate()

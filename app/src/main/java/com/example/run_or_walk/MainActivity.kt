@@ -179,15 +179,17 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         startingMonitoring = true
         scope.launch {
             try {
-                lifecycleOwner.lifecycle.withResumed {
-                    if (isActiveTarget(target) && target.revision == revision &&
-                        monitoringRequest(target)?.isSameJourney(request) == true) {
-                        val activeRequest=request.copy(settings=session.settings,vibrationEnabled=target.alertsEnabled)
-                        val handover=monitoringScreenHandover(target,activeRequest,displayClock.now(),hasLocationPermission(context))
-                        target.invalidateRequests(preserveTimetable=true)
-                        if (!JourneyMonitoringController.start(context,activeRequest,handover)) {
-                            target.error = JourneyMonitoringController.lastStartError ?: JourneyMonitoringController.state.value.message
-                        }
+                val ready=lifecycleOwner.lifecycle.withResumed {
+                    isActiveTarget(target) && target.revision == revision && monitoringRequest(target)?.isSameJourney(request)==true
+                }
+                if(ready) {
+                    val activeRequest=request.copy(settings=session.settings,vibrationEnabled=target.alertsEnabled)
+                    val handover=monitoringScreenHandover(target,activeRequest,displayClock.now(),hasLocationPermission(context))
+                    // Keep foreground polling/evidence alive until the Service acknowledges activation.
+                    if(JourneyMonitoringController.startAndAwait(context,activeRequest,handover) {isActiveTarget(target) && target.revision==revision && monitoringRequest(target)?.isSameJourney(request)==true}) {
+                        if(isActiveTarget(target) && target.revision==revision) target.invalidateRequests(preserveTimetable=true)
+                    } else if(isActiveTarget(target) && target.revision==revision) {
+                        target.error=JourneyMonitoringController.lastStartError ?: "새 안내를 시작하지 못했어요. 기존 안내는 유지됩니다."
                     }
                 }
             } finally { startingMonitoring = false }
@@ -1395,7 +1397,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         val destination=mapDeparture
         if(rootScreen.mapAccessDestination!=destination) {
             rootScreen.mapAccessSegments=emptyList();rootScreen.mapAccessOrigin=null
-            rootScreen.mapAccessDestination=destination;rootScreen.mapAccessMessage=null
+            rootScreen.mapAccessDestination=destination;rootScreen.mapAccessMessage=null;rootScreen.mapAccessIsReference=false
         }
         if(!showMapAndArrivals || destination==null) return@LaunchedEffect
         suspend fun refreshGeometry() {
@@ -1404,6 +1406,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             val time=SystemClock.elapsedRealtime()
             if(distanceBetweenMeters(fix.point,destination)<=15.0) {
                 rootScreen.mapAccessSegments=emptyList();rootScreen.mapAccessOrigin=fix.point
+                rootScreen.mapAccessIsReference=false
                 rootScreen.mapAccessMessage="현재 위치가 지정 출발지에 있어요."
                 return
             }
@@ -1428,8 +1431,10 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 return
             }
             val fresh=rootScreen.mapAccessRequests.isGeometryFresh(time)
+            rootScreen.updateMapAccessPresentation(fresh,fix.point,time)
             if(fresh && !shouldRefreshAccessMap(rootScreen.mapAccessOrigin,rootScreen.mapAccessDestination,fix.point,destination,rootScreen.mapAccessSegments.isNotEmpty())) return
-            if(!fresh) rootScreen.mapAccessSegments=emptyList()
+            // Last geometry is a reference overlay only; never renew its calculation timestamp.
+
             if(rootScreen.accessTransitLoading || rootScreen.busy) return
             if(!rootScreen.mapAccessRequests.begin(destination to chosen?.itineraryKey,time,true)) return
             var success=false
@@ -1443,7 +1448,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                     catch(error:KakaoApiException) {if(error.failure==KakaoFailure.NO_ROUTE) transitGeometry() else throw error}
                 if(rootScreen.departure.selected?.point==destination && paths.any {it.size>=2}) {
                     rootScreen.mapAccessOrigin=fix.point;rootScreen.mapAccessDestination=destination
-                    rootScreen.mapAccessSegments=paths;rootScreen.mapAccessMessage=null;success=true
+                    rootScreen.mapAccessSegments=paths;rootScreen.mapAccessMessage=null;rootScreen.mapAccessIsReference=false;success=true
                 } else rootScreen.mapAccessMessage="실제 지도 경로 좌표가 제공되지 않았어요. 잠시 후 다시 확인해요."
             } catch(cancelled:CancellationException) {throw cancelled}
             catch(_:Exception) {rootScreen.mapAccessMessage="지도 경로를 조회하지 못했어요. 잠시 후 다시 확인해요."}
@@ -1850,7 +1855,12 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 }
                 if (screen.busy) LoadingStateCard(screen.status)
                 screen.error?.let {
-                    NoticeCard(it, isError = true)
+                    val supersededLocationError=it.startsWith("위치 설정을 확인") && monitored &&
+                        assessment.status!=AutoGuidanceStatus.UNKNOWN && monitoring.location?.let {fix->locationSampleFailure(fix,now)==null}==true &&
+                        hasLocationPermission(context)
+                    if(supersededLocationError) Text("유효한 현재 위치와 설정한 걸음속도로 안내하고 있어요.",
+                        style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    else NoticeCard(it, isError = true)
                     if (it.contains("위치 권한")) JourneyActionButton("위치 권한 설정",R.drawable.ui_settings,onClick = {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                             Uri.parse("package:${context.packageName}")))
@@ -1957,6 +1967,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             } // route search/guidance content
             val hasJourney=boarding!=null || screen.selectedRoute!=null
             if(showMapAndArrivals && !hasJourney) EmptyStateCard("경로를 먼저 선택해 주세요","경로 찾기에서 경로 또는 정류소를 선택하면 지도와 도착정보를 확인할 수 있어요.")
+            if(showMapAndArrivals && hasJourney) MapArrivalSummary(validArrival,estimatedArrivals,now,arrivalMissingText)
             if(mapOpened) Box(if(showMapAndArrivals && hasJourney) Modifier.fillMaxWidth()
                 else Modifier.fillMaxWidth().height(0.dp).clipToBounds().clearAndSetSemantics {}) {
                 // A single stable MapView, directly below the guidance card.
@@ -1984,12 +1995,14 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         active = showMapAndArrivals && hasJourney,
                         showControls = mapExpanded,
                         modifier = Modifier.fillMaxWidth().height(if (mapExpanded)
-                            (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp*0.48f).coerceIn(280f,440f).dp else 112.dp))
+                            (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp*0.36f).coerceIn(220f,360f).dp else 112.dp))
                 }
             }
             if(showMapAndArrivals && hasJourney) {
                 Text("지도·도착정보",style=MaterialTheme.typography.titleLarge)
                 if(mode==FeatureMode.ROUTE) {
+                    if(rootScreen.mapAccessIsReference) Text("이전 경로 · 갱신 필요",style=MaterialTheme.typography.labelSmall,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant)
                     rootScreen.mapAccessMessage?.let {NoticeCard(it)}
                     mapJourneyMessage?.let {NoticeCard(it)}
                 }

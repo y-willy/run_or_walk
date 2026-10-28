@@ -23,6 +23,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -32,6 +33,10 @@ class JourneyMonitoringService : Service() {
     private val displayClock=GuidanceDisplayClock(System.currentTimeMillis(),android.os.SystemClock.elapsedRealtime(),android.os.SystemClock::elapsedRealtime)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var monitoringJob: Job? = null
+    private var replacementJob:Job?=null
+    private var replacementRevision=0L
+    // Same preparation boundary in production and Service lifecycle tests.
+    internal var replacementPreparation:suspend (JourneyMonitoringRequest,JourneyMonitoringState?)->JourneyMonitoringState = ::prepareReplacement
     private var timeoutJob: Job? = null
     private var locationJob: Job? = null
     private var walkingJob: Job? = null
@@ -55,6 +60,11 @@ class JourneyMonitoringService : Service() {
     private val bus by lazy { SeoulBusRepository() }
     private val gyeonggi by lazy { GyeonggiBusRepository() }
     private val kakao by lazy { KakaoApiRepository(BuildConfig.KAKAO_REST_KEY) }
+
+    internal var positionSample:suspend ()->GuidanceLocation = {getCurrentLocationSample(this)}
+    internal var seoulArrivalQuery:suspend (OfficialSeoulBusStop,OfficialSeoulBusRoute)->List<OfficialSeoulBusArrival> = {stop,route ->bus.arrivals(stop,route)}
+    internal var walkingSearch:suspend (MapPoint,MapPoint)->KakaoWalkingRoute = {from,to ->kakao.searchWalk(from,to)}
+    internal var locationSamples:()->kotlinx.coroutines.flow.Flow<GuidanceLocation> = {liveLocationSamples(this)}
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -82,13 +92,18 @@ class JourneyMonitoringService : Service() {
             if (currentRequest == null) finishSession("공식 승차 장소·노선 선택을 확인하고 이동 안내를 다시 시작해 주세요.")
             return START_NOT_STICKY
         }
+        val startToken=intent.getLongExtra(EXTRA_START_TOKEN,0L)
+        if(!JourneyMonitoringController.isStartCurrent(request,startToken)) return START_NOT_STICKY
         if (!hasLocationPermission(this) || !JourneyMonitoringController.notificationsAllowed(this)) {
-            finishSession("위치·알림 권한을 허용하고 앱 화면에서 이동 안내를 다시 시작해 주세요.")
+            JourneyMonitoringController.completeStart(request,startToken,"위치·알림 권한을 허용하고 다시 시작해 주세요.")
+            if(currentRequest==null) finishSession("위치·알림 권한을 허용하고 앱 화면에서 이동 안내를 다시 시작해 주세요.")
             return START_NOT_STICKY
         }
         if (currentRequest?.isSameJourney(request) == true && monitoringJob?.isActive == true) {
+            replacementRevision++;replacementJob?.cancel();replacementJob=null
             currentRequest = request
             JourneyMonitoringController.publish(JourneyMonitoringController.state.value.copy(request = request))
+            JourneyMonitoringController.completeStart(request,startToken)
             return START_NOT_STICKY
         }
         try {
@@ -103,6 +118,44 @@ class JourneyMonitoringService : Service() {
             finishSession("화면 꺼짐 안내를 시작하지 못했어요. 위치·알림 권한과 기기의 위치 설정을 확인해 주세요.")
             return START_NOT_STICKY
         }
+        replacementJob?.cancel()
+        val revision=++replacementRevision
+        val staged=JourneyMonitoringController.consumeHandover(request)
+        if(currentRequest==null) {
+            // Initial start keeps the existing bounded loading/monitoring behavior.
+            activateJourney(request,staged)
+            JourneyMonitoringController.completeStart(request,startToken)
+        } else {
+            val previous=currentRequest
+            replacementJob=scope.launch {
+                try {
+                    val prepared=withTimeout(40_000L) {replacementPreparation(request,staged)}
+                    if(revision!=replacementRevision || currentRequest?.isSameJourney(requireNotNull(previous))!=true ||
+                        !JourneyMonitoringController.isStartCurrent(request,startToken)) return@launch
+                    val checked=monitoringStateWithSettings(prepared,request,displayClock.now(),hasLocationPermission(this@JourneyMonitoringService))
+                    val evidenceIdentity=checked.arrivals?.identity ?: selectTimetableEvidence(checked.timetableAnalysis,displayClock.now(),request.subwayChoice)?.identity
+                    require(evidenceIdentity?.let {it.authority==request.identity.authority && it.stopId==request.identity.stopId &&
+                        it.routeId==request.identity.routeId && it.directionId==request.identity.directionId}==true &&
+                        checked.request?.isSameJourney(request)==true && checked.assessment?.status!=null && checked.assessment.status!=AutoGuidanceStatus.UNKNOWN) {
+                        "새 경로의 위치·도보·도착정보 또는 방향이 유효하지 않아요."
+                    }
+                    activateJourney(request,checked)
+                    JourneyMonitoringController.completeStart(request,startToken)
+                } catch(cancelled:CancellationException) {
+                    if(cancelled is kotlinx.coroutines.TimeoutCancellationException)
+                        JourneyMonitoringController.completeStart(request,startToken,"새 경로 조회 시간이 초과됐어요. 기존 안내를 유지했어요.")
+                    else throw cancelled
+                } catch(error:Exception) {
+                    JourneyMonitoringController.completeStart(request,startToken,
+                        if(error is DeviceLocationException) "새 경로의 현재 위치를 확인하지 못했어요. 기존 안내를 유지했어요."
+                        else "새 경로의 공식 도착정보·도보 연결을 확인하지 못했어요. 기존 안내를 유지했어요.")
+                }
+            }
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun activateJourney(request:JourneyMonitoringRequest,staged:JourneyMonitoringState?) {
         stopLocationTracking()
         monitoringJob?.cancel()
         timeoutJob?.cancel()
@@ -112,7 +165,6 @@ class JourneyMonitoringService : Service() {
         currentRequest = request
         finishMessage = "이동 안내를 종료했어요."
         val prior=JourneyMonitoringController.state.value
-        val staged=JourneyMonitoringController.consumeHandover(request)
         val handover=if(staged!=null) monitoringStateWithSettings(staged.copy(running=true),request,displayClock.now(),hasLocationPermission(this))
             else if(prior.request?.isSameJourney(request)==true)
             monitoringStateWithSettings(prior.copy(running=true),request,displayClock.now(),hasLocationPermission(this))
@@ -130,7 +182,40 @@ class JourneyMonitoringService : Service() {
             delay(MAX_SESSION_MILLIS)
             finishSession("60분 이동 안내가 끝났어요. 계속 필요하면 앱에서 다시 시작해 주세요.")
         }
-        return START_NOT_STICKY
+    }
+
+    private suspend fun prepareReplacement(request:JourneyMonitoringRequest,staged:JourneyMonitoringState?):JourneyMonitoringState {
+        val now=displayClock.now()
+        val valid=staged?.takeIf {it.request?.isSameJourney(request)==true}
+            ?.let {monitoringStateWithSettings(it,request,now,hasLocationPermission(this))}
+        if(valid?.assessment?.status?.let {it!=AutoGuidanceStatus.UNKNOWN}==true) return valid
+        val location=valid?.location?.takeIf {locationSampleFailure(it,now)==null}
+            ?: JourneyMonitoringController.state.value.location?.takeIf {locationSampleFailure(it,now)==null}
+            ?: positionSample()
+        var state=valid ?: JourneyMonitoringState(true,request)
+        state=state.copy(location=location)
+        if(request.isGyeonggi) {
+            val match=requireNotNull(request.gyeonggiMatch)
+            val rows=gyeonggi.arrivals(match.stationId)
+            state=state.copy(gyeonggiBusObservations=rows,arrivals=chooseMatchingGyeonggiArrival(match,rows,displayClock.now())?.snapshot)
+        } else if(request.isBus) {
+            val rows=seoulArrivalQuery(requireNotNull(request.busStop),requireNotNull(request.busRoute))
+            state=state.copy(seoulBusObservations=rows,arrivals=chooseMatchingBusArrival(request.identity,rows,displayClock.now())?.snapshot)
+        } else {
+            val rows=subway.arrivals(requireNotNull(request.subwayStation))
+            val analysis=analyzeSubwayWithScheduleFallback(timetableAnalyzer,request.subwayStation,request.subwayRoute,rows,
+                displayClock.now(),timetableCalendar.serviceDays(displayClock.now()),request.identity)
+            state=state.copy(subwayObservations=rows,timetableAnalysis=analysis,
+                arrivals=selectDestinationSubwayArrival(analysis,displayClock.now(),request.subwayChoice)?.snapshot)
+        }
+        val time=displayClock.now()
+        require(state.arrivals?.hasUsableOfficialEta(time)==true || selectTimetableEvidence(state.timetableAnalysis,time,request.subwayChoice)!=null)
+        val path=walkingSearch(location.point,request.boardingPoint)
+        require(validWalkingAccess(path,location.point,request.boardingPoint))
+        return state.copy(walkingRoute=GuidanceWalkingRoute(location.point,request.boardingPoint,request.identity,
+            path.durationSeconds,displayClock.now(),120_000L,path.distanceMeters),walkingDistanceMeters=path.distanceMeters,
+            providerWalkingSeconds=path.durationSeconds,walkingPoints=path.points,
+            walkingGeometry=WalkingRouteTracker(location.point,path,displayClock.now()),walkingCalculatedAtEpochMillis=displayClock.now())
     }
 
     private suspend fun monitor() {
@@ -188,7 +273,7 @@ class JourneyMonitoringService : Service() {
                     vehicleId = selected?.vehicleId
                     if (selected == null) message = "선택한 경기버스 방향의 유효한 도착정보를 기다리고 있어요."
                 } else if (request.isBus) {
-                    val incoming=bus.arrivals(requireNotNull(request.busStop), requireNotNull(request.busRoute))
+                    val incoming=seoulArrivalQuery(requireNotNull(request.busStop), requireNotNull(request.busRoute))
                     seoulRows=mergeSeoulBusArrivals(request.identity,seoulRows.orEmpty(),incoming,displayClock.now())
                     responseAt=incoming.mapNotNull { it.gatewayFetchedAtEpochMillis ?: it.snapshot.receivedAtEpochMillis }.maxOrNull() ?: displayClock.now()
                     val selected = chooseMatchingBusArrival(request.identity,requireNotNull(seoulRows),displayClock.now())
@@ -332,7 +417,7 @@ class JourneyMonitoringService : Service() {
                 }
             }
             try {
-                liveLocationSamples(this@JourneyMonitoringService).collect { fix ->
+                locationSamples().collect { fix ->
                     if(token != generation || currentRequest?.isSameJourney(request) != true) return@collect
                     updateWalkingLocation(fix)
                     val now=displayClock.now()
@@ -341,7 +426,7 @@ class JourneyMonitoringService : Service() {
                         lastWalkingRequestElapsed=android.os.SystemClock.elapsedRealtime()
                         walkingJob=scope.launch {
                             try {
-                                val route=kakao.searchWalk(fix.point,request.boardingPoint)
+                                val route=walkingSearch(fix.point,request.boardingPoint)
                                 if(!validWalkingAccess(route,fix.point,request.boardingPoint)) throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
                                 if(token != generation || currentRequest?.isSameJourney(request) != true) return@launch
                                 val latest=JourneyMonitoringController.state.value.location
@@ -468,6 +553,7 @@ class JourneyMonitoringService : Service() {
     }
 
     private fun finishSession(message: String) {
+        replacementRevision++;replacementJob?.cancel();replacementJob=null
         finishMessage = message
         stopLocationTracking()
         monitoringJob?.cancel()
@@ -484,6 +570,7 @@ class JourneyMonitoringService : Service() {
     }
 
     override fun onDestroy() {
+        replacementRevision++;replacementJob?.cancel();replacementJob=null
         stopLocationTracking()
         monitoringJob?.cancel()
         timeoutJob?.cancel()
@@ -504,6 +591,7 @@ class JourneyMonitoringService : Service() {
         internal const val ACTION_UPDATE = "com.example.run_or_walk.MONITOR_UPDATE"
         internal const val ACTION_STOP = "com.example.run_or_walk.MONITOR_STOP"
         internal const val ACTION_REFRESH = "com.example.run_or_walk.MONITOR_REFRESH"
+        internal const val EXTRA_START_TOKEN = "start_token"
         internal const val EXTRA_REQUEST = "journey_request"
         private const val ONGOING_CHANNEL = "journey_monitoring"
         private const val ARRIVAL_CHANNEL = "journey_arrival"

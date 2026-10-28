@@ -6,6 +6,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -36,10 +39,12 @@ private const val BUS_MAX_RESPONSE_CHARS = 2_000_000
 /** The Seoul bus service key lives only on the Worker. No bus key is compiled into the APK. */
 class SeoulBusRepository(
     private val baseUrl: String = BuildConfig.SUBWAY_GATEWAY_URL,
-    private val accessToken: String = BuildConfig.SUBWAY_GATEWAY_TOKEN
+    private val accessToken: String = BuildConfig.SUBWAY_GATEWAY_TOKEN,
+    private val transport: (suspend (String)->String)? = null
 ) {
-    private val mutex = Mutex()
-    private val cache = mutableMapOf<String, CachedBusResponse>()
+    private val mutexes = ConcurrentHashMap<String,Mutex>()
+    private val permits=Semaphore(2)
+    private val cache = ConcurrentHashMap<String, CachedBusResponse>()
     private val backoff = SeoulBusRequestBackoff()
     private val routeInfoBackoff = SeoulBusRequestBackoff()
     private val sharedRateBackoff = SeoulBusRequestBackoff()
@@ -88,7 +93,8 @@ class SeoulBusRepository(
         val query = params.entries.joinToString("&") { "${it.key}=${it.value.busQueryValue()}" }
         val key = "$path?$query"
         val requestBackoff = if (path == "/bus/route-stops") routeInfoBackoff else backoff
-        mutex.withLock {
+        mutexes.getOrPut(key) {Mutex()}.withLock {
+          permits.withPermit {
             currentCoroutineContext().ensureActive()
             sharedRateBackoff.check(System.currentTimeMillis())
             requestBackoff.check(System.currentTimeMillis())
@@ -96,10 +102,11 @@ class SeoulBusRepository(
             val previous = cache[key]
             if (previous != null && attempt - previous.attemptedAtNanos in 0L until BUS_REQUEST_INTERVAL_NANOS) {
                 previous.failure?.let { throw it }
-                return@withLock requireNotNull(previous.body)
+                return@withPermit requireNotNull(previous.body)
             }
             try {
-                val body = request("${base.toASCIIString().trimEnd('/')}$key")
+                val requestUrl="${base.toASCIIString().trimEnd('/')}$key"
+                val body=transport?.invoke(requestUrl) ?: request(requestUrl)
                 cache[key] = CachedBusResponse(attempt, body)
                 body
             } catch (cancelled: CancellationException) {
@@ -111,6 +118,7 @@ class SeoulBusRepository(
                 cache[key] = CachedBusResponse(attempt, failure = failure)
                 throw failure
             }
+          }
         }
     }
 
@@ -345,10 +353,10 @@ internal fun parseSeoulBusHttpFailure(status: Int, body: String?, retryAfter: St
 
 internal class SeoulBusRequestBackoff {
     private var blocked: SeoulBusApiException? = null
-    fun record(failure: SeoulBusApiException) {
+    @Synchronized fun record(failure: SeoulBusApiException) {
         if ((failure.retryAfterEpochMillis ?: Long.MIN_VALUE) > (blocked?.retryAfterEpochMillis ?: Long.MIN_VALUE)) blocked = failure
     }
-    fun check(nowEpochMillis: Long) {
+    @Synchronized fun check(nowEpochMillis: Long) {
         blocked?.let {
             if ((it.retryAfterEpochMillis ?: 0L) > nowEpochMillis) throw it
             blocked = null

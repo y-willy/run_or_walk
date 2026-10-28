@@ -171,8 +171,9 @@ class FinalReliabilityUiTest {
                 Scaffold(bottomBar={DashboardNavigation(1) {}}) {padding ->
                     Column(Modifier.padding(padding).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                         GuidanceHeader {};Text("지도·도착정보",style=MaterialTheme.typography.titleLarge)
+                        MapArrivalSummary(live,evidence,now,"도착정보 없음")
                         JourneyMapCard(expanded,{expanded=!expanded}) {
-                            Surface(Modifier.fillMaxWidth().height(if(expanded) 340.dp else 112.dp),color=MaterialTheme.colorScheme.surfaceVariant) {
+                            Surface(Modifier.fillMaxWidth().height(if(expanded) 280.dp else 112.dp),color=MaterialTheme.colorScheme.surfaceVariant) {
                                 Box(contentAlignment=androidx.compose.ui.Alignment.Center) {Text("네이티브 Kakao Map 영역\n실제 지도 타일은 기기에서 검증")}
                             }
                         }

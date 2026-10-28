@@ -184,6 +184,7 @@ class GuidanceRevisionUiTest {
     arrivals=RealtimeArrivalSnapshot(route.identity,time+540000,fetchedAtEpochMillis=time,validForMillis=600000,receivedAtEpochMillis=time),
     walkingDistanceMeters=390,providerWalkingSeconds=300))
    a.get().setContent {RUN_or_WALKTheme(darkTheme=dark) {PaceNudgeScreen(a.get(),vm)}}
+   compose.onNodeWithText("위치 설정을 확인해 주세요.").assertDoesNotExist()
    compose.onNodeWithText("이동가이드").assertIsDisplayed()
    val selectorLayouts=mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
    compose.onNodeWithText("정류소 직접 검색").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) {it(selectorLayouts)}

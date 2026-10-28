@@ -359,19 +359,25 @@ fun KakaoMapPanel(
         }
     }
 
+    var drawnPaths by remember(kakaoMap) { mutableStateOf<List<Pair<List<MapPoint>,Int>>>(emptyList()) }
+    var drawnLines by remember(kakaoMap) { mutableStateOf<List<com.kakao.vectormap.route.RouteLine>>(emptyList()) }
     LaunchedEffect(kakaoMap, routePoints, accessSegments, journeySegments, departurePoint) {
         val map = kakaoMap ?: return@LaunchedEffect
         val layer = map.routeLineManager?.layer ?: return@LaunchedEffect
-        layer.removeAll()
         val paths = if (departurePoint != null) accessSegments.map { it to AndroidColor.rgb(37,99,235) } +
             journeySegments.map { it to AndroidColor.rgb(22,163,74) }
             else listOf(routePoints to AndroidColor.rgb(20,184,166))
-        for ((path,color) in paths) if (path.size >= 2) {
+        val valid=paths.filter {it.first.size>=2}
+        if(drawnPaths==valid) return@LaunchedEffect
+        val updated=mutableListOf<com.kakao.vectormap.route.RouteLine>()
+        for ((path,color) in valid) {
             val styles = RouteLineStyles.from(RouteLineStyle.from(12f, color))
             val positions = path.map { LatLng.from(it.y, it.x) }
             val segment = RouteLineSegment.from(positions, styles)
-            layer.addRouteLine(RouteLineOptions.from(segment))
+            updated+=layer.addRouteLine(RouteLineOptions.from(segment))
         }
+        drawnLines.forEach {it.remove()}
+        drawnLines=updated;drawnPaths=valid
     }
 
     LaunchedEffect(kakaoMap, journeyKey, accessSegments, journeySegments, routePoints, currentPoint,boardingPoint,userMovedCamera) {

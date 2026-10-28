@@ -3,6 +3,8 @@ package com.example.run_or_walk
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 
 internal data class MapArrivalRow(val arrivalAt:Long,val source:GuidanceArrivalSource,
     val precision:ArrivalTimePrecision,val receivedAt:Long)
@@ -42,7 +44,23 @@ internal fun MapArrivalOverview(service:String,boarding:String,direction:String,
         Text("첫 번째 차량 · "+(first?.let(::text) ?: missingText))
         Text("다음 차량 · "+(next?.let(::text) ?: "다음 차량 정보 확인 필요"))
         first?.receivedAt?.let {Text("첫 차량 수신 · ${((now-it)/1000).coerceAtLeast(0)}초 전",style=MaterialTheme.typography.bodySmall)}
-        next?.receivedAt?.takeIf {it!=first?.receivedAt}?.let {Text("다음 차량 수신 · ${((now-it)/1000).coerceAtLeast(0)}초 전",style=MaterialTheme.typography.bodySmall)}
+        next?.receivedAt?.let {Text("다음 차량 수신 · ${((now-it)/1000).coerceAtLeast(0)}초 전",style=MaterialTheme.typography.bodySmall)}
         error?.let {NoticeCard(it,isError=true)}
+    }
+}
+
+/** Compact above-map summary; full per-vehicle sources remain in the detail card below. */
+@Composable
+internal fun MapArrivalSummary(snapshot:RealtimeArrivalSnapshot?,evidence:TimetableArrivalEvidence?,now:Long,missingText:String) {
+    val (first,next)=mapArrivalRows(snapshot,evidence,now)
+    Surface(shape=androidx.compose.foundation.shape.RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surfaceContainer) {
+        Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+            Text("도착 안내",style=MaterialTheme.typography.titleSmall)
+            listOf("첫 차량" to first,"다음 차량" to next).forEach {(label,row) ->
+                val remaining=row?.let {((it.arrivalAt-now+30000)/60000).coerceAtLeast(1)}
+                Text("$label · "+(remaining?.let {"약 ${it}분 · ${arrivalSourceLabel(row.source)}"}
+                    ?: if(label=="첫 차량") missingText else "다음 도착정보 확인 필요"),style=MaterialTheme.typography.bodyMedium)
+            }
+        }
     }
 }
