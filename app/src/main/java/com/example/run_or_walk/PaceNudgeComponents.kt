@@ -183,7 +183,9 @@ fun AutomaticGuidanceCard(
     arrivalSource: GuidanceArrivalSource = assessment.arrivalSource,
     validatedEta: Boolean? = null,
     refreshError: String? = null,
-    providerLabel: String? = null
+    providerLabel: String? = null,
+    favoriteBusSaved: Boolean = false,
+    onToggleFavoriteBus: (() -> Unit)? = null
 ) {
     var detailsExpanded by rememberSaveable { mutableStateOf(false) }
     // Presentation only: the existing assessment/ETA selection remains authoritative.
@@ -211,9 +213,16 @@ fun AutomaticGuidanceCard(
         Column(Modifier.background(Brush.linearGradient(cardColors))
             .padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                Text("지금 이동 안내",style=MaterialTheme.typography.labelMedium,modifier=Modifier.weight(1f))
-                Surface(color=Color.White.copy(alpha=.1f),shape=RoundedCornerShape(50)) {
-                    Text("이동 가이드",Modifier.padding(horizontal=10.dp,vertical=4.dp),style=MaterialTheme.typography.labelSmall)
+                Text("이동가이드",style=MaterialTheme.typography.labelMedium,modifier=Modifier.weight(1f))
+                if (onToggleFavoriteBus != null) TextButton(
+                    onClick = onToggleFavoriteBus,
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = Color.White),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    AppIcon(R.drawable.ui_star, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (favoriteBusSaved) "자주 타는 버스 해제" else "자주 타는 버스 등록",
+                        style = MaterialTheme.typography.labelSmall)
                 }
             }
             Text(title,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.ExtraBold,color=accent)

@@ -1649,6 +1649,32 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             onGyeonggiLookup = { lookupGyeonggiArrivals(screen) })
     }
 
+    val favoriteBus = monitoringRequest(screen)?.takeIf { it.isBus }?.let(::FavoriteBus)
+    val routeChoices: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            screen.routes.take(3).forEach { route ->
+                key(route.id) {
+                    TransitRouteCard(route.durationMinutes, route.serviceName, route.boardingName,
+                        route.detail, screen.selectedRoute?.id == route.id, enabled = !screen.busy,
+                        guidanceLabel = when {
+                            screen.selectedRoute?.id != route.id -> "예상 소요시간"
+                            assessment.status != AutoGuidanceStatus.UNKNOWN -> "검증된 실시간 안내"
+                            operationGuidance != null -> "도착정보를 확인하고 있어요"
+                            screen.activeArrivalSnapshot != null -> "공식 실시간 도착예정 수신"
+                            else -> "승차점 자동 설정 · 실시간 정보 연결 중"
+                        },
+                        modifier = Modifier.width(260.dp),
+                        onSelect = {
+                            selectRoute(screen, route)
+                            searchExpanded = false
+                            alternativesExpanded = false
+                        })
+                }
+            }
+        }
+    }
+
     LaunchedEffect(showMapAndArrivals,boarding,screen.selectedRoute) {
         if(showMapAndArrivals && (boarding!=null || screen.selectedRoute!=null)) mapOpened=true
     }
@@ -1720,70 +1746,23 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 }
                 if(screen.confirmedServiceIdentity==null || screen.detailsExpanded || searchExpanded) selectionControls()
             }
-            monitoringRequest(screen)?.takeIf { it.isBus }?.let { request ->
-                val favorite=FavoriteBus(request)
-                TextButton(onClick={session.favorites.toggle(favorite)}) {
-                    Text(if(session.favorites.items.any { it.key==favorite.key }) "★ 자주 타는 버스 해제" else "☆ 자주 타는 버스 등록")
-                }
-            }
             // 3. Core results and optional selection details.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (screen.busy) LoadingStateCard(screen.status)
-                screen.error?.let {
-                    NoticeCard(it, isError = true)
-                    if (it.contains("위치 권한")) TextButton(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.parse("package:${context.packageName}")))
-                    }) { Text("위치 권한 설정") }
-                    TextButton(onClick = { requestLocation(screen,
-                        if (screen.boarding != null) LocationAction.WALKING
-                        else LocationAction.RECENTER) }, enabled = !screen.busy) {
-                        Text("현재 위치·경로 다시 확인")
-                    }
-                    if (it.contains("위치 서비스") || it.contains("위치 설정")) TextButton(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                    }) { Text("기기 위치 설정") }
-                }
                 if (screen.routes.isNotEmpty()) {
                     Text(if(screen.selectedRoute==null) "추천 경로" else "이용 경로", style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.semantics { heading() })
-                    if (screen.selectedRoute != null) TextButton(onClick = {
-                        alternativesExpanded = !alternativesExpanded
-                    }) { Text(if (alternativesExpanded) "다른 경로 접기" else "다른 경로 보기") }
-                    if (screen.selectedRoute!=null && !alternativesExpanded) {
+                    if (screen.selectedRoute!=null) {
                         Text("총 ${screen.selectedRoute?.durationMinutes}분 · ${screen.selectedRoute?.serviceName.orEmpty()}",
                             style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        (if (screen.selectedRoute != null && !alternativesExpanded)
-                            listOfNotNull(screen.selectedRoute) else screen.routes.take(3)).forEach { route ->
-                            key(route.id) {
-                                TransitRouteCard(route.durationMinutes, route.serviceName, route.boardingName,
-                                    route.detail, screen.selectedRoute?.id == route.id, enabled = !screen.busy,
-                                    guidanceLabel = when {
-                                        screen.selectedRoute?.id != route.id -> "예상 소요시간"
-                                        assessment.status != AutoGuidanceStatus.UNKNOWN -> "검증된 실시간 안내"
-                                        operationGuidance != null -> "도착정보를 확인하고 있어요"
-                                        screen.activeArrivalSnapshot != null -> "공식 실시간 도착예정 수신"
-                                        else -> "승차점 자동 설정 · 실시간 정보 연결 중"
-                                    },
-                                    modifier = if(screen.selectedRoute!=null && !alternativesExpanded) Modifier.fillMaxWidth() else Modifier.width(260.dp),
-                                    onSelect = {
-                                        selectRoute(screen, route)
-                                        searchExpanded = false
-                                        alternativesExpanded = false
-                                    })
-                            }
-                        }
-                    }
+                    } else routeChoices()
                 } else if (screen.routeSearchCompleted && !screen.busy) {
                     EmptyStateCard("검색된 경로가 없어요", "목적지를 바꿔 검색해 주세요.")
                 }
 
                 if (screen.selectedRoute != null || boarding != null || monitored) {
-                    JourneyMetrics(displayedWalkingSpeed(displayedLocation,now),
-                        personalizedWalk?.distanceMeters?.takeIf { now-personalizedWalk.fetchedAtEpochMillis in 0..120000L && displayedLocation?.let { fix -> locationSampleFailure(fix,now)==null && pedestrianDistance(fix.point,personalizedWalk.origin)<=35 }==true })
                     AutomaticGuidanceCard(assessment,
+                        favoriteBusSaved = favoriteBus?.let { favorite -> session.favorites.items.any { it.key == favorite.key } } == true,
+                        onToggleFavoriteBus = favoriteBus?.let { favorite -> { session.favorites.toggle(favorite) } },
                         serviceLabel = if (isBus) screen.selectedBusRoute?.let { "${it.name} · ${it.direction}" }
                             ?: screen.selectedGyeonggiMatch?.let { "${it.routeName} · ${it.destination}" }
                             ?: screen.selectedRoute?.serviceName.orEmpty()
@@ -1838,6 +1817,32 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         })
                 } else if (screen.routes.isNotEmpty()) {
                     NoticeCard("위에서 탈 경로를 하나 선택하면 이동 안내가 자동으로 나타나요.")
+                }
+                if (screen.selectedRoute != null || boarding != null || monitored) {
+                    JourneyMetrics(displayedWalkingSpeed(displayedLocation,now),
+                        personalizedWalk?.distanceMeters?.takeIf { now-personalizedWalk.fetchedAtEpochMillis in 0..120000L && displayedLocation?.let { fix -> locationSampleFailure(fix,now)==null && pedestrianDistance(fix.point,personalizedWalk.origin)<=35 }==true })
+                }
+                if (screen.selectedRoute != null && screen.routes.isNotEmpty()) {
+                    TextButton(onClick = { alternativesExpanded = !alternativesExpanded }) {
+                        Text(if (alternativesExpanded) "다른 경로 접기" else "다른 경로 보기")
+                    }
+                    if (alternativesExpanded) routeChoices()
+                }
+                if (screen.busy) LoadingStateCard(screen.status)
+                screen.error?.let {
+                    NoticeCard(it, isError = true)
+                    if (it.contains("위치 권한")) TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:${context.packageName}")))
+                    }) { Text("위치 권한 설정") }
+                    TextButton(onClick = { requestLocation(screen,
+                        if (screen.boarding != null) LocationAction.WALKING
+                        else LocationAction.RECENTER) }, enabled = !screen.busy) {
+                        Text("현재 위치·경로 다시 확인")
+                    }
+                    if (it.contains("위치 서비스") || it.contains("위치 설정")) TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                    }) { Text("기기 위치 설정") }
                 }
                 if (monitoring.running && boarding == null && screen.selectedRoute == null) {
                     SectionCard("이동 안내 실행 중", monitoring.request?.boardingName) {

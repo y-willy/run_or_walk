@@ -148,6 +148,52 @@ class GuidanceRevisionUiTest {
   } finally {a.pause().stop().destroy();JourneyMonitoringController.publish(JourneyMonitoringState())}
  }
 
+ @Test fun selectedRouteShowsGuideBeforeSecondaryActionsAndSavesFavoritesInsideTheCard() {
+  Shadows.shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(android.Manifest.permission.ACCESS_FINE_LOCATION)
+  RuntimeEnvironment.getApplication().getSharedPreferences("favorite_buses",0).edit().clear().commit()
+  val a=Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+  try {
+   val vm=ViewModelProvider(a.get())[JourneySessionViewModel::class.java]
+   vm.screens.values.forEach {it.clearRoutesAndBoarding()};vm.mode=FeatureMode.ROUTE
+   vm.updateSettings(JourneySettings(bufferSeconds=60))
+   val screen=vm.screens.getValue(FeatureMode.ROUTE)
+   val stop=OfficialSeoulBusStop(id.stopId,"06510","경희대의료원",point)
+   val route=OfficialSeoulBusRoute(id.stopId,id.routeId,"동대문01",id.directionId,"회기역","2")
+   val choice=JourneyTransitRoute("selected",KakaoTransitChoice(1200,0,route.name,stop.name,point,firstTransitType="BUS"))
+   screen.routes=listOf(choice);screen.selectedRoute=choice
+   screen.boarding=stop.toJourneyPlace();screen.boardingChosenByUser=true
+   screen.selectedBusStop=stop;screen.selectedBusRoute=route;screen.confirmedServiceIdentity=route.identity
+   screen.error="위치 설정을 확인해 주세요."
+   val time=System.currentTimeMillis()
+   val request=JourneyMonitoringRequest(stop.name,point,route.identity,busStop=stop,busRoute=route,settings=vm.settings)
+   JourneyMonitoringController.publish(JourneyMonitoringState(true,request,assessment=AutoGuidanceAssessment(AutoGuidanceStatus.UNKNOWN),
+    location=GuidanceLocation(point,3.0,time),walkingRoute=GuidanceWalkingRoute(point,point,id,300,time,120000,390),
+    arrivals=RealtimeArrivalSnapshot(route.identity,time+540000,fetchedAtEpochMillis=time,validForMillis=600000,receivedAtEpochMillis=time),
+    walkingDistanceMeters=390,providerWalkingSeconds=300))
+   a.get().setContent {RUN_or_WALKTheme {PaceNudgeScreen(a.get(),vm)}}
+   compose.onNodeWithText("이동가이드").assertIsDisplayed()
+   compose.onNodeWithText("지금 이동 안내").assertDoesNotExist()
+   compose.onNodeWithText("이동 가이드").assertDoesNotExist()
+   val summary=compose.onNodeWithText("총 20분 · 동대문01").getUnclippedBoundsInRoot()
+   val guide=compose.onNodeWithTag("guidance-card").getUnclippedBoundsInRoot()
+   Assert.assertTrue("Guide must immediately follow the selected route summary",guide.top>=summary.bottom && guide.top-summary.bottom<=10.dp)
+   for(label in listOf("현재 이동속도","다른 경로 보기","현재 위치·경로 다시 확인","기기 위치 설정"))
+    Assert.assertTrue("$label must follow the guide",compose.onNodeWithText(label).getUnclippedBoundsInRoot().top>=guide.bottom)
+   compose.onAllNodesWithText("자주 타는 버스 등록").assertCountEquals(1)
+   compose.onNodeWithText("자주 타는 버스 등록").assert(hasAnyAncestor(hasTestTag("guidance-card"))).performClick()
+   Assert.assertEquals(route.identity,vm.favorites.items.single().request.identity)
+   compose.onNodeWithText("자주 타는 버스 해제").assertIsDisplayed()
+   save(a.get(),"route-guide-priority.png")
+   compose.onNodeWithText("자주 타는 버스 해제").performClick()
+   Assert.assertTrue(vm.favorites.items.isEmpty())
+   compose.onNodeWithText("다른 경로 보기").performScrollTo().performClick()
+   compose.onNodeWithText("다른 경로 접기").assertIsDisplayed()
+   compose.onNodeWithTag("guidance-card").performScrollTo()
+   Assert.assertTrue(compose.onNodeWithText("다른 경로 접기").getUnclippedBoundsInRoot().top>=compose.onNodeWithTag("guidance-card").getUnclippedBoundsInRoot().bottom)
+   Assert.assertEquals(choice,screen.selectedRoute)
+  } finally {a.pause().stop().destroy();JourneyMonitoringController.publish(JourneyMonitoringState())}
+ }
+
  @Test fun positiveSubsecondSlackDoesNotRenderAsZeroOrContradictTheCautionTitle() {
   val a=Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
   try {

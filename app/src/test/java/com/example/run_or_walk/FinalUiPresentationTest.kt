@@ -32,6 +32,8 @@ class FinalUiPresentationTest {
     @Test fun slackIncludesSafetyBufferAndExpandsActualArrivalClocks() {
         withActivity({RUN_or_WALKTheme { AutomaticGuidanceCard(
             AutoGuidanceAssessment(AutoGuidanceStatus.WALK,bufferSeconds=60),"수인분당선","망포역","",time,time+360000,null,time,180) }}) {
+            compose.onNodeWithText("이동가이드").assertIsDisplayed()
+            compose.onNodeWithText("자주 타는 버스 등록").assertDoesNotExist()
             compose.onNodeWithText("이동 여유 약 2분").assertIsDisplayed()
             compose.onNodeWithText("공식 실시간").assertIsDisplayed()
             compose.onNodeWithText("차량 예정",substring=true).assertDoesNotExist()
