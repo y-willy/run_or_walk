@@ -7,6 +7,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,30 +47,79 @@ internal object JourneyMonitoringController {
     private val mutableState = MutableStateFlow(JourneyMonitoringState())
     val state: StateFlow<JourneyMonitoringState> = mutableState.asStateFlow()
 
-    fun start(context: Context, request: JourneyMonitoringRequest, handover: JourneyMonitoringState? = null): Boolean {
+    var lastStartError: String? = null; private set
+    private var pendingHandover: JourneyMonitoringState? = null
+    private var startSequence=0L
+    private data class StartTicket(val token:Long,val request:JourneyMonitoringRequest,val result:CompletableDeferred<Boolean>,val canActivate:()->Boolean)
+    private var startTicket:StartTicket?=null
+    internal fun isStartCurrent(request:JourneyMonitoringRequest,token:Long):Boolean =
+        if(token==0L) startTicket?.result?.isCompleted!=false else startTicket?.let {
+            if(it.token!=token || it.result.isCompleted || !it.request.isSameJourney(request)) false
+            else if(!it.canActivate()) {
+                lastStartError="선택 경로가 변경되어 새 안내 전환을 취소했어요. 기존 안내는 유지됩니다."
+                it.result.complete(false);false
+            } else true
+        }==true
+    internal fun completeStart(request:JourneyMonitoringRequest,token:Long,error:String?=null) {
+        if(!isStartCurrent(request,token)) return
+        if(error!=null) lastStartError=error
+        startTicket?.result?.complete(error==null)
+    }
+    private fun cancelPendingStart() {
+        startTicket?.result?.complete(false);pendingHandover=null
+    }
+    /** Queuing a service Intent is not a successful journey switch. */
+    suspend fun startAndAwait(context:Context,request:JourneyMonitoringRequest,handover:JourneyMonitoringState?=null,canActivate:()->Boolean={true}):Boolean {
+        if(!start(context,request,handover,canActivate)) return false
+        val ticket=startTicket ?: return false
+        try {
+            return withTimeoutOrNull(50_000L) {ticket.result.await()} ?: run {
+                if(startTicket===ticket) {lastStartError="새 안내 준비 시간이 초과됐어요. 기존 안내는 유지됩니다.";cancelPendingStart()}
+                false
+            }
+        } catch(cancelled:CancellationException) {
+            if(startTicket===ticket) cancelPendingStart()
+            throw cancelled
+        }
+    }
+    internal fun consumeHandover(request:JourneyMonitoringRequest):JourneyMonitoringState? =
+        pendingHandover?.takeIf { it.request?.isSameJourney(request)==true }.also { if(it!=null) pendingHandover=null }
+
+    fun start(context: Context, request: JourneyMonitoringRequest, handover: JourneyMonitoringState? = null,canActivate:()->Boolean={true}): Boolean {
+        val previous=mutableState.value
+        lastStartError=null
         val message = when {
             !request.isValid() -> "공식 승차 장소와 노선·방향을 먼저 선택해 주세요."
             !hasLocationPermission(context) -> "화면 꺼짐 안내에는 위치 권한이 필요해요."
             !notificationsAllowed(context) -> "화면 꺼짐 도착 알림을 받으려면 알림 권한을 허용해 주세요."
             else -> null
         }
-        if (message != null) { publishFailure(message); return false }
+        if (message != null) {
+            lastStartError=message
+            if(!previous.running) publishFailure(message)
+            return false
+        }
         return try {
-            if(!mutableState.value.running && handover?.request?.isSameJourney(request)==true) {
-                publish(monitoringStateWithSettings(handover.copy(running=true),request,System.currentTimeMillis(),true))
-            }
+            cancelPendingStart()
+            val ticket=StartTicket(++startSequence,request,CompletableDeferred(),canActivate)
+            startTicket=ticket
+            pendingHandover=handover?.takeIf { it.request?.isSameJourney(request)==true }
             ContextCompat.startForegroundService(context, Intent(context, JourneyMonitoringService::class.java)
                 .setAction(JourneyMonitoringService.ACTION_START)
+                .putExtra(JourneyMonitoringService.EXTRA_START_TOKEN,ticket.token)
                 .putExtra(JourneyMonitoringService.EXTRA_REQUEST, JourneyMonitoringRequestCodec.encode(request)))
             true
         } catch (_: Exception) {
-            publishFailure("이동 안내를 시작하지 못했어요. 앱 화면을 연 상태에서 다시 시작해 주세요.")
+            cancelPendingStart()
+            lastStartError="이동 안내를 시작하지 못했어요. 앱 화면을 연 상태에서 다시 시작해 주세요."
+            if(previous.running) publish(previous) else publishFailure(requireNotNull(lastStartError))
             false
         }
     }
 
     fun stop(context: Context) {
         // stopService does not create a new service after a process interruption.
+        cancelPendingStart()
         context.stopService(Intent(context, JourneyMonitoringService::class.java))
         mutableState.value = JourneyMonitoringState(message = "이동 안내를 종료했어요.")
     }
@@ -92,7 +144,10 @@ internal object JourneyMonitoringController {
         }
     }
 
-    internal fun publish(state: JourneyMonitoringState) { mutableState.value = state }
+    internal fun publish(state: JourneyMonitoringState) {
+        if(!state.running) {cancelPendingStart();startTicket=null}
+        mutableState.value = state
+    }
     internal fun publishFailure(message: String) { mutableState.value = JourneyMonitoringState(message = message) }
 
     fun notificationsAllowed(context: Context): Boolean =
@@ -192,12 +247,12 @@ internal fun monitoringGuidanceHeadline(state:JourneyMonitoringState,now:Long):S
     val assessment=state.assessment ?: return "정보 확인 중"
     if(assessment.status!=AutoGuidanceStatus.UNKNOWN) return movementGuidanceTitle(assessment,now)
     if(state.arrivals?.hasUsableOfficialEta(now)==true || selectTimetableEvidence(state.timetableAnalysis,now,state.request?.subwayChoice)!=null)
-        return "이동 정보 확인 필요"
+        return unknownGuidanceTitle(assessment.unknownReason,"이동 정보 확인 필요")
     val seoul=state.seoulBusObservations.orEmpty();val gg=state.gyeonggiBusObservations.orEmpty()
     val noService=when {
         state.request?.isGyeonggi==true -> gg.isEmpty() || gg.all {it.serviceEnded}
         state.request?.isBus==true -> seoul.isEmpty() || seoul.all {row -> row.issues.any {it in setOf("SERVICE_ENDED","BUS_SERVICE_ENDED")} || Regex("운행\\s*종료").containsMatchIn(row.officialArrivalMessage)}
         else -> state.subwayObservations.isEmpty()
     }
-    return missingArrivalText(state.arrivalResponseAtEpochMillis,seoul.isNotEmpty() || gg.isNotEmpty() || state.subwayObservations.isNotEmpty(),state.arrivalRequestFailed,noService,now)
+    return unknownGuidanceTitle(assessment.unknownReason,missingArrivalText(state.arrivalResponseAtEpochMillis,seoul.isNotEmpty() || gg.isNotEmpty() || state.subwayObservations.isNotEmpty(),state.arrivalRequestFailed,noService,now))
 }

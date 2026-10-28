@@ -185,6 +185,10 @@ internal class JourneyScreenState(val mode: FeatureMode,
         private set
     fun beginAccessTransitRequest(): Long = ++accessTransitGeneration
     var mapCenter by mutableStateOf<MapPoint?>(null)
+    val mapAccessRequests=MapGeometryRequestGate()
+    val mapJourneyRequests=MapGeometryRequestGate()
+    var mapAccessWalking:WalkingRouteTracker? by mutableStateOf(null)
+    var mapAccessIsReference by mutableStateOf(false)
     var mapAccessSegments by mutableStateOf<List<List<MapPoint>>>(emptyList())
     var mapAccessOrigin by mutableStateOf<MapPoint?>(null)
     var mapAccessDestination by mutableStateOf<MapPoint?>(null)
@@ -466,4 +470,13 @@ internal class JourneyScreenState(val mode: FeatureMode,
             boardingSource == BoardingPointSource.ESTIMATED -> "승차 위치 추정 · 지도에서 장소를 선택해 주세요."
             else -> "승차 위치 확인 필요 · 장소를 직접 선택해 주세요."
         }
+}
+
+/** Display-only grace does not feed walking calculations or extend their source lifetime. */
+internal fun JourneyScreenState.updateMapAccessPresentation(fresh:Boolean,current:MapPoint,nowElapsed:Long) {
+    val age=mapAccessRequests.lastSuccessElapsed?.let {nowElapsed-it}
+    val invalid=mapAccessOrigin?.let {pedestrianDistance(it,current)>100.0}==true ||
+        (age!=null && age>300_000L)
+    if(invalid) mapAccessSegments=emptyList()
+    mapAccessIsReference=!fresh && mapAccessSegments.isNotEmpty()
 }

@@ -1,0 +1,47 @@
+{
+  "baseline": "89d9dedadff6f07a344c545687bdae1d06d5328b",
+  "branch": "fix/final-ux-reliability-20261028",
+  "verifiedAtKst": "2026-10-28T15:26:30.991773+09:00",
+  "android": {
+    "tests": 249,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "repositoryTests": 142,
+  "cloudRegressionTests": 107,
+  "worker": {
+    "typecheck": "passed",
+    "deployDryRun": "passed",
+    "tests": 6,
+    "failures": 0,
+    "sourceChanged": false,
+    "productionDeployed": false
+  },
+  "apk": {
+    "path": "app/build/outputs/apk/debug/app-debug.apk",
+    "bytes": 58771151,
+    "sha256": "d233747470e603eab12ca3c75296aab062c61936fbe23d75e06ed0def02f1cdb"
+  },
+  "initialReproduction": {
+    "tests": 2,
+    "failedBeforeFix": 2
+  },
+  "favoriteRetry": {
+    "transientBackoffSeconds": [
+      30,
+      60,
+      120,
+      240,
+      300
+    ],
+    "maximumBackoffSeconds": 300,
+    "permanentStop": false,
+    "honorsLongerServerRetry": true,
+    "configurationRetrySeconds": 300,
+    "longOutageMockSeconds": 3150
+  },
+  "images": "Actual Compose/Robolectric renders with mock data; not physical-device captures. Native Kakao map is explicitly a placeholder only in test rendering.",
+  "liveApi": "No new operational API fetch. Prior captured Seoul/Mangpo responses replayed at original receipt times in existing cloud regressions.",
+  "physicalDeviceTested": false
+}

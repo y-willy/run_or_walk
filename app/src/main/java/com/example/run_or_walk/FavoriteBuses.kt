@@ -3,6 +3,13 @@ package com.example.run_or_walk
 import android.content.Context
 import androidx.compose.runtime.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -49,6 +56,10 @@ internal class FavoriteBusStore(context: Context) {
         val index=items.indexOfFirst { it.key==key }
         if(index>0) { val next=items.toMutableList();java.util.Collections.swap(next,index,index-1);save(next) }
     }
+    fun moveDown(key: String) {
+        val index=items.indexOfFirst { it.key==key }
+        if(index in 0 until items.lastIndex) { val next=items.toMutableList();java.util.Collections.swap(next,index,index+1);save(next) }
+    }
     private fun save(values: List<FavoriteBus>) { items=values;prefs.edit().putString("items",FavoriteBusCodec.encode(values)).apply() }
 }
 
@@ -66,9 +77,11 @@ internal fun restoreFavoriteBus(screen: JourneyScreenState,value: FavoriteBus) {
     screen.confirmedServiceIdentity=request.identity
     screen.status="저장한 공식 정류장·방향으로 도착정보를 조회해요."
 }
-internal data class FavoriteBusArrival(val selection: FavoriteBus?,val snapshot: RealtimeArrivalSnapshot?,val message: String)
+internal enum class FavoriteBusFailure { TRANSIENT, TIMEOUT, RATE_LIMIT, CONFIGURATION, INVALID_SELECTION }
+internal data class FavoriteBusArrival(val selection: FavoriteBus?,val snapshot: RealtimeArrivalSnapshot?,val message: String,
+    val retryAtEpochMillis: Long?=null,val failed: Boolean=false,val failureType:FavoriteBusFailure?=null)
 
-/** One-shot visible-card queries. No polling; GG stops are shared across route cards for 30 s. */
+/** Visible-card polling shares provider requests, preserves original observations, and obeys server backoff. */
 internal class FavoriteBusArrivalLoader(
     private val bus: SeoulBusRepository = SeoulBusRepository(),
     private val gg: GyeonggiBusRepository = GyeonggiBusRepository(),
@@ -76,42 +89,125 @@ internal class FavoriteBusArrivalLoader(
     private val seoulRoutes: suspend (OfficialSeoulBusStop)->List<OfficialSeoulBusRoute> = { bus.routes(it) },
     private val seoulArrivals: suspend (OfficialSeoulBusStop,OfficialSeoulBusRoute)->List<OfficialSeoulBusArrival> = { stop,route -> bus.arrivals(stop,route) },
     private val ggVia: suspend (String)->List<GyeonggiStopRoute> = { lookup.via(it) },
-    private val ggArrivals: suspend (String)->List<GyeonggiBusArrivalDisplay> = { gg.arrivals(it) }
+    private val ggArrivals: suspend (String)->List<GyeonggiBusArrivalDisplay> = { gg.arrivals(it) },
+    private val clock: ()->Long = System::currentTimeMillis,
+    private val timeoutMillis:Long = 20_000L
 ) {
-    private val mutex=Mutex()
-    private val ggRows=mutableMapOf<String,Pair<Long,List<GyeonggiBusArrivalDisplay>>>()
-    private val ggRoutes=mutableMapOf<String,List<GyeonggiStopRoute>>()
-    suspend fun load(value: FavoriteBus): FavoriteBusArrival = mutex.withLock {
+    private data class Entry(var due:Long=0,var result:FavoriteBusArrival?=null,
+        var seoul:List<OfficialSeoulBusArrival> = emptyList(),var gyeonggi:List<GyeonggiBusArrivalDisplay> = emptyList(),var failures:Int=0)
+    private val selectionLocks=ConcurrentHashMap<String,Mutex>()
+    private val resourceLocks=ConcurrentHashMap<String,Mutex>()
+    private val permits=Semaphore(2)
+    private val entries=ConcurrentHashMap<String,Entry>()
+    private val ggRows=ConcurrentHashMap<String,Pair<Long,List<GyeonggiBusArrivalDisplay>>>()
+    private val ggRoutes=ConcurrentHashMap<String,Pair<Long,List<GyeonggiStopRoute>>>()
+    private val seoulRouteRows=ConcurrentHashMap<String,Pair<Long,List<OfficialSeoulBusRoute>>>()
+    private val providerFailures=ConcurrentHashMap<String,Pair<Int,FavoriteBusArrival>>()
+    private fun current(value:FavoriteBus,entry:Entry,now:Long):FavoriteBusArrival {
+        val previous=entry.result ?: return FavoriteBusArrival(null,null,"첫 도착정보를 연결하고 있어요")
+        val snapshot=if(previous.selection==null) null else if(value.request.isGyeonggi)
+            chooseMatchingGyeonggiArrival(requireNotNull(value.request.gyeonggiMatch),entry.gyeonggi,now)?.snapshot
+            else chooseMatchingBusArrival(value.request.identity,entry.seoul,now)?.snapshot
+        return previous.copy(snapshot=snapshot)
+    }
+    fun cached(value:FavoriteBus):FavoriteBusArrival? = entries[value.key]?.let {current(value,it,clock())}
+    fun nextRefreshAt(value:FavoriteBus):Long {
+        val entry=entries[value.key]
+        val block=providerFailures[value.request.identity.authority]?.second
+        if(entry?.result?.failureType in setOf(FavoriteBusFailure.CONFIGURATION,FavoriteBusFailure.INVALID_SELECTION) ||
+            block?.failureType==FavoriteBusFailure.CONFIGURATION) return Long.MAX_VALUE
+        return maxOf(entry?.due ?: 0L,block?.retryAtEpochMillis ?: 0L)
+    }
+    private suspend fun <T> shared(key:String,cache:ConcurrentHashMap<String,Pair<Long,T>>,fetch:suspend ()->T):T =
+        resourceLocks.getOrPut(key) {Mutex()}.withLock {
+            cache[key]?.takeIf {clock()-it.first in 0L until 30000L}?.second
+                ?: fetch().also {cache[key]=clock() to it}
+        }
+    suspend fun load(value: FavoriteBus,recheckConfiguration:Boolean=false): FavoriteBusArrival = selectionLocks.getOrPut(value.key) {Mutex()}.withLock {
+        if(!value.isValid()) return@withLock FavoriteBusArrival(null,null,"공식 승차정보를 다시 선택해 주세요.")
+        val request=value.request
+        val entry=entries.getOrPut(value.key) { Entry() }
+        val now=clock()
+        if(entry.due>now) return@withLock current(value,entry,now)
+        if(!recheckConfiguration && entry.result?.failureType in setOf(FavoriteBusFailure.CONFIGURATION,FavoriteBusFailure.INVALID_SELECTION))
+            return@withLock current(value,entry,now)
+        val blocked=providerFailures[request.identity.authority]?.second
+        if(blocked?.retryAtEpochMillis?.let {it>now}==true || blocked?.failureType==FavoriteBusFailure.CONFIGURATION && !recheckConfiguration) {
+            entry.due=requireNotNull(blocked.retryAtEpochMillis)
+            entry.result=blocked.copy(selection=entry.result?.selection)
+            return@withLock current(value,entry,now)
+        }
+        entry.due=now+30000L
         try {
-            val request=value.request
-            val now=System.currentTimeMillis()
+          permits.withPermit {
+           withTimeout(timeoutMillis) {
+            // Another card can receive Retry-After while this card waits for a permit.
+            val deferred=providerFailures[request.identity.authority]?.second
+            if(deferred?.retryAtEpochMillis?.let {it>clock()}==true || deferred?.failureType==FavoriteBusFailure.CONFIGURATION && !recheckConfiguration) {
+                entry.due=requireNotNull(deferred.retryAtEpochMillis)
+                entry.result=deferred.copy(selection=entry.result?.selection)
+                return@withTimeout
+            }
+            entry.due=clock()+30000L
+            val selected:FavoriteBus
             if(request.isGyeonggi) {
                 val match=requireNotNull(request.gyeonggiMatch)
-                val routes=ggRoutes[match.stationId] ?: ggVia(match.stationId).also { ggRoutes[match.stationId]=it }
+                val routes=shared(match.stationId,ggRoutes) {ggVia(match.stationId)}
                 val route=routes.singleOrNull { it.routeId==match.routeId && it.staOrder==match.staOrder }
-                    ?: return@withLock FavoriteBusArrival(null,null,"공식 노선·방향이 변경됐어요. 정류장 찾기에서 다시 선택해 주세요.")
-                if(route.routeName!=match.routeName) return@withLock FavoriteBusArrival(null,null,"공식 노선명이 변경됐어요. 다시 선택해 주세요.")
-                val cached=ggRows[match.stationId]?.takeIf { now-it.first in 0..30000L }?.second
-                val rows=cached ?: ggArrivals(match.stationId).also { ggRows[match.stationId]=System.currentTimeMillis() to it }
-                val selected=chooseMatchingGyeonggiArrival(match,rows,System.currentTimeMillis())
-                FavoriteBusArrival(value,selected?.snapshot,if(rows.isEmpty()) "현재 운행·도착정보 없음" else "선택 방향의 도착정보 없음")
+                if(route==null || route.routeName!=match.routeName) {
+                    entry.gyeonggi=emptyList();entry.result=FavoriteBusArrival(null,null,"공식 노선·방향이 변경됐어요. 다시 선택해 주세요.",failed=true,failureType=FavoriteBusFailure.INVALID_SELECTION)
+                    return@withTimeout
+                }
+                val rows=shared("arrivals:"+match.stationId,ggRows) {ggArrivals(match.stationId)}
+                entry.gyeonggi=mergeGyeonggiBusArrivals(match,entry.gyeonggi,rows,clock())
+                selected=value
             } else {
                 val stop=requireNotNull(request.busStop);val saved=requireNotNull(request.busRoute)
-                val route=seoulRoutes(stop).singleOrNull { it.identity==saved.identity && it.supported }
-                    ?: return@withLock FavoriteBusArrival(null,null,"공식 노선·승차 순서가 변경됐어요. 다시 선택해 주세요.")
-                val rows=seoulArrivals(stop,route)
-                val selected=chooseMatchingBusArrival(route.identity,rows,System.currentTimeMillis())
-                FavoriteBusArrival(value.copy(request=request.copy(busRoute=route)).takeIf { it.isValid() },selected?.snapshot,
-                    if(rows.isEmpty()) "현재 운행·도착정보 없음" else rows.firstOrNull()?.statusMessage?.takeIf { it.isNotBlank() } ?: "유효한 도착정보 없음")
+                val routes=shared("seoul:"+stop.stopId,seoulRouteRows) {seoulRoutes(stop)}
+                val route=routes.singleOrNull { it.identity==saved.identity && it.supported }
+                if(route==null) {
+                    entry.seoul=emptyList();entry.result=FavoriteBusArrival(null,null,"공식 노선·승차 순서가 변경됐어요. 다시 선택해 주세요.",failed=true,failureType=FavoriteBusFailure.INVALID_SELECTION)
+                    return@withTimeout
+                }
+                entry.seoul=mergeSeoulBusArrivals(route.identity,entry.seoul,seoulArrivals(stop,route),clock())
+                selected=value.copy(request=request.copy(busRoute=route))
             }
-        } catch(cancelled: CancellationException) { throw cancelled }
-        catch(error: Exception) {
-            val retry=(error as? SeoulBusApiException)?.retryAfterEpochMillis ?: (error as? GyeonggiApiException)?.retryAfterEpochMillis
-            FavoriteBusArrival(null,null,when {
-                retry?.let { it>System.currentTimeMillis() }==true -> "조회 제한 · 잠시 후 다시 시도해 주세요."
-                (error is SeoulBusApiException && error.failure==SeoulBusFailure.ACCESS_DENIED) || (error is GyeonggiApiException && error.httpStatus in listOf(401,403)) -> "공식 API 인증을 확인해 주세요."
-                else -> "도착정보 조회 실패 · 연결을 확인하고 다시 시도해 주세요."
-            })
+            providerFailures.computeIfPresent(request.identity.authority) {_,old ->
+                old.takeIf {it.second.retryAtEpochMillis?.let {due->due>clock()}==true}
+            }
+            entry.failures=0
+            entry.result=FavoriteBusArrival(selected,null,if(entry.seoul.isEmpty() && entry.gyeonggi.isEmpty()) "운행정보 없음" else "새로운 차량 도착정보를 기다리고 있어요")
+           }
+          }
+        } catch(error: Exception) {
+            if(error is CancellationException && error !is TimeoutCancellationException) {
+                entry.due=clock()+30000L;throw error
+            }
+            currentCoroutineContext().ensureActive()
+            val attempts=++entry.failures
+            val serverRetry=(error as? SeoulBusApiException)?.retryAfterEpochMillis ?: (error as? GyeonggiApiException)?.retryAfterEpochMillis
+            val configuration=error is SeoulBusApiException && error.failure in setOf(SeoulBusFailure.SETUP_REQUIRED,SeoulBusFailure.ACCESS_DENIED) ||
+                error is GyeonggiApiException && (error.httpStatus in setOf(401,403,404) || error.serverCode in setOf(
+                    "GYEONGGI_NOT_CONFIGURED","GYEONGGI_KEY_INVALID","GYEONGGI_KEY_REJECTED","GYEONGGI_ACCESS_FORBIDDEN",
+                    "GYEONGGI_GATEWAY_KEY_REJECTED","GYEONGGI_GATEWAY_KEY_EXPIRED","GYEONGGI_GATEWAY_ACCESS_FORBIDDEN"))
+            val limited=error is SeoulBusApiException && error.failure==SeoulBusFailure.REQUEST_LIMIT || error is GyeonggiApiException && error.httpStatus==429
+            val category=if(configuration) FavoriteBusFailure.CONFIGURATION else if(limited) FavoriteBusFailure.RATE_LIMIT else if(error is TimeoutCancellationException || error is java.net.SocketTimeoutException) FavoriteBusFailure.TIMEOUT else FavoriteBusFailure.TRANSIENT
+            val backoff=if(configuration) 300000L else minOf(300000L,30000L*(1L shl minOf(attempts-1,4)))
+            val retry=maxOf(clock()+backoff,serverRetry ?: 0L)
+            val failure=FavoriteBusArrival(null,null,when {
+                configuration -> "공식 API 인증·연결 설정 확인 필요 · 설정 확인 후 다시 열거나 새로고침해 주세요."
+                limited || serverRetry?.let {it>now}==true -> "조회 제한 · 허용 시각에 자동으로 다시 확인해요."
+                attempts>=5 -> "연결 상태 확인 필요 · 자동으로 다시 조회해요."
+                else -> "도착정보를 불러오지 못했어요"
+            },retry,true,category)
+            // Per-selection transient failures must not suppress a healthy unrelated stop.
+            // Rate limits, provider authentication and explicit server deadlines are shared.
+            if(configuration || limited || serverRetry!=null) providerFailures.compute(request.identity.authority) {_,old ->
+                if((old?.second?.retryAtEpochMillis ?: 0L)>retry) old else attempts to failure
+            }
+            entry.due=retry
+            entry.result=failure.copy(selection=entry.result?.selection)
         }
+        current(value,entry,clock())
     }
 }

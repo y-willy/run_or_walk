@@ -10,10 +10,12 @@ internal const val WALKING_OUTSIDE_RANGE_MESSAGE = "도보 길찾기 범위를 �
 internal fun shouldSearchTransitAccess(error: Exception): Boolean =
     (error as? KakaoApiException)?.failure == KakaoFailure.NO_ROUTE
 
-/** Trigger before a walking API failure, including a geographically remote selected origin. */
+/** A long duration is not a provider range error. Try real walking routes through 30 km.
+ * Actual NO_ROUTE responses can still offer transit alternatives regardless of distance.
+ */
+@Suppress("UNUSED_PARAMETER")
 internal fun requiresTransitAccess(current: MapPoint, departure: MapPoint, walkingSeconds: Int? = null): Boolean =
-    accessDistanceMeters(current, departure) >= 30_000.0 ||
-        accessDistanceMeters(current, departure) > 3_000.0 || (walkingSeconds ?: 0) > 3_600
+    accessDistanceMeters(current, departure) > 30_000.0
 
 /** Search estimates lose their context when GPS moves, ages, or the app resumes much later. */
 internal fun isAccessEstimateFresh(
