@@ -1,0 +1,24 @@
+{
+  "tests": 246,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "base": "081443a70c03cba8db9dd0b8f839be0660ec8861",
+  "branch": "fix/final-guidance-stability-followup-20261028",
+  "repositoryOnly": true,
+  "externalTestsMigrated": 84,
+  "newTests": 20,
+  "apkBytes": 58794377,
+  "apkSha256": "ace309a79ca48ee6fb52d5da7710a82a624dab62702d57a06382dae2ebee2515",
+  "mockComposeRenders": true,
+  "physicalDeviceVerified": false,
+  "liveApiFetched": false,
+  "workerChanged": false,
+  "separateExternalReplay": {
+    "tests": 23,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "sourceCommit": "e009a1c8ee820d7cf45ea443dc9371ef9e1b197b"
+}
