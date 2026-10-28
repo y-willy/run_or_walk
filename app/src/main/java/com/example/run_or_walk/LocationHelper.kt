@@ -15,6 +15,8 @@ import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.tasks.Task
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
@@ -125,7 +127,8 @@ internal fun Location.asGuidanceSample(): GuidanceLocation {
         if (hasAccuracy()) accuracy.toDouble() else Double.POSITIVE_INFINITY,
         if (ageMillis == Long.MAX_VALUE) -1L else System.currentTimeMillis() - ageMillis,
         if (hasSpeed()) speed.toDouble() else null,
-        if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond.toDouble() else null)
+        if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond.toDouble() else null,
+        if(ageMillis==Long.MAX_VALUE) null else elapsedRealtimeNanos/1_000_000L)
 }
 
 suspend fun getCurrentPoint(context: Context): MapPoint = getCurrentLocationSample(context).point
@@ -155,3 +158,19 @@ internal fun liveLocationSamples(context: Context): kotlinx.coroutines.flow.Flow
         } catch (error: Exception) { close(error) }
         awaitClose { client.removeLocationUpdates(callback) }
     }
+
+/** A transient provider close must not permanently stop fresh fixes until the next Activity resume. */
+internal fun recoveringLocationSamples(source:()->kotlinx.coroutines.flow.Flow<GuidanceLocation>,
+    onFailure:(Exception)->Unit={},retryMillis:Long=5_000L):kotlinx.coroutines.flow.Flow<GuidanceLocation> = kotlinx.coroutines.flow.flow {
+    var failures=0
+    while(kotlinx.coroutines.currentCoroutineContext().isActive) {
+        try {
+            source().collect {fix ->failures=0;emit(fix)}
+            return@flow
+        } catch(cancelled:CancellationException) {throw cancelled}
+        catch(error:Exception) {
+            onFailure(error);failures++
+            kotlinx.coroutines.delay(minOf(30_000L,retryMillis*(1L shl minOf(failures-1,3))))
+        }
+    }
+}

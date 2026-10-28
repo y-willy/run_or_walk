@@ -134,7 +134,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     var searchExpanded by rememberSaveable(mode) { mutableStateOf(false) }
     var alternativesExpanded by rememberSaveable(mode) { mutableStateOf(false) }
     var officialDetailsExpanded by rememberSaveable(mode) { mutableStateOf(false) }
-    val displayClock=remember { GuidanceDisplayClock(System.currentTimeMillis(),SystemClock.elapsedRealtime(),SystemClock::elapsedRealtime) }
+    val displayClock=session.displayClock
     var clockPulse by remember { mutableLongStateOf(displayClock.now()) }
     // Every data-driven composition uses a fresh clock as well as the periodic pulse.
     // A just-received GPS/API timestamp must not look future-dated against the prior UI tick.
@@ -358,7 +358,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 else "현재 위치를 확인하고 있어요",
             "위치·경로를 확인하지 못했어요",
             request = {
-                val location = getCurrentLocationSample(context)
+                val location = displayClock.alignLocation(session.walkingLocation())
                 if (target.revision != revision || !isActiveTarget(target)) throw CancellationException()
                 // A route provider failure must not discard a successful device fix.
                 target.location = location
@@ -376,9 +376,11 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         if (target.mode == FeatureMode.ROUTE && requiresTransitAccess(location.point, departure)) {
                             startAccessTransitFallback(target, location)
                             LocationWorkResult(location)
-                        } else if(target.walkingRefreshCadence.tryRequest(SystemClock.elapsedRealtime()))
-                            LocationWorkResult(location, walk = kakaoRepository.searchWalk(location.point, boarding!!.point))
-                        else LocationWorkResult(location)
+                        } else {
+                            target.walkingRefreshCadence.permitConfigurationRetry()
+                            LocationWorkResult(location,walk=target.walkingRefreshCadence.fetch(location.point,boarding!!.point,
+                                SystemClock::elapsedRealtime,displayClock::now,query=session.walkingSearch))
+                        }
                     }
                     LocationAction.RECENTER, LocationAction.SET_DEPARTURE -> LocationWorkResult(location)
                 }
@@ -724,13 +726,14 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         val identity = target.confirmedServiceIdentity
         fun active() = target.revision == revision && isActiveTarget(target) &&
             target.requestId == requestId && !target.busy &&
-            target.boarding == boarding && target.confirmedServiceIdentity == identity
+            target.boarding == boarding
         try {
             // The foreground GPS stream already supplies validated observations; do not
             // lose a real route because a redundant one-shot GPS request times out.
             val location=session.locationAt(displayClock.now(),target.location,latestMonitoring.location)
-                ?: getCurrentLocationSample(context)
+                ?: displayClock.alignLocation(session.walkingLocation())
             if (!active()) return
+            locationSampleFailure(location,displayClock.now())?.let {throw DeviceLocationException(it)}
             applyWalkingLocation(target,location)
             if(target.walkRoute==null) target.reuseMapWalkingForBoarding(location,session.settings,
                 foregroundPaceCalibrator.current(displayClock.now()),displayClock.now())
@@ -739,13 +742,15 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             val origin = target.walkingTracker?.origin ?: target.walkOrigin
             val walk = target.walkRoute
             val walkFresh = fetched != null && origin != null && walk != null &&
-                displayClock.now() - fetched in 0L..90_000L &&
+                displayClock.now()-fetched in 0L..120_000L &&
+                (target.walkingRefreshCadence.lastRequestedElapsed?.let {SystemClock.elapsedRealtime()-it<WALKING_REFRESH_MILLIS}
+                    ?: (displayClock.now()-fetched<WALKING_REFRESH_MILLIS)) &&
                 distanceBetweenMeters(origin, location.point) <= 25.0 &&
                 target.walkingPoints.size >= 2 &&
                 distanceBetweenMeters(target.walkingPoints.last(), boarding.point) <= 150.0
             if (walkFresh) {
                 // Rebind the same actual, fresh walking response after a direction choice.
-                target.guidanceWalkingRoute = identity?.let {
+                target.guidanceWalkingRoute = target.confirmedServiceIdentity?.let {
                     GuidanceWalkingRoute(requireNotNull(target.walkOrigin ?: origin), boarding.point, it,
                         requireNotNull(walk).durationSeconds, requireNotNull(fetched), 120_000L,
                         requireNotNull(walk).distanceMeters)
@@ -760,9 +765,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                     startAccessTransitFallback(target, location)
                     return
                 }
-                if(!target.walkingRefreshCadence.tryRequest(SystemClock.elapsedRealtime())) return
-                val refreshedWalk = kakaoRepository.searchWalk(location.point, boarding.point)
-                if (active()) storeWalking(target, location, boarding, identity, refreshedWalk)
+                val refreshedWalk=target.walkingRefreshCadence.fetch(location.point,boarding.point,
+                    SystemClock::elapsedRealtime,displayClock::now,query=session.walkingSearch) ?: return
+                if(active()) storeWalking(target,location,boarding,target.confirmedServiceIdentity,refreshedWalk)
             }
             if (active()) target.error = null
         } catch (cancelled: CancellationException) {
@@ -1319,15 +1324,26 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             while (isActive) { clockPulse = displayClock.now(); delay(1_000L) }
         }
     }
-    LaunchedEffect(screen, screen.boarding, screen.confirmedServiceIdentity, monitorKey) {
+    LaunchedEffect(screen,screen.confirmedServiceIdentity) {
+        if(!isMonitored(screen)) session.locationAt(displayClock.now(),screen.location)?.let {applyWalkingLocation(screen,it)}
+    }
+    LaunchedEffect(screen, screen.boarding, monitorKey) {
         if (screen.boarding != null && !isMonitored(screen)) {
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                screen.walkingRefreshCadence.permitConfigurationRetry()
                 if(hasLocationPermission(context)) session.locationAt(displayClock.now(),screen.location,latestMonitoring.location)?.let {
                     applyWalkingLocation(screen,it)
                 }
                 launch {
                     try {
-                        liveLocationSamples(context).collect { fix ->
+                        recoveringLocationSamples(session.walkingLocations,onFailure={error ->
+                            if(error is SecurityException || error is DeviceLocationException && error.failure in
+                                setOf(LocationFailure.PERMISSION_REQUIRED,LocationFailure.SERVICES_DISABLED)) {
+                                screen.discardWalkingResults();screen.location=null
+                                screen.error=friendlyFailure(error,"현재 위치를 확인할 수 없어요")
+                            }
+                        }).collect { sample ->
+                            val fix=displayClock.alignLocation(sample)
                             if(isActiveTarget(screen) && !isMonitored(screen)) {
                                 applyWalkingLocation(screen,fix)
                                 currentPoint=screen.location?.point
@@ -1355,7 +1371,10 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 while (isActive) {
                     val cycleStarted=SystemClock.elapsedRealtime()
                     refreshWalkingSnapshot(screen)
-                    delay((WALKING_REFRESH_MILLIS-(SystemClock.elapsedRealtime()-cycleStarted)).coerceAtLeast(1000L))
+                    val next=screen.walkingRefreshCadence.lastRequestedElapsed?.let {screen.walkingRefreshCadence.requestDelay(SystemClock.elapsedRealtime())}
+                        ?: (screen.walkFetchedAtEpochMillis?.let {it+WALKING_REFRESH_MILLIS-displayClock.now()}
+                            ?: (WALKING_REFRESH_MILLIS-(SystemClock.elapsedRealtime()-cycleStarted)))
+                    delay(next.coerceAtLeast(1000L))
                 }
             }
         }
@@ -1448,7 +1467,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 var walk:KakaoWalkingRoute?=null
                 val paths=if(requiresTransitAccess(fix.point,destination)) transitGeometry()
                     else try {
-                        val actual=kakaoRepository.searchWalk(fix.point,destination)
+                        val actual=session.walkingSearch(fix.point,destination)
                         if(!validWalkingAccess(actual,fix.point,destination)) throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
                         walk=actual;listOf(actual.points)
                     } catch(error:KakaoApiException) {if(error.failure==KakaoFailure.NO_ROUTE) transitGeometry() else throw error}
@@ -1785,7 +1804,12 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
 
                 if (screen.selectedRoute != null || boarding != null || monitored) {
                     JourneyMetrics(displayedWalkingSpeed(displayedLocation,now),
-                        displayedWalk?.distanceMeters)
+                        displayedWalk?.distanceMeters,distanceStatus=when {
+                            !hasLocationPermission(context) -> "위치 권한 필요"
+                            displayedLocation==null -> "위치 확인 필요"
+                            (if(monitored) monitoring.walkingError else walkingRequestMessage(screen.walkingRefreshCadence.error))!=null -> "경로 조회 실패"
+                            else -> "경로 조회 중"
+                        })
                     AutomaticGuidanceCard(assessment,
                         favoriteBusSaved = favoriteBus?.let { favorite -> session.favorites.items.any { it.key == favorite.key } } == true,
                         onToggleFavoriteBus = favoriteBus?.let { favorite -> { session.favorites.toggle(favorite) } },
@@ -1818,7 +1842,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         arrivalSource = if(validArrival!=null) GuidanceArrivalSource.OFFICIAL_REALTIME else if(estimatedArrivals?.first?.source==OfficialTimetableEstimateSource.OFFICIAL_TIMETABLE_SCHEDULE) GuidanceArrivalSource.OFFICIAL_TIMETABLE_SCHEDULE else GuidanceArrivalSource.OFFICIAL_TIMETABLE_POSITION,
                         arrivalPrecision = validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
                         nextArrivalPrecision = validArrival?.nextArrivalPrecision ?: validArrival?.etaPrecision ?: ArrivalTimePrecision.MINUTES,
-                        walkingUnavailableLabel = if (walkingOutsideRange) "—" else "확인 필요",
+                        walkingUnavailableLabel = if(walkingOutsideRange) "—" else if(displayedLocation==null) "위치 확인 필요"
+                            else if((if(monitored) monitoring.walkingError else walkingRequestMessage(screen.walkingRefreshCadence.error))!=null) "경로 확인 필요"
+                            else "경로 조회 중",
                         remainingDistanceMeters = displayedWalk?.distanceMeters,
                         paceStatus = if (calculationPace != null) "내 걸음속도로 자동 계산 중"
                             else if (settings.usePersonalWalkingSpeed && settings.personalWalkingSpeedKmh != null) "내 걷기 분석 기준 · 개인화 도보시간"
@@ -1826,6 +1852,10 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                             else "설정한 걸음속도로 계산 중",
                         estimateLabel = null,
                         walkingSeconds = if(walkingOutsideRange) null else displayedWalk?.durationSeconds)
+                    (if(monitored) monitoring.walkingError else walkingRequestMessage(screen.walkingRefreshCadence.error))?.let {problem ->
+                        NoticeCard(problem,isError=displayedWalk==null)
+                        if(!monitored) TextButton(onClick={requestLocation(screen,LocationAction.WALKING)},enabled=!screen.walkingRefreshCadence.requesting) {Text("도보 경로 다시 확인")}
+                    }
                     if (monitored) {
                         OutlinedButton(onClick = { JourneyMonitoringController.stop(context) },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),

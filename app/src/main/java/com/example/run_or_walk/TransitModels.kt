@@ -44,7 +44,9 @@ data class KakaoPlace(
 data class KakaoWalkingRoute(
     val distanceMeters: Int,
     val durationSeconds: Int,
-    val points: List<MapPoint>
+    val points: List<MapPoint>,
+    val requestedOrigin:MapPoint?=null,
+    val requestedDestination:MapPoint?=null
 )
 
 enum class BoardingPointSource { VERIFIED, ESTIMATED, UNKNOWN }

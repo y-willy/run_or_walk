@@ -41,6 +41,7 @@ class JourneyMonitoringService : Service() {
     private var locationJob: Job? = null
     private var walkingJob: Job? = null
     private var routeTracker: WalkingRouteTracker? = null
+    private var walkingRequests=WalkingRefreshCadence()
     private var lastWalkingRequestAt = 0L
     private var lastWalkingRequestElapsed:Long?=null
     private var generation = 0L
@@ -173,6 +174,7 @@ class JourneyMonitoringService : Service() {
             message = "화면이 꺼져도 이동 안내를 확인해요. 최대 60분 후 종료돼요."))
         routeTracker=handover?.walkingGeometry
         lastWalkingRequestElapsed=handover?.walkingRequestElapsed
+        walkingRequests=WalkingRefreshCadence(lastWalkingRequestElapsed)
         lastWalkingRequestAt=lastWalkingRequestElapsed?.let {
             displayClock.now()-(android.os.SystemClock.elapsedRealtime()-it).coerceAtLeast(0L)
         } ?: 0L
@@ -191,7 +193,7 @@ class JourneyMonitoringService : Service() {
         if(valid?.assessment?.status?.let {it!=AutoGuidanceStatus.UNKNOWN}==true) return valid
         val location=valid?.location?.takeIf {locationSampleFailure(it,now)==null}
             ?: JourneyMonitoringController.state.value.location?.takeIf {locationSampleFailure(it,now)==null}
-            ?: positionSample()
+            ?: displayClock.alignLocation(positionSample())
         var state=valid ?: JourneyMonitoringState(true,request)
         state=state.copy(location=location)
         if(request.isGyeonggi) {
@@ -373,7 +375,7 @@ class JourneyMonitoringService : Service() {
                 live.walkingPoints.takeIf { walking != null }.orEmpty(), subwayObservations, timetableAnalysis,
                 measuredPace, failure,seoulRows,gyeonggiRows,responseAt,arrivalError=message.takeIf { failure },
                 walkingCalculatedAtEpochMillis=live.walkingCalculatedAtEpochMillis,
-                walkingGeometry=routeTracker,walkingRequestElapsed=lastWalkingRequestElapsed))
+                walkingGeometry=routeTracker,walkingRequestElapsed=lastWalkingRequestElapsed,walkingError=live.walkingError))
 
             val displayedAssessment=JourneyMonitoringController.state.value.assessment ?: assessment
             if (displayedAssessment.status == AutoGuidanceStatus.UNKNOWN) notifications.cancel(ARRIVAL_ID)
@@ -417,7 +419,15 @@ class JourneyMonitoringService : Service() {
                 }
             }
             try {
-                locationSamples().collect { fix ->
+                recoveringLocationSamples(locationSamples,onFailure={error ->
+                    if(token==generation && (error is SecurityException || error is DeviceLocationException && error.failure in
+                        setOf(LocationFailure.PERMISSION_REQUIRED,LocationFailure.SERVICES_DISABLED))) {
+                        val old=JourneyMonitoringController.state.value
+                        publishMovement(monitoringStateWithSettings(old.copy(location=null,walkingRoute=null),
+                            currentRequest ?: request,displayClock.now(),hasLocationPermission(this@JourneyMonitoringService)))
+                    }
+                }).collect { sample ->
+                    val fix=displayClock.alignLocation(sample)
                     if(token != generation || currentRequest?.isSameJourney(request) != true) return@collect
                     updateWalkingLocation(fix)
                     val now=displayClock.now()
@@ -426,15 +436,22 @@ class JourneyMonitoringService : Service() {
                         lastWalkingRequestElapsed=android.os.SystemClock.elapsedRealtime()
                         walkingJob=scope.launch {
                             try {
-                                val route=walkingSearch(fix.point,request.boardingPoint)
-                                if(!validWalkingAccess(route,fix.point,request.boardingPoint)) throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+                                val route=walkingRequests.fetch(fix.point,request.boardingPoint,
+                                    android.os.SystemClock::elapsedRealtime,displayClock::now,query=walkingSearch) ?: return@launch
                                 if(token != generation || currentRequest?.isSameJourney(request) != true) return@launch
                                 val latest=JourneyMonitoringController.state.value.location
                                 if(latest!=null && pedestrianDistance(latest.point,fix.point)>35.0) return@launch
                                 routeTracker=WalkingRouteTracker(fix.point,route,displayClock.now())
+                                JourneyMonitoringController.publish(JourneyMonitoringController.state.value.copy(walkingError=null))
                                 JourneyMonitoringController.state.value.location?.let { updateWalkingLocation(it) }
                             } catch(cancelled: CancellationException) { throw cancelled }
-                            catch(_: Exception) { /* Keep the previous real route only until its original expiry. */ }
+                            catch(error: Exception) {
+                                if(token==generation && currentRequest?.isSameJourney(request)==true) {
+                                    val latest=JourneyMonitoringController.state.value
+                                    publishMovement(monitoringStateWithSettings(latest.copy(walkingError=walkingRequestMessage(walkingRequests.error)),
+                                        request,displayClock.now(),hasLocationPermission(this@JourneyMonitoringService)))
+                                }
+                            }
                         }
                     }
                 }

@@ -37,7 +37,8 @@ internal data class JourneyMonitoringState(
     val arrivalError: String? = null,
     val walkingCalculatedAtEpochMillis:Long? = null,
     val walkingGeometry:WalkingRouteTracker?=null,
-    val walkingRequestElapsed:Long?=null
+    val walkingRequestElapsed:Long?=null,
+    val walkingError:String?=null
 ) {
     val isRunning: Boolean get() = running
 }

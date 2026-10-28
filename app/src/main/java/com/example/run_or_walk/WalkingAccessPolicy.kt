@@ -25,8 +25,15 @@ internal fun validWalkingAccess(route: KakaoWalkingRoute, origin: MapPoint, dest
         point.x in -180.0..180.0 && point.y in -90.0..90.0
     if (!valid(origin) || !valid(destination) || route.distanceMeters < 0 || route.durationSeconds < 0 ||
         route.points.size < 2 || route.points.any { !valid(it) }) return false
-    if (walkingAccessDistance(route.points.first(), origin) > 50.0 ||
-        walkingAccessDistance(route.points.last(), destination) > 50.0) return false
+    val hasRequest=route.requestedOrigin!=null || route.requestedDestination!=null
+    if(hasRequest && (route.requestedOrigin==null || route.requestedDestination!=destination ||
+        walkingAccessDistance(requireNotNull(route.requestedOrigin),origin)>35.0)) return false
+    val bound=hasRequest
+    // For request-bound successful responses, a snapped endpoint must still lie within
+    // the provider's total walking distance. Never add a fabricated connector/polyline.
+    val endpointLimit=if(bound) maxOf(50.0,route.distanceMeters.toDouble()) else 50.0
+    if (walkingAccessDistance(route.points.first(), origin) > endpointLimit ||
+        walkingAccessDistance(route.points.last(), destination) > endpointLimit) return false
     val straight = walkingAccessDistance(origin, destination)
     if (route.distanceMeters == 0 || route.durationSeconds == 0)
         return route.distanceMeters == 0 && route.durationSeconds == 0 && straight <= 20.0
@@ -64,19 +71,21 @@ internal class MapGeometryRequestGate {
 }
 
 /** Store the actual provider metrics and geometry together, with their original receipt time. */
+@Suppress("UNUSED_PARAMETER")
 internal fun JourneyScreenState.storeWalkingResult(location:GuidanceLocation,place:JourneyPlace,
     identity:OfficialBoardingIdentity?,route:KakaoWalkingRoute,settings:JourneySettings,pace:Double?,
     fetchedAt:Long,now:Long):Boolean {
     if(!validWalkingAccess(route,location.point,place.point)) throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
-    if(boarding?.point!=place.point || confirmedServiceIdentity!=identity ||
+    if(boarding?.point!=place.point ||
         locationSampleFailure(location,now)!=null || now-fetchedAt !in 0L..120_000L ||
         this.location?.let {pedestrianDistance(it.point,location.point)>35.0}==true) return false
+    walkingRefreshCadence.acceptExternalResult()
     walkingTracker=WalkingRouteTracker(location.point,route,fetchedAt)
     walkingCalculatedAtEpochMillis=now
     walkingCalibrationMetersPerSecond=pace
     walkRoute=WalkRoute(route.distanceMeters,route.durationSeconds)
     walkFetchedAtEpochMillis=fetchedAt;walkOrigin=location.point;walkingPoints=route.points
-    guidanceWalkingRoute=identity?.let {GuidanceWalkingRoute(location.point,place.point,it,
+    guidanceWalkingRoute=confirmedServiceIdentity?.let {GuidanceWalkingRoute(location.point,place.point,it,
         settings.walkingSeconds(route.distanceMeters,route.durationSeconds,pace),fetchedAt,120_000L,route.distanceMeters)}
     return true
 }

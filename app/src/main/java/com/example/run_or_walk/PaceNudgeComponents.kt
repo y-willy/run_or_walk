@@ -390,7 +390,7 @@ internal fun JourneyMapCard(expanded: Boolean,onToggle:()->Unit,content:@Composa
 }
 
 @Composable
-internal fun JourneyMetrics(speed: Double?,distance: Int?) {
+internal fun JourneyMetrics(speed: Double?,distance: Int?,distanceStatus:String="확인 중") {
     BoxWithConstraints(Modifier.fillMaxWidth().testTag("journey-metrics")) {
         val cards: @Composable (Modifier,Boolean)->Unit = { modifier,isSpeed ->
             Surface(modifier=modifier,shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surface,shadowElevation=2.dp) {
@@ -403,7 +403,7 @@ internal fun JourneyMetrics(speed: Double?,distance: Int?) {
                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     AppIcon(if(isSpeed) R.drawable.ui_walk else R.drawable.ui_pin,tint=MaterialTheme.colorScheme.onSurfaceVariant)
                     BasicText(if(isSpeed) speed?.let { String.format(java.util.Locale.KOREA,"%.1f km/h",it*3.6) } ?: "0.0 km/h"
-                        else distance?.let { "${it}m" } ?: "확인 중",
+                        else distance?.let { "${it}m" } ?: distanceStatus,
                         modifier=Modifier.weight(1f),maxLines=1,softWrap=false,
                         style=MaterialTheme.typography.titleLarge.copy(fontWeight=FontWeight.Bold,color=androidx.compose.material3.LocalContentColor.current),
                         autoSize=TextAutoSize.StepBased(minFontSize=14.sp,maxFontSize=22.sp,stepSize=1.sp))

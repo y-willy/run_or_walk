@@ -24,7 +24,14 @@ internal class WalkingRouteTracker(val origin: MapPoint,val route: KakaoWalkingR
         val onRoute=projection.distanceFromPath <= max(20.0,fix.accuracyMeters)
         val last=previous
         if(last != null && fix.observedAtEpochMillis < last.observedAtEpochMillis) return null
-        if(!onRoute) return WalkingRouteProgress(route.distanceMeters,route.durationSeconds,false)
+        if(!onRoute) {
+            // Preserve only the provider's full summary near its verified requested start;
+            // a snapped first point is not evidence that the user has left the route.
+            if(route.requestedOrigin==origin && route.requestedDestination!=null &&
+                pedestrianDistance(fix.point,origin)<=35.0 && validWalkingAccess(route,origin,route.requestedDestination))
+                return WalkingRouteProgress(route.distanceMeters,route.durationSeconds,true)
+            return WalkingRouteProgress(route.distanceMeters,route.durationSeconds,false)
+        }
         // Rebase on the first fix; do not turn location jitter or a vehicle-speed jump into progress.
         val along=projection.alongPathMeters
         val allowed=last?.let { (fix.observedAtEpochMillis-it.observedAtEpochMillis).coerceAtLeast(0)/1000.0*3.5+5 } ?: 35.0
@@ -61,7 +68,7 @@ internal fun projectOnWalkingGeometry(points: List<MapPoint>,point: MapPoint): W
 }
 internal fun shouldRefreshWalkingRoute(tracker: WalkingRouteTracker?,fix: GuidanceLocation,now: Long,lastRequestedAt: Long): Boolean {
     if(!validPedestrianFix(fix,now) || fix.speedMetersPerSecond?.let { it > 4.5 } == true || now-lastRequestedAt < WALKING_REFRESH_MILLIS) return false
-    if(tracker == null || now-tracker.fetchedAt >= 90_000L) return true
+    if(tracker == null || now-tracker.fetchedAt >= WALKING_REFRESH_MILLIS) return true
     val projection=projectOnWalkingGeometry(tracker.route.points,fix.point)
     return projection == null || projection.distanceFromPath > max(25.0,fix.accuracyMeters) ||
         pedestrianDistance(tracker.origin,fix.point) >= 60.0
