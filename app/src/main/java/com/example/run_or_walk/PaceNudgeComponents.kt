@@ -56,12 +56,11 @@ import kotlin.math.ceil
 fun PaceNudgeHeader() {
     Row(Modifier.fillMaxWidth().padding(vertical=4.dp),verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.brand_mark),
-            contentDescription="run_or_walk 로고",modifier=Modifier.size(40.dp))
-        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-            Text("run_or_walk",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.ExtraBold)
-            Text("도착에 맞춰 가볍게",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.brand_launcher_artwork),
+            contentDescription=androidx.compose.ui.res.stringResource(R.string.brand_logo_description),
+            modifier=Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)))
+        Text(androidx.compose.ui.res.stringResource(R.string.app_name),modifier=Modifier.weight(1f),
+            style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.ExtraBold)
     }
 }
 
