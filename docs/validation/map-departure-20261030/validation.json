@@ -1,0 +1,24 @@
+{
+  "unitTests": {
+    "tests": 309,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "mapRegressions": 7,
+  "compileDebugKotlin": "success",
+  "assembleDebug": "success",
+  "liveApiProbe": {
+    "tests": 1,
+    "failures": 0,
+    "gps": "simulated-public-station",
+    "walkMeters": 588,
+    "walkSeconds": 557,
+    "walkingPoints": 25,
+    "blueSegments": 1,
+    "greenSegments": 1
+  },
+  "initialRegressionFailure": "Existing UI fixture used a wall-clock GPS timestamp 102ms ahead of the UI clock; aligned fixture with vm.displayClock.now().",
+  "nativePhoneMapRendering": "not-tested",
+  "workerChanges": false
+}

@@ -143,7 +143,7 @@ class GuidanceRevisionUiTest {
    val route=OfficialSeoulBusRoute(id.stopId,id.routeId,"동대문01",id.directionId,"회기역","2")
    screen.boarding=stop.toJourneyPlace();screen.stop.selected=stop.toJourneyPlace();screen.boardingChosenByUser=true
    screen.selectedBusStop=stop;screen.selectedBusRoute=route;screen.confirmedServiceIdentity=route.identity
-   val time=System.currentTimeMillis()
+   val time=vm.displayClock.now()
    val arrival=RealtimeArrivalSnapshot(route.identity,time+540000,fetchedAtEpochMillis=time,validForMillis=600000,receivedAtEpochMillis=time)
    val request=JourneyMonitoringRequest(stop.name,point,route.identity,busStop=stop,busRoute=route,settings=vm.settings)
    JourneyMonitoringController.publish(JourneyMonitoringState(true,request,assessment=AutoGuidanceAssessment(AutoGuidanceStatus.UNKNOWN),

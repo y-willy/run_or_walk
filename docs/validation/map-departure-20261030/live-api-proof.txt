@@ -1,0 +1,4 @@
+Observed 2026-10-29T16:19:37.646Z (2026-10-30 01:19 Asia/Seoul). Actual public API responses; GPS at a public station is simulated. Native map rendering on a phone was not tested.
+MAP_ACCESS_LIVE publicScene=종각역 -> 종로2가.삼일교 -> 강남역 2호선
+MAP_ACCESS_LIVE walkMeters=588 seconds=557 actualWalkingPoints=25 transitService=N37(심야) greenSegments=1 blueSegments=1
+MAP_ACCESS_LIVE allBlueCoordinatesInCameraBounds=true blueAboveGreen=true geometryUnmodified=true GPS=simulated-public-station nativePhoneRendering=not-tested

@@ -7,11 +7,25 @@ import kotlin.math.sqrt
 
 /** Camera bounds only; missing route geometry never becomes a fabricated polyline. */
 internal fun walkingMapViewportPoints(route: List<MapPoint>, current: MapPoint?, boarding: MapPoint?,
-    otherSegments: List<List<MapPoint>>): List<MapPoint> {
-    val pins = listOfNotNull(current,boarding)
-    val points = if (boarding != null) route + pins else otherSegments.flatten() + pins
+    otherSegments: List<List<MapPoint>>, accessSegments: List<List<MapPoint>> = emptyList(),
+    departure: MapPoint? = null): List<MapPoint> {
+    val pins = listOfNotNull(current,boarding,departure)
+    val points = when {
+        accessSegments.any {it.size>=2} -> accessSegments.flatten() + route + pins
+        boarding != null -> route + pins
+        else -> otherSegments.flatten() + pins
+    }
     return points.filter { it.x.isFinite() && it.y.isFinite() && it.x in -180.0..180.0 && it.y in -90.0..90.0 }.distinct()
 }
+
+internal data class JourneyMapPath(val points:List<MapPoint>,val color:Int,val width:Float,val zOrder:Int)
+
+/** Draw access above the itinerary; the wider green line remains visible on shared roads. */
+internal fun journeyMapPaths(departure:MapPoint?,walking:List<MapPoint>,
+    access:List<List<MapPoint>>,journey:List<List<MapPoint>>):List<JourneyMapPath> =
+    (if(departure!=null) journey.map {JourneyMapPath(it,0xFF16A34A.toInt(),12f,10000)} +
+        access.map {JourneyMapPath(it,0xFF2563EB.toInt(),8f,10001)}
+    else listOf(JourneyMapPath(walking,0xFF14B8A6.toInt(),12f,10000))).filter {it.points.size>=2}
 
 /** Vehicle ETA and destination edits are deliberately absent from the GPS-to-departure cache key. */
 internal fun shouldRefreshAccessMap(storedOrigin: MapPoint?, storedDeparture: MapPoint?,
@@ -99,6 +113,27 @@ internal fun JourneyScreenState.reuseMapWalkingForBoarding(location:GuidanceLoca
         now-cached.fetchedAt !in 0L..120_000L || pedestrianDistance(cached.origin,location.point)>25.0 ||
         !validWalkingAccess(cached.route,location.point,place.point)) return false
     return storeWalkingResult(location,place,confirmedServiceIdentity,cached.route,settings,pace,cached.fetchedAt,now)
+}
+
+/** Reuse only a real, fresh route to the designated departure, including provider-snapped
+ * endpoints. The original request binding is stronger than an arbitrary 20m endpoint test.
+ */
+internal fun JourneyScreenState.reuseWalkingForMapAccess(fix:GuidanceLocation,destination:MapPoint,now:Long):Boolean {
+    if(departure.selected?.point!=destination || locationSampleFailure(fix,now)!=null) return false
+    val fetched=walkFetchedAtEpochMillis ?: return false
+    val tracker=walkingTracker
+    val origin=tracker?.origin ?: walkOrigin ?: return false
+    val source=tracker?.route ?: walkRoute?.let {KakaoWalkingRoute(it.distanceMeters,it.durationSeconds,walkingPoints)}
+        ?: return false
+    if(now-fetched !in 0L..120_000L || tracker?.let {it.fetchedAt!=fetched}==true ||
+        pedestrianDistance(origin,fix.point)>35.0 ||
+        (source.requestedDestination==null && boarding?.point!=destination) ||
+        !validWalkingAccess(source,origin,destination)) return false
+    mapAccessSegments=listOf(source.points)
+    mapAccessOrigin=origin;mapAccessDestination=destination
+    mapAccessMessage=null;mapAccessIsReference=false
+    mapAccessWalking=tracker ?: WalkingRouteTracker(origin,source,fetched)
+    return true
 }
 
 /** Display a verified physical walking route even while official service binding is pending.
