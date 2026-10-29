@@ -191,7 +191,7 @@ internal fun monitoringStateWithSettings(
         val providerSeconds = state.providerWalkingSeconds
         if (distance == null || providerSeconds == null || distance < 0 || providerSeconds < 0) null
         else previous.copy(durationSeconds = request.settings.walkingSeconds(distance, providerSeconds,
-            state.calibratedSpeedMetersPerSecond.takeIf { state.location?.let { nowEpochMillis-it.observedAtEpochMillis in 0L..30_000L } == true }))
+            usableWalkingCalibration(state.calibratedSpeedMetersPerSecond,state.location,nowEpochMillis)))
     }
     val evidence = selectTimetableEvidence(state.timetableAnalysis, nowEpochMillis,request.subwayChoice)
     val identity = currentArrival?.identity ?: evidence?.identity ?: request.identity
@@ -231,7 +231,8 @@ internal fun monitoringScreenHandover(screen: JourneyScreenState,request: Journe
         else -> screen.selectedArrival?.snapshot?.takeIf { it.hasUsableOfficialEta(now) }
     }
     val state=JourneyMonitoringState(running=true,request=request,location=screen.location,
-        walkingRoute=screen.guidanceWalkingRoute,arrivals=arrival,
+        walkingRoute=screen.guidanceWalkingAt(screen.location,request.identity,request.settings,
+            screen.walkingCalibrationMetersPerSecond,now) ?: screen.guidanceWalkingRoute,arrivals=arrival,
         walkingDistanceMeters=screen.walkRoute?.distanceMeters,providerWalkingSeconds=screen.walkRoute?.durationSeconds,
         walkingPoints=screen.walkingPoints,subwayObservations=screen.arrivalOptions,timetableAnalysis=screen.timetableAnalysis,
         arrivalRequestFailed=screen.arrivalRequestFailed,seoulBusObservations=rows,gyeonggiBusObservations=ggRows,

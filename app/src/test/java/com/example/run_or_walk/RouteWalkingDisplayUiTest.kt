@@ -25,6 +25,45 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class RouteWalkingDisplayUiTest {
     @get:Rule val compose=createEmptyComposeRule()
+    @Test fun displayedGpsWalkAndOfficialEtaShowGuidanceWithoutWaitingForGpsProgressOrAnotherRequest() {
+        val app=RuntimeEnvironment.getApplication()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        val activity=Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val owner=object:LifecycleOwner {
+            val registry=LifecycleRegistry(this).apply {currentState=Lifecycle.State.CREATED}
+            override val lifecycle:Lifecycle get()=registry
+        }
+        try {
+            val vm=ViewModelProvider(activity.get(),ViewModelProvider.AndroidViewModelFactory(activity.get().application))[JourneySessionViewModel::class.java]
+            vm.screens.values.forEach {it.clearRoutesAndBoarding()};vm.mode=FeatureMode.ROUTE
+            val start=MapPoint(127.0,37.0);val end=MapPoint(127.0,37.0027)
+            val now=vm.displayClock.now()
+            val route=OfficialSeoulBusRoute("105900050","105900003","동대문01","4","회기역","2")
+            val screen=vm.screens.getValue(FeatureMode.ROUTE)
+            screen.boarding=JourneyPlace("boarding","승차 정류소","",end,categoryName="버스정류장")
+            screen.boardingMatchedAutomatically=true
+            screen.selectedRoute=JourneyTransitRoute("route",KakaoTransitChoice(1800,0,route.name,"승차 정류소",end,firstTransitType="BUS"))
+            screen.selectedBusStop=OfficialSeoulBusStop(route.stopId,"06510","승차 정류소",end)
+            screen.selectedBusRoute=route
+            // 30m accuracy is a valid position, but unsuitable for route progress calibration.
+            screen.location=GuidanceLocation(start,30.0,now,0.0,0.2)
+            screen.walkRoute=WalkRoute(300,250);screen.walkOrigin=start;screen.walkFetchedAtEpochMillis=now
+            screen.walkingPoints=listOf(start,end)
+            screen.applyBusArrivals(listOf(OfficialSeoulBusArrival(route.identity,"105000001",route.name,route.direction,
+                RealtimeArrivalSnapshot(route.identity,now+600000,fetchedAtEpochMillis=now,validForMillis=60000,
+                    receivedAtEpochMillis=now))),now)
+            activity.get().setContent {RUN_or_WALKTheme {PaceNudgeScreen(owner,vm)}}
+            compose.onNodeWithText("300m").assertIsDisplayed()
+            compose.onNodeWithText("승차 장소·방향을 확인해 주세요").assertIsDisplayed()
+            compose.runOnIdle {screen.confirmedServiceIdentity=route.identity;screen.busRoutePathVerified=true}
+            compose.onNodeWithText("여유 있어요").assertIsDisplayed()
+            compose.onNodeWithText("0.0 km/h").assertIsDisplayed()
+            compose.onNodeWithText("이동 정보 확인 필요").assertDoesNotExist()
+            compose.onNodeWithText("300m").assertIsDisplayed()
+            compose.onNodeWithText("도보 약 4분").assertIsDisplayed()
+        } finally {activity.pause().stop().destroy()}
+    }
+
     @Test fun validGpsAndWalkingRouteDisplayDistanceBeforeOfficialBusBindingFinishes() {
         val app=RuntimeEnvironment.getApplication()
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)

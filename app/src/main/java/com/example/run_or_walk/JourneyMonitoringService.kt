@@ -353,6 +353,11 @@ class JourneyMonitoringService : Service() {
             val evidence = selectTimetableEvidence(timetableAnalysis, checkedAt,request.subwayChoice)
             val currentIdentity = arrivals?.identity ?: evidence?.identity ?: request.identity
             walking = walking?.copy(boardingIdentity = currentIdentity)
+            val walkingDistance=live.walkingDistanceMeters
+            val providerWalking=live.providerWalkingSeconds
+            if(walkingDistance!=null && providerWalking!=null) walking=walking?.copy(durationSeconds=
+                active.settings.walkingSeconds(walkingDistance,providerWalking,
+                    usableWalkingCalibration(measuredPace,location,checkedAt)))
             val assessment = calculateMovementGuidance(AutoGuidanceInput(location,
                 GuidanceBoarding(currentIdentity, request.boardingPoint, true), walking, arrivals,
                 hasLocationPermission(this), failure, active.settings.bufferSeconds, evidence, furtherServiceEnded,

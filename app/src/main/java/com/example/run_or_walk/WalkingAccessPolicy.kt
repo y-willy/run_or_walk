@@ -82,11 +82,11 @@ internal fun JourneyScreenState.storeWalkingResult(location:GuidanceLocation,pla
     walkingRefreshCadence.acceptExternalResult()
     walkingTracker=WalkingRouteTracker(location.point,route,fetchedAt)
     walkingCalculatedAtEpochMillis=now
-    walkingCalibrationMetersPerSecond=pace
+    walkingCalibrationMetersPerSecond=usableWalkingCalibration(pace,location,now)
     walkRoute=WalkRoute(route.distanceMeters,route.durationSeconds)
     walkFetchedAtEpochMillis=fetchedAt;walkOrigin=location.point;walkingPoints=route.points
     guidanceWalkingRoute=confirmedServiceIdentity?.let {GuidanceWalkingRoute(location.point,place.point,it,
-        settings.walkingSeconds(route.distanceMeters,route.durationSeconds,pace),fetchedAt,120_000L,route.distanceMeters)}
+        settings.walkingSeconds(route.distanceMeters,route.durationSeconds,walkingCalibrationMetersPerSecond),fetchedAt,120_000L,route.distanceMeters)}
     return true
 }
 
@@ -117,7 +117,21 @@ internal fun JourneyScreenState.walkingDisplay(location:GuidanceLocation?,settin
     if(now-fetched !in 0L..120_000L || pedestrianDistance(origin,fix.point)>35.0 ||
         raw.distanceMeters<0 || raw.durationSeconds<0 || raw.distanceMeters>source.distanceMeters ||
         tracker?.let {it.fetchedAt!=fetched}==true || !validWalkingAccess(source,sourceOrigin,place.point)) return null
-    return raw.copy(durationSeconds=settings.walkingSeconds(raw.distanceMeters,raw.durationSeconds,pace))
+    return raw.copy(durationSeconds=settings.walkingSeconds(raw.distanceMeters,raw.durationSeconds,
+        usableWalkingCalibration(pace,fix,now)))
+}
+
+/** Bind validated displayed metrics in the same render as official identity/ETA becomes ready,
+ * without waiting for another GPS callback, HTTP request or asynchronous effect.
+ */
+internal fun JourneyScreenState.guidanceWalkingAt(location:GuidanceLocation?,
+    identity:OfficialBoardingIdentity?,settings:JourneySettings,pace:Double?,now:Long):GuidanceWalkingRoute? {
+    if(identity==null || !identity.isComplete || identity!=confirmedServiceIdentity || !boardingConfirmed) return null
+    val fix=location ?: return null
+    val place=boarding ?: return null
+    val walk=walkingDisplay(fix,settings,pace,now) ?: return null
+    val fetched=walkFetchedAtEpochMillis ?: return null
+    return GuidanceWalkingRoute(fix.point,place.point,identity,walk.durationSeconds,fetched,120_000L,walk.distanceMeters)
 }
 
 /** Physical route progress can be displayed before an official vehicle identity is connected. */

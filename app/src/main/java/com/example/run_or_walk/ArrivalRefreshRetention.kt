@@ -66,11 +66,14 @@ internal fun missingArrivalText(responseAt: Long?,hasObservations: Boolean,faile
 
 /** Actionable missing-data wording; periodic refresh itself is never a reason to replace valid guidance. */
 internal fun unknownGuidanceTitle(reason:AutoGuidanceUnknownReason?,fallback:String):String=when(reason) {
+    AutoGuidanceUnknownReason.BOARDING_UNCONFIRMED -> "승차 장소·방향을 확인해 주세요"
     AutoGuidanceUnknownReason.LOCATION_PERMISSION_REQUIRED -> "위치 권한을 허용해 주세요"
     AutoGuidanceUnknownReason.LOCATION_UNAVAILABLE,AutoGuidanceUnknownReason.LOCATION_INACCURATE,AutoGuidanceUnknownReason.LOCATION_STALE -> "GPS 위치를 다시 확인해 주세요"
     AutoGuidanceUnknownReason.WALKING_STALE -> "현재 위치 기준으로 다시 계산해요"
     AutoGuidanceUnknownReason.WALKING_UNAVAILABLE,AutoGuidanceUnknownReason.WALKING_MISMATCH -> "승차점까지 도보 경로를 확인해 주세요"
     AutoGuidanceUnknownReason.ARRIVAL_MISMATCH -> "탑승 방향을 다시 선택해 주세요"
     AutoGuidanceUnknownReason.ARRIVAL_STALE -> "새로운 차량 도착정보를 기다리고 있어요"
+    AutoGuidanceUnknownReason.ARRIVAL_UNCERTAIN -> "차량 도착시간을 다시 확인해요"
+    AutoGuidanceUnknownReason.ARRIVAL_INVALID_ETA,AutoGuidanceUnknownReason.ARRIVAL_FUTURE_TIMESTAMP -> "도착시간을 다시 확인해요"
     else -> if(fallback=="도착정보 확인 중") "첫 도착정보를 연결하고 있어요" else fallback
 }

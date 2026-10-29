@@ -72,8 +72,9 @@ internal fun GuidanceInformationContent(settings:JourneySettings,currentSpeed:Do
             val personal=settings.personalWalkingSpeedKmh?.takeIf { settings.usePersonalWalkingSpeed }
             val calibrated=calibratedSpeed?.takeIf { settings.gpsAutoCalibrationEnabled }
             Text("도보 계산: "+if(settings.useProviderWalkingTime && personal==null && calibrated==null) "경로 API 도보시간 기준"
-                else speed(calibrated?.times(3.6) ?: personal ?: settings.speedKmh))
+                else speed(settings.walkingSpeedMetersPerSecond(calibrated)*3.6))
             Text("GPS 부족 시 기본 설정: ${speed(personal ?: settings.speedKmh)}")
+            Text("정지 중에도 설정 속도로 안내해요. 정확한 GPS 속도는 30%만 참고하고 설정 속도의 ±20% 안에서 보정해요. 속도 누락·부정확·오래된 측정은 설정 속도를 사용해요.",style=MaterialTheme.typography.bodySmall)
             Text("표시용 0.0 km/h는 정지 판정이나 도보 계산 입력이 아니에요.",style=MaterialTheme.typography.bodySmall)
             TextButton(onClick=onWalkingAnalysis) {Text("내 걷기 분석 열기")}
         }

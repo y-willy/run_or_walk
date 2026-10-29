@@ -87,6 +87,7 @@ internal fun updateLiveWalkingEvidence(previous: LiveWalkingEvidence,tracker: Wa
     val candidate=fix?.takeIf { locationSampleFailure(it,now)==null &&
         (previous.location?.observedAtEpochMillis?.let { time -> it.observedAtEpochMillis>=time } != false) }
     var location=candidate ?: previousLocation
+    val effectivePace=usableWalkingCalibration(calibratedSpeed,fix ?: location,now)
     val progress=candidate?.let { tracker?.update(it,now) }
     if(progress?.onRoute==true && tracker!=null && tracker.route.points.lastOrNull()?.let {
             pedestrianDistance(it,boarding)<=150.0 }==true) {
@@ -99,7 +100,7 @@ internal fun updateLiveWalkingEvidence(previous: LiveWalkingEvidence,tracker: Wa
             return previous.copy(location=candidate,walking=prior.copy(origin=requireNotNull(candidate).point))
         }
         return LiveWalkingEvidence(candidate,GuidanceWalkingRoute(requireNotNull(candidate).point,boarding,identity,
-            settings.walkingSeconds(progress.remainingMeters,progress.providerSeconds,calibratedSpeed),
+            settings.walkingSeconds(progress.remainingMeters,progress.providerSeconds,effectivePace),
             tracker.fetchedAt,120_000L,progress.remainingMeters),progress.remainingMeters,progress.providerSeconds,tracker.route.points,now)
     }
     if(progress?.onRoute==false) return LiveWalkingEvidence(location,null,null,null,emptyList())
@@ -114,6 +115,6 @@ internal fun updateLiveWalkingEvidence(previous: LiveWalkingEvidence,tracker: Wa
     val distance=previous.distanceMeters.takeIf { walking!=null }
     val provider=previous.providerSeconds.takeIf { walking!=null }
     val adjusted=walking?.let { value -> if(allowRecalculation && distance!=null && provider!=null)
-        value.copy(durationSeconds=settings.walkingSeconds(distance,provider,calibratedSpeed)) else value }
+        value.copy(durationSeconds=settings.walkingSeconds(distance,provider,effectivePace)) else value }
     return LiveWalkingEvidence(location,adjusted,distance,provider,previous.points.takeIf { walking!=null }.orEmpty(),if(allowRecalculation && adjusted!=null && location!=null) now else previous.calculatedAtEpochMillis)
 }
