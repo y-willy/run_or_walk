@@ -1,0 +1,10 @@
+{
+  "inconsistentWalkingTicks": 0,
+  "vehiclePromotions": 1,
+  "failureEveryFourthRequest": true,
+  "ticks": 601,
+  "durationSeconds": 600,
+  "unknownTrace": [],
+  "unnecessaryUnknownTicks": 0,
+  "responseDelaySeconds": 7
+}

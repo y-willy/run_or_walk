@@ -546,9 +546,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         val pathCheck = if (automatic) launch directionCheck@{
                             try {
                                 val choice = target.selectedRoute?.kakao
-                                val path = preloadedPath ?: busRepository.routeStops(matched.routeId)
+                                val verified = choice!=null && verifySeoulBusBoardingDirection(busRepository,matched,choice,preloadedPath)
                                 if (!stillSelected()) return@directionCheck
-                                if (choice != null && seoulBusRouteReachesAlighting(matched,choice,path)) {
+                                if (verified) {
                                     target.busRoutePathVerified = true
                                     target.confirmedServiceIdentity = matched.identity
                                     target.busDirectionMessage = null
@@ -823,9 +823,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             }
             if (binding == null && target.selectedRoute?.kakao != null) {
                 try {
-                    val path = busRepository.routeStops(route.routeId)
+                    val verified = verifySeoulBusBoardingDirection(busRepository,route,requireNotNull(target.selectedRoute).kakao)
                     if (!active()) return
-                    if (seoulBusRouteReachesAlighting(route,requireNotNull(target.selectedRoute).kakao,path)) {
+                    if (verified) {
                         target.busRoutePathVerified = true
                         target.confirmedServiceIdentity = route.identity
                         target.busDirectionMessage = null
@@ -1535,7 +1535,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     } == true
     val guidanceBoarding = if (identity != null && boarding != null) GuidanceBoarding(
         identity, boarding.point, screen.boardingConfirmed && officialConnectionConfirmed) else null
-    val displayedLocation = sharedLocation
+    // A monitored walking snapshot is tied to its service GPS observation. A newer
+    // foreground fix belongs on the map, not mixed into that calculation mid-update.
+    val displayedLocation = if(monitored) monitoring.location?.takeIf {locationSampleFailure(it,now)==null} else sharedLocation
     val walkingOutsideRange = boarding != null && displayedLocation?.let { fix ->
         requiresTransitAccess(fix.point, boarding.point)
     } == true
@@ -1550,14 +1552,9 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         val distance = monitoring.walkingDistanceMeters
         val providerSeconds = monitoring.providerWalkingSeconds
         if (distance != null && providerSeconds != null) walking.copy(durationSeconds =
-            settings.walkingSeconds(distance, providerSeconds, calculationPace)) else walking
+            settings.walkingSeconds(distance, providerSeconds, calculationPace),distanceMeters=distance) else null
     } else screen.guidanceWalkingAt(displayedLocation,identity,settings,calculationPace,now)
-        ?: screen.guidanceWalkingRoute?.let { walking -> screen.walkRoute?.let { raw ->
-            walking.copy(durationSeconds=settings.walkingSeconds(raw.distanceMeters,raw.durationSeconds,calculationPace)) } }
-    val displayedWalk=if(monitored) personalizedWalk?.takeIf {walk ->
-        now-walk.fetchedAtEpochMillis in 0L..minOf(120_000L,walk.validForMillis) &&
-            boarding?.point==walk.destination && displayedLocation?.let {pedestrianDistance(it.point,walk.origin)<=35.0}==true
-    }?.let {walk ->walk.distanceMeters?.let {WalkRoute(it,walk.durationSeconds)}}
+    val displayedWalk=if(monitored) personalizedWalk?.displayMetrics(displayedLocation,boarding?.point,now)
         else screen.walkingDisplay(displayedLocation,settings,calculationPace,now)
     // Recheck source age on the UI clock even between provider polls.
     val rawAssessment = calculateMovementGuidance(AutoGuidanceInput(
@@ -1573,6 +1570,10 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
         settings)
     val movementTransitions = remember(screen,screen.confirmedServiceIdentity,screen.subwayChoice,monitored) { MovementAdviceTransitions() }
     val assessment = rawAssessment
+    val guidanceTrace=remember(screen,monitored) {GuidanceStateTrace(if(monitored) "monitored-screen" else "screen")}
+    SideEffect {guidanceTrace.record(assessment,displayedLocation,personalizedWalk,activeSnapshot,guidanceBoarding,
+        displayedWalk,screen.revision,screen.requestId,
+        if(monitored) monitoring.walkingCalculatedAtEpochMillis else screen.walkingCalculatedAtEpochMillis,now)}
     LaunchedEffect(rawAssessment,now,screen.alertsEnabled,monitored,movementTransitions) {
         if(!monitored) {
             val change=movementTransitions.observe(rawAssessment,SystemClock.elapsedRealtime(),screen.alertsEnabled)

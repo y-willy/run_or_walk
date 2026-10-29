@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-29",
+  "branch": "fix/guidance-unknown-flicker-20261029",
+  "baseCommit": "65966828ed31a3e4b58f6212beba1db1461b1822",
+  "tests": {
+    "tests": 296,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "compileDebugKotlin": "PASS",
+  "assembleDebug": "PASS",
+  "apiKeysChanged": false,
+  "workerDeployed": false,
+  "mainMerged": false,
+  "syntheticSimulation": {
+    "seconds": 600,
+    "ticks": 601,
+    "beforeUnknownTicks": 8,
+    "afterUnknownTicks": 0,
+    "beforeUnknownTransitions": 1,
+    "afterUnknownTransitions": 0,
+    "afterInconsistentWalkingTicks": 0
+  },
+  "composeRendering": "Robolectric native graphics with synthetic inputs; not phone captures",
+  "liveApis": {
+    "kakaoPlaceSearch": true,
+    "kakaoTransitSearch": true,
+    "kakaoWalking": true,
+    "seoulStopsRoutesArrivals": true,
+    "seoulFullRouteStops": "BUS_UPSTREAM_KEY_REJECTED",
+    "officialStopOrderFallback": true,
+    "guidance": "WALK",
+    "screenServiceMatch": true,
+    "gps": "simulated at public venue"
+  },
+  "phoneGpsVerified": false,
+  "newLiveGyeonggiSubwayVerification": false
+}

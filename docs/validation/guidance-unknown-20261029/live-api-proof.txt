@@ -1,0 +1,13 @@
+LIVE_PROBE destination-search result=success count=1 names=[종각역 1호선]
+LIVE_PROBE origin-search result=success count=1 names=[탐앤탐스 종로한올타워점]
+LIVE_PROBE transit result=success count=3 services=[종로02, 1호선, 5005] boardingNames=[종로2가.탑골공원, 종로3가, 청계2가교차로]
+LIVE_PROBE first-leg alighting=종각역.YMCA stops=[종로2가.탑골공원, 종각역.YMCA]
+LIVE_PROBE walking result=success validated=true distance=158 seconds=203
+LIVE_PROBE seoul-stops result=success count=1 names=[종로2가.탑골공원]
+LIVE_PROBE official-selection stopId=100900121 ars=01596 name=종로2가.탑골공원 routeId=100900008 route=종로02 stopOrder=13 direction=종각역YMCA
+LIVE_PROBE official-path result=unavailable kind=ACCESS_DENIED code=BUS_UPSTREAM_KEY_REJECTED
+LIVE_PROBE downstream-stops result=success count=1 names=[종각역.YMCA]
+LIVE_PROBE downstream-orders stopId=100900116 routeId=100900008 orders=[14]
+LIVE_PROBE direction-recovery verified=true
+LIVE_PROBE official-arrivals result=success count=2 usable=2 etaSeconds=[539, 730] trust=[VALID, VALID]
+LIVE_PROBE complete-scene stored=true walkMeters=155 providerSeconds=200 advice=WALK reason=null screenServiceMatch=true gps=simulated-public-place

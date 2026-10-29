@@ -191,7 +191,8 @@ internal fun monitoringStateWithSettings(
         val providerSeconds = state.providerWalkingSeconds
         if (distance == null || providerSeconds == null || distance < 0 || providerSeconds < 0) null
         else previous.copy(durationSeconds = request.settings.walkingSeconds(distance, providerSeconds,
-            usableWalkingCalibration(state.calibratedSpeedMetersPerSecond,state.location,nowEpochMillis)))
+            usableWalkingCalibration(state.calibratedSpeedMetersPerSecond,state.location,nowEpochMillis)),
+            distanceMeters=distance)
     }
     val evidence = selectTimetableEvidence(state.timetableAnalysis, nowEpochMillis,request.subwayChoice)
     val identity = currentArrival?.identity ?: evidence?.identity ?: request.identity

@@ -287,7 +287,10 @@ internal fun AppIcon(@DrawableRes resource: Int,description: String?=null,modifi
 
 @Composable
 private fun GuidanceMetric(@DrawableRes icon:Int,value:String,modifier:Modifier) {
-    Surface(modifier=modifier.heightIn(min=54.dp),color=Color.White.copy(alpha=.09f),shape=RoundedCornerShape(14.dp)) {
+    val walking=icon==R.drawable.ui_walk
+    val background=if(walking) Color(0xFFDDF8ED) else Color(0xFFFFF0D8)
+    val foreground=if(walking) Color(0xFF075F46) else Color(0xFF704311)
+    Surface(modifier=modifier.heightIn(min=54.dp),color=background,contentColor=foreground,shape=RoundedCornerShape(14.dp)) {
         Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
             AppIcon(icon,modifier=Modifier.size(20.dp))
             Text(value,style=MaterialTheme.typography.bodySmall,fontWeight=FontWeight.SemiBold)

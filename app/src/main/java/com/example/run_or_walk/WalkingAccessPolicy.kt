@@ -126,12 +126,32 @@ internal fun JourneyScreenState.walkingDisplay(location:GuidanceLocation?,settin
  */
 internal fun JourneyScreenState.guidanceWalkingAt(location:GuidanceLocation?,
     identity:OfficialBoardingIdentity?,settings:JourneySettings,pace:Double?,now:Long):GuidanceWalkingRoute? {
-    if(identity==null || !identity.isComplete || identity!=confirmedServiceIdentity || !boardingConfirmed) return null
+    if(identity==null || !identity.isComplete || confirmedServiceIdentity?.sameBoardingAccessAs(identity)!=true || !boardingConfirmed) return null
     val fix=location ?: return null
     val place=boarding ?: return null
     val walk=walkingDisplay(fix,settings,pace,now) ?: return null
     val fetched=walkFetchedAtEpochMillis ?: return null
     return GuidanceWalkingRoute(fix.point,place.point,identity,walk.durationSeconds,fetched,120_000L,walk.distanceMeters)
+}
+
+/** Access geometry is shared by trains at the same official platform, never by another
+ * authority, station, line, or direction. Vehicle/service matching remains an ETA check.
+ */
+internal fun OfficialBoardingIdentity.sameBoardingAccessAs(other:OfficialBoardingIdentity):Boolean =
+    isComplete && other.isComplete && authority==other.authority && stopId==other.stopId &&
+        routeId==other.routeId && directionId==other.directionId &&
+        (authority=="seoul" || serviceVariant==other.serviceVariant)
+
+/** Distance and duration are one display unit, validated against the same location/source
+ * that the movement calculator receives. Never display an orphan duration or distance.
+ */
+internal fun GuidanceWalkingRoute.displayMetrics(location:GuidanceLocation?,boarding:MapPoint?,now:Long):WalkRoute? {
+    val fix=location?.takeIf {locationSampleFailure(it,now)==null} ?: return null
+    val distance=distanceMeters ?: return null
+    if(boarding==null || pedestrianDistance(destination,boarding)>15.0 || pedestrianDistance(origin,fix.point)>35.0 ||
+        validForMillis<=0L || now-fetchedAtEpochMillis !in 0L..minOf(validForMillis,120_000L) ||
+        distance<0 || durationSeconds<0 || (distance==0)!=(durationSeconds==0)) return null
+    return WalkRoute(distance,durationSeconds)
 }
 
 /** Physical route progress can be displayed before an official vehicle identity is connected. */

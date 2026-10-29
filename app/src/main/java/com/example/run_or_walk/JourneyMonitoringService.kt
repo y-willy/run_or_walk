@@ -46,6 +46,7 @@ class JourneyMonitoringService : Service() {
     private var lastWalkingRequestElapsed:Long?=null
     private var generation = 0L
     private var transitions = MovementAdviceTransitions()
+    private val guidanceTrace=GuidanceStateTrace("service")
     private var livePaceCalibrator = WalkingPaceCalibrator()
     private var currentRequest: JourneyMonitoringRequest? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -357,7 +358,7 @@ class JourneyMonitoringService : Service() {
             val providerWalking=live.providerWalkingSeconds
             if(walkingDistance!=null && providerWalking!=null) walking=walking?.copy(durationSeconds=
                 active.settings.walkingSeconds(walkingDistance,providerWalking,
-                    usableWalkingCalibration(measuredPace,location,checkedAt)))
+                    usableWalkingCalibration(measuredPace,location,checkedAt)),distanceMeters=walkingDistance)
             val assessment = calculateMovementGuidance(AutoGuidanceInput(location,
                 GuidanceBoarding(currentIdentity, request.boardingPoint, true), walking, arrivals,
                 hasLocationPermission(this), failure, active.settings.bufferSeconds, evidence, furtherServiceEnded,
@@ -502,6 +503,10 @@ class JourneyMonitoringService : Service() {
         if(!state.running || !JourneyMonitoringController.state.value.running || state.request?.isSameJourney(request) != true) return
         val assessment=state.assessment ?: return
         val now=displayClock.now()
+        guidanceTrace.record(assessment,state.location,state.walkingRoute,state.arrivals,
+            GuidanceBoarding(assessment.boardingIdentity ?: request.identity,request.boardingPoint,true),
+            state.walkingRoute?.displayMetrics(state.location,request.boardingPoint,now),
+            generation,state.walkingRequestElapsed ?: 0L,state.walkingCalculatedAtEpochMillis,now)
         val change=transitions.observe(assessment,android.os.SystemClock.elapsedRealtime(),request.vibrationEnabled)
         val message=monitoringGuidanceHeadline(state.copy(assessment=change.assessment),now)
         val previousMessage=JourneyMonitoringController.state.value.message
