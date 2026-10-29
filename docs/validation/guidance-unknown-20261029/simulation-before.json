@@ -1,0 +1,19 @@
+{
+  "inconsistentWalkingTicks": 8,
+  "vehiclePromotions": 1,
+  "failureEveryFourthRequest": true,
+  "ticks": 601,
+  "durationSeconds": 600,
+  "unknownTrace": [
+    "84:WALKING_UNAVAILABLE",
+    "85:WALKING_UNAVAILABLE",
+    "86:WALKING_UNAVAILABLE",
+    "87:WALKING_UNAVAILABLE",
+    "88:WALKING_UNAVAILABLE",
+    "89:WALKING_UNAVAILABLE",
+    "90:WALKING_UNAVAILABLE",
+    "91:WALKING_UNAVAILABLE"
+  ],
+  "unnecessaryUnknownTicks": 8,
+  "responseDelaySeconds": 7
+}

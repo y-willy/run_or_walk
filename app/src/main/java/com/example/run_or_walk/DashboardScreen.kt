@@ -97,6 +97,7 @@ internal fun PaceNudgeScreen(lifecycleOwner: LifecycleOwner,session: JourneySess
                 }
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                     PaceNudgeHeader();Text("설정",style=MaterialTheme.typography.headlineMedium)
+                    Text("앱 빌드 · ${BuildConfig.SOURCE_REVISION}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("내 이동 설정",style=MaterialTheme.typography.titleMedium)
                     JourneySettingsPanel(session.settings,onWalkingAnalysis={analysis=true}) {
                         session.updateSettings(it)

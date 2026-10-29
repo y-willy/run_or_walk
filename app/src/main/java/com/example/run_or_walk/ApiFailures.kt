@@ -7,7 +7,7 @@ enum class KakaoFailure {
 }
 
 /** Only categorized, safe metadata reaches the UI; never retain a raw response/URL/cause. */
-class KakaoApiException(val failure: KakaoFailure, val httpStatus: Int? = null) :
+class KakaoApiException(val failure: KakaoFailure, val httpStatus: Int? = null,val retryAtEpochMillis:Long?=null) :
     IOException(kakaoFailureMessage(failure))
 
 internal fun kakaoFailureForHttpStatus(status: Int): KakaoFailure = when (status) {
@@ -29,3 +29,8 @@ fun kakaoFailureMessage(failure: KakaoFailure): String = when (failure) {
 
 fun friendlyKakaoFailure(error: Exception): String? =
     (error as? KakaoApiException)?.let { kakaoFailureMessage(it.failure) }
+
+internal fun kakaoRetryAt(header:String?,now:Long):Long? = header?.trim()?.let {
+    it.toLongOrNull()?.takeIf {seconds->seconds in 0..172800}?.let {seconds->now+seconds*1000}
+        ?: runCatching {java.time.ZonedDateTime.parse(it,java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()}.getOrNull()
+}?.takeIf {it>=now}

@@ -15,6 +15,11 @@ fun buildConfigString(value: String): String = "\"" + value
     .replace("\\", "\\\\").replace("\"", "\\\"")
     .replace("\n", "\\n").replace("\r", "\\r") + "\""
 
+val sourceRevision=providers.gradleProperty("sourceRevision").orNull ?: runCatching {
+    providers.exec { commandLine("git","rev-parse","--short=12","HEAD");isIgnoreExitValue=true }
+        .standardOutput.asText.get().trim().ifBlank {"unknown"}
+}.getOrDefault("unknown")
+
 android {
 
     namespace = "com.example.run_or_walk"
@@ -32,6 +37,7 @@ android {
 
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String","SOURCE_REVISION",buildConfigString(sourceRevision))
 
         buildConfigField("String", "KAKAO_REST_KEY", buildConfigString(localString("KAKAO_REST_KEY")))
         buildConfigField("String", "KAKAO_NATIVE_KEY", buildConfigString(localString("KAKAO_NATIVE_KEY")))

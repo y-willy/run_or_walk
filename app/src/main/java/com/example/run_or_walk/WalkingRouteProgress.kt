@@ -12,9 +12,9 @@ internal class WalkingRouteTracker(val origin: MapPoint,val route: KakaoWalkingR
     private var lastFix: GuidanceLocation?=null
     fun update(fix: GuidanceLocation,now: Long): WalkingRouteProgress? {
         if(!validPedestrianFix(fix,now) || fix.observedAtEpochMillis < lastObservedAt) return null
+        // Arrival ordering is independent of whether the position is accepted as progress.
         lastObservedAt=fix.observedAtEpochMillis
         val recent=lastFix
-        lastFix=fix
         if(recent != null) {
             val seconds=(fix.observedAtEpochMillis-recent.observedAtEpochMillis).coerceAtLeast(0)/1000.0
             if(pedestrianDistance(recent.point,fix.point) > seconds*4.5+max(8.0,fix.accuracyMeters)) return null
@@ -24,7 +24,20 @@ internal class WalkingRouteTracker(val origin: MapPoint,val route: KakaoWalkingR
         val onRoute=projection.distanceFromPath <= max(20.0,fix.accuracyMeters)
         val last=previous
         if(last != null && fix.observedAtEpochMillis < last.observedAtEpochMillis) return null
-        if(!onRoute) return WalkingRouteProgress(route.distanceMeters,route.durationSeconds,false)
+        if(!onRoute) {
+            // Preserve only the provider's full summary near its verified requested start;
+            // a snapped first point is not evidence that the user has left the route.
+            if(route.requestedOrigin==origin && route.requestedDestination!=null &&
+                pedestrianDistance(fix.point,origin)<=35.0 && validWalkingAccess(route,origin,route.requestedDestination))
+                return WalkingRouteProgress(route.distanceMeters,route.durationSeconds,true)
+            // The uncertainty circle still overlaps the allowed path corridor. Do not
+            // use it as progress or proof of departure; retain the last accepted fix.
+            if(projection.distanceFromPath-fix.accuracyMeters<=20.0) return null
+            return WalkingRouteProgress(route.distanceMeters,route.durationSeconds,false)
+        }
+        // Only accepted observations can become the next displacement anchor. A rejected
+        // spike must not make a subsequent normal fix look like a second jump.
+        lastFix=fix
         // Rebase on the first fix; do not turn location jitter or a vehicle-speed jump into progress.
         val along=projection.alongPathMeters
         val allowed=last?.let { (fix.observedAtEpochMillis-it.observedAtEpochMillis).coerceAtLeast(0)/1000.0*3.5+5 } ?: 35.0
@@ -61,7 +74,7 @@ internal fun projectOnWalkingGeometry(points: List<MapPoint>,point: MapPoint): W
 }
 internal fun shouldRefreshWalkingRoute(tracker: WalkingRouteTracker?,fix: GuidanceLocation,now: Long,lastRequestedAt: Long): Boolean {
     if(!validPedestrianFix(fix,now) || fix.speedMetersPerSecond?.let { it > 4.5 } == true || now-lastRequestedAt < WALKING_REFRESH_MILLIS) return false
-    if(tracker == null || now-tracker.fetchedAt >= 90_000L) return true
+    if(tracker == null || now-tracker.fetchedAt >= WALKING_REFRESH_MILLIS) return true
     val projection=projectOnWalkingGeometry(tracker.route.points,fix.point)
     return projection == null || projection.distanceFromPath > max(25.0,fix.accuracyMeters) ||
         pedestrianDistance(tracker.origin,fix.point) >= 60.0
@@ -80,20 +93,21 @@ internal fun updateLiveWalkingEvidence(previous: LiveWalkingEvidence,tracker: Wa
     val candidate=fix?.takeIf { locationSampleFailure(it,now)==null &&
         (previous.location?.observedAtEpochMillis?.let { time -> it.observedAtEpochMillis>=time } != false) }
     var location=candidate ?: previousLocation
-    val progress=candidate?.let { tracker?.update(it,now) }
-    if(progress?.onRoute==true && tracker!=null && tracker.route.points.lastOrNull()?.let {
-            pedestrianDistance(it,boarding)<=150.0 }==true) {
+    val effectivePace=usableWalkingCalibration(calibratedSpeed,fix ?: location,now)
+    val boundTracker=tracker?.takeIf { validWalkingAccess(it.route,it.origin,boarding) }
+    val progress=candidate?.let { boundTracker?.update(it,now) }
+    if(progress?.onRoute==true && boundTracker!=null) {
         val prior=previous.walking
         if(!allowRecalculation && prior!=null && previous.distanceMeters?.let {progress.remainingMeters<=it}==true &&
-            prior.boardingIdentity==identity && prior.fetchedAtEpochMillis==tracker.fetchedAt &&
+            prior.boardingIdentity==identity && prior.fetchedAtEpochMillis==boundTracker.fetchedAt &&
             now-prior.fetchedAtEpochMillis in 0L..minOf(prior.validForMillis,120000L)) {
             // Validate the unchanged provider geometry with every GPS fix, but retain
             // conservative last-calculated distance/time until the 30-second computation.
             return previous.copy(location=candidate,walking=prior.copy(origin=requireNotNull(candidate).point))
         }
         return LiveWalkingEvidence(candidate,GuidanceWalkingRoute(requireNotNull(candidate).point,boarding,identity,
-            settings.walkingSeconds(progress.remainingMeters,progress.providerSeconds,calibratedSpeed),
-            tracker.fetchedAt,120_000L,progress.remainingMeters),progress.remainingMeters,progress.providerSeconds,tracker.route.points,now)
+            settings.walkingSeconds(progress.remainingMeters,progress.providerSeconds,effectivePace),
+            boundTracker.fetchedAt,120_000L,progress.remainingMeters),progress.remainingMeters,progress.providerSeconds,boundTracker.route.points,now)
     }
     if(progress?.onRoute==false) return LiveWalkingEvidence(location,null,null,null,emptyList())
     // A precise but rejected jump/vehicle sample must not replace the preceding valid fix.
@@ -107,6 +121,6 @@ internal fun updateLiveWalkingEvidence(previous: LiveWalkingEvidence,tracker: Wa
     val distance=previous.distanceMeters.takeIf { walking!=null }
     val provider=previous.providerSeconds.takeIf { walking!=null }
     val adjusted=walking?.let { value -> if(allowRecalculation && distance!=null && provider!=null)
-        value.copy(durationSeconds=settings.walkingSeconds(distance,provider,calibratedSpeed)) else value }
+        value.copy(durationSeconds=settings.walkingSeconds(distance,provider,effectivePace)) else value }
     return LiveWalkingEvidence(location,adjusted,distance,provider,previous.points.takeIf { walking!=null }.orEmpty(),if(allowRecalculation && adjusted!=null && location!=null) now else previous.calculatedAtEpochMillis)
 }

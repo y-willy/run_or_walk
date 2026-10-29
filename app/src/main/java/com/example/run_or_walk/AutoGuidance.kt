@@ -48,7 +48,9 @@ data class GuidanceLocation(
     val observedAtEpochMillis: Long,
     /** Fused provider speed, kept separate from the reported position accuracy. */
     val speedMetersPerSecond: Double? = null,
-    val speedAccuracyMetersPerSecond: Double? = null
+    val speedAccuracyMetersPerSecond: Double? = null,
+    /** Original Android sensor time, not the time this object was copied. */
+    val observedElapsedRealtimeMillis:Long?=null
 )
 
 /** A real walking response, tied to the coordinates and official boarding selection queried. */

@@ -287,7 +287,10 @@ internal fun AppIcon(@DrawableRes resource: Int,description: String?=null,modifi
 
 @Composable
 private fun GuidanceMetric(@DrawableRes icon:Int,value:String,modifier:Modifier) {
-    Surface(modifier=modifier.heightIn(min=54.dp),color=Color.White.copy(alpha=.09f),shape=RoundedCornerShape(14.dp)) {
+    val walking=icon==R.drawable.ui_walk
+    val background=if(walking) Color(0xFFDDF8ED) else Color(0xFFFFF0D8)
+    val foreground=if(walking) Color(0xFF075F46) else Color(0xFF704311)
+    Surface(modifier=modifier.heightIn(min=54.dp),color=background,contentColor=foreground,shape=RoundedCornerShape(14.dp)) {
         Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
             AppIcon(icon,modifier=Modifier.size(20.dp))
             Text(value,style=MaterialTheme.typography.bodySmall,fontWeight=FontWeight.SemiBold)
@@ -390,7 +393,7 @@ internal fun JourneyMapCard(expanded: Boolean,onToggle:()->Unit,content:@Composa
 }
 
 @Composable
-internal fun JourneyMetrics(speed: Double?,distance: Int?) {
+internal fun JourneyMetrics(speed: Double?,distance: Int?,distanceStatus:String="확인 중") {
     BoxWithConstraints(Modifier.fillMaxWidth().testTag("journey-metrics")) {
         val cards: @Composable (Modifier,Boolean)->Unit = { modifier,isSpeed ->
             Surface(modifier=modifier,shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surface,shadowElevation=2.dp) {
@@ -403,7 +406,7 @@ internal fun JourneyMetrics(speed: Double?,distance: Int?) {
                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     AppIcon(if(isSpeed) R.drawable.ui_walk else R.drawable.ui_pin,tint=MaterialTheme.colorScheme.onSurfaceVariant)
                     BasicText(if(isSpeed) speed?.let { String.format(java.util.Locale.KOREA,"%.1f km/h",it*3.6) } ?: "0.0 km/h"
-                        else distance?.let { "${it}m" } ?: "확인 중",
+                        else distance?.let { "${it}m" } ?: distanceStatus,
                         modifier=Modifier.weight(1f),maxLines=1,softWrap=false,
                         style=MaterialTheme.typography.titleLarge.copy(fontWeight=FontWeight.Bold,color=androidx.compose.material3.LocalContentColor.current),
                         autoSize=TextAutoSize.StepBased(minFontSize=14.sp,maxFontSize=22.sp,stepSize=1.sp))

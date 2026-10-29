@@ -44,7 +44,7 @@ fun JourneySettingsPanel(settings: JourneySettings, onWalkingAnalysis: () -> Uni
                 horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text("GPS 자동 보정",style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.SemiBold)
-                    Text("정확한 이동 속도가 측정되면 반영해요.",style=MaterialTheme.typography.bodySmall)
+                    Text("내 걸음속도를 기본으로 정확한 GPS 속도를 참고해요. 정지·수신 불안정 시 설정 속도를 사용해요.",style=MaterialTheme.typography.bodySmall)
                 }
                 Switch(checked=settings.gpsAutoCalibrationEnabled,
                     onCheckedChange={onSettingsChange(settings.copy(gpsAutoCalibrationEnabled=it))},

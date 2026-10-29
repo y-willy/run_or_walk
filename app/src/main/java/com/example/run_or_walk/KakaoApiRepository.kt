@@ -1,6 +1,12 @@
 package com.example.run_or_walk
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -29,12 +35,15 @@ class KakaoApiRepository(private val restKey: String) {
         connection.setRequestProperty("Authorization", "KakaoAK $restKey")
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("User-Agent", "PaceNudge/1.0 (Android)")
+        val cancellation=CoroutineScope(currentCoroutineContext()+Dispatchers.Default).launch(start=CoroutineStart.UNDISPATCHED) {
+            try {awaitCancellation()} finally {connection.disconnect()}
+        }
         try {
             val status = connection.responseCode
             currentCoroutineContext().ensureActive()
             if (status !in 200..299) {
                 // Never expose response bodies or URLs containing auth/location data.
-                throw KakaoApiException(kakaoFailureForHttpStatus(status), status)
+                throw KakaoApiException(kakaoFailureForHttpStatus(status), status, kakaoRetryAt(connection.getHeaderField("Retry-After"),System.currentTimeMillis()))
             }
             val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                 val result = StringBuilder()
@@ -63,6 +72,7 @@ class KakaoApiRepository(private val restKey: String) {
         } catch (_: JSONException) {
             throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
         } finally {
+            cancellation.cancel()
             connection.disconnect()
         }
     }
@@ -98,6 +108,7 @@ class KakaoApiRepository(private val restKey: String) {
 
     suspend fun searchWalk(start: MapPoint, end: MapPoint): KakaoWalkingRoute =
         withContext(Dispatchers.IO) {
+          try {withTimeout(20_000L) {
             val json = request(
                 "https://dapi.kakao.com/v2/routing/walk",
                 mapOf(
@@ -106,33 +117,10 @@ class KakaoApiRepository(private val restKey: String) {
                     "route_mode" to "SHORTEST"
                 )
             )
-            if (json.optString("status") != "OK") {
-                throw KakaoApiException(KakaoFailure.NO_ROUTE)
-            }
-            val route = json.optJSONObject("route")
-                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
-            val info = route.optJSONObject("properties")
-                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
-            val distance = info.nonNegativeInt("totalDistance")
-                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
-            val duration = info.nonNegativeInt("totalTime")
-                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
-            val points = buildList {
-                val legs = route.optJSONArray("legs") ?: return@buildList
-                for (i in 0 until legs.length()) {
-                    val steps = legs.optJSONObject(i)?.optJSONArray("steps") ?: continue
-                    for (j in 0 until steps.length()) {
-                        val path = steps.optJSONObject(j)?.optJSONObject("path")
-                            ?.optJSONArray("points") ?: continue
-                        for (k in 0 until path.length()) {
-                            path.optJSONArray(k)?.coordinate()?.let(::add)
-                        }
-                    }
-                }
-            }
-            // Never fabricate a straight line when the provider omitted walking geometry.
-            if (points.size < 2) throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
-            KakaoWalkingRoute(distance, duration, points)
+            parseKakaoWalkingRoute(json,start,end)
+          }} catch(timeout:TimeoutCancellationException) {
+              currentCoroutineContext().ensureActive();throw KakaoApiException(KakaoFailure.TIMEOUT)
+          }
         }
 
     suspend fun searchPublicTransit(start: MapPoint, end: MapPoint): List<KakaoTransitChoice> =
@@ -249,3 +237,35 @@ private fun JSONArray.coordinate(): MapPoint? =
 
 private fun coordinate(x: Double, y: Double): MapPoint? =
     if (x.isFinite() && y.isFinite() && x in -180.0..180.0 && y in -90.0..90.0) MapPoint(x, y) else null
+
+/** Request endpoints bind the provider's summary even when its polyline starts at a snapped road node. */
+internal fun parseKakaoWalkingRoute(json:JSONObject,start:MapPoint,end:MapPoint):KakaoWalkingRoute {
+            if (json.optString("status") != "OK") {
+                throw KakaoApiException(KakaoFailure.NO_ROUTE)
+            }
+            val route = json.optJSONObject("route")
+                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+            val info = route.optJSONObject("properties")
+                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+            val distance = info.nonNegativeInt("totalDistance")
+                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+            val duration = info.nonNegativeInt("totalTime")
+                ?: throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+            val points = buildList {
+                val legs = route.optJSONArray("legs") ?: return@buildList
+                for (i in 0 until legs.length()) {
+                    val steps = legs.optJSONObject(i)?.optJSONArray("steps") ?: continue
+                    for (j in 0 until steps.length()) {
+                        val path = steps.optJSONObject(j)?.optJSONObject("path")
+                            ?.optJSONArray("points") ?: continue
+                        for (k in 0 until path.length()) {
+                            path.optJSONArray(k)?.coordinate()?.let(::add)
+                        }
+                    }
+                }
+            }
+            // Never fabricate a straight line when the provider omitted walking geometry.
+            if (points.size < 2) throw KakaoApiException(KakaoFailure.INVALID_RESPONSE)
+            return KakaoWalkingRoute(distance,duration,points,start,end)
+
+}

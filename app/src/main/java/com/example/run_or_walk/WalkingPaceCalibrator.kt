@@ -6,6 +6,18 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/** A cached calibration cannot outlive its usable velocity observation. Position validity
+ * remains independent: missing velocity falls back to settings, not UNKNOWN guidance.
+ */
+internal fun usableWalkingCalibration(pace: Double?, location: GuidanceLocation?, now: Long): Double? {
+    val fix = location ?: return null
+    if (locationSampleFailure(fix, now) != null || now - fix.observedAtEpochMillis > 10_000L ||
+        fix.accuracyMeters > 25.0 ||
+        fix.speedAccuracyMetersPerSecond?.let { it.isFinite() && it in 0.0..0.75 } != true ||
+        fix.speedMetersPerSecond?.let { it.isFinite() && it in 0.65..2.4 } != true) return null
+    return pace?.takeIf { it.isFinite() && it in 0.65..2.4 }
+}
+
 /** Uses only fresh, accurate pedestrian fixes; an uncertain sample never overrides a preset. */
 internal class WalkingPaceCalibrator {
     private val samples = ArrayDeque<GuidanceLocation>()

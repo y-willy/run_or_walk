@@ -34,8 +34,20 @@ data class JourneySettings(
             gpsAutoCalibrationEnabled && it.isFinite() && it in 0.65..2.4
         }
         if ((useProviderWalkingTime && calibrated == null && personal == null) || distanceMeters == 0) return providerDurationSeconds
-        return ceil(distanceMeters.toDouble() * 3.6 / (calibrated?.times(3.6) ?: personal ?: speedKmh))
+        return ceil(distanceMeters.toDouble() / walkingSpeedMetersPerSecond(calibrated))
             .coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
+    }
+
+    /** The chosen pace stays the baseline. GPS contributes 30%, capped to a 20% correction.
+     * Zero/missing velocity is never the speed at which a future walk will be completed.
+     * Callers validate the GPS observation separately with usableWalkingCalibration.
+     */
+    internal fun walkingSpeedMetersPerSecond(calibratedSpeedMetersPerSecond: Double? = null): Double {
+        val baseline = (personalWalkingSpeedKmh?.takeIf { usePersonalWalkingSpeed } ?: speedKmh) / 3.6
+        val measured = calibratedSpeedMetersPerSecond?.takeIf {
+            gpsAutoCalibrationEnabled && it.isFinite() && it in 0.65..2.4
+        } ?: return baseline
+        return (baseline * 0.7 + measured * 0.3).coerceIn(baseline * 0.8, baseline * 1.2)
     }
 
     /** Explicit brisk speed, never inferred as a percentage of the provider's duration. */

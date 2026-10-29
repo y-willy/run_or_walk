@@ -1,0 +1,15 @@
+{
+  "tests": 262,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "base": "5630fd5caeb33610661cec520460b605f766b3db",
+  "branch": "fix/route-location-walking-display-20261028",
+  "apkBuild": "success",
+  "apkSha256": "835ffe54dc5c936d214a84c67a7a5e89b97f8d8cb6c33bc83d14f5d85748a3ee",
+  "apkBytes": 58796920,
+  "render": "actual Compose with synthetic data, Robolectric",
+  "physicalDeviceVerified": false,
+  "liveApiFetched": false,
+  "workerChanged": false
+}
