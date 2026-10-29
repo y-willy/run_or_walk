@@ -118,7 +118,8 @@ private fun normalizeBusDirection(value: String): String = normalizeBusRouteName
 internal fun normalizeBusStopName(value: String): String {
     val compact = Normalizer.normalize(value, Normalizer.Form.NFC).trim()
         .removeSuffix("버스정류장").removeSuffix("정류장").removeSuffix("정류소")
-        .replace(Regex("[\\s.,·ㆍ，．。]+"), "").replace("경희대의료원","경희의료원")
+        .replace(Regex("[\\s.,·ㆍ，．。]+"), "").removeSuffix("(중)")
+        .replace("경희대의료원","경희의료원")
     // Confirmed compound stop-name alias. Physical coordinates and official sequence are still required.
     return if (compact == "경희의료원경희여중고") "경희의료원" else compact
 }
@@ -126,6 +127,9 @@ internal fun normalizeBusStopName(value: String): String {
 internal fun normalizeBusRouteName(value: String): String =
     Normalizer.normalize(value, Normalizer.Form.NFC).trim()
         .replace(Regex("\\s+"), "").uppercase(Locale.ROOT)
+        // Kakao decorates Seoul N routes with (심야); official IDs/orders still
+        // establish the actual service and direction, never this display label alone.
+        .let { if (it.matches(Regex("N[0-9]+\\(심야\\)"))) it.removeSuffix("(심야)") else it }
 
 private val officialBusId = Regex("[0-9]{9}")
 

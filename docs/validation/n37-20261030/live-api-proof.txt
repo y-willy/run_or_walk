@@ -1,0 +1,8 @@
+Observed at 2026-10-29T15:51:43.798Z (2026-10-30 00:51 Asia/Seoul)
+Actual public Kakao/Worker requests. Device GPS was simulated at the public search result; not a phone capture.
+N37_LIVE places=삼일교 -> 강남역 2호선; services=[173, N37(심야), 173]
+N37_LIVE first-leg=종로2가.삼일교 -> 지하철2호선강남역(중); names=[종로2가.삼일교, 명동성당.남대문세무서, 순천향대학병원.한남오거리, 신사역.푸른저축은행, 논현역, 지하철2호선강남역(중)]
+N37_LIVE automatic-selection stopId=100000004 ars=01004 routeId=100100585 order=81 type=15 supported=true
+N37_LIVE official-direction verified=true; official downstream orders=82,83,84,85,86; opposite Gangnam order=26 excluded
+N37_LIVE official-arrivals count=2 usable=2 etaSeconds=[584, 2444]
+N37_LIVE scene walkMeters=131 walkSeconds=203 guidance=RELAXED reason=null screenServiceMatch=true GPS=simulated-public-place

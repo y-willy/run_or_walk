@@ -107,7 +107,8 @@ const integer = (value: unknown) => {
   return text !== null && /^\d+$/.test(text) && Number.isSafeInteger(Number(text)) ? Number(text) : null;
 };
 const booleanFlag = (value: unknown) => scalarText(value) === '0' ? false : scalarText(value) === '1' ? true : null;
-const supportedType = (type: string | null) => !type || ['2', '3', '4', '5', '6'].includes(type);
+// Seoul's official night-bus class is 15 (including N37), not another provider.
+const supportedType = (type: string | null) => !type || ['2', '3', '4', '5', '6', '15'].includes(type);
 function canonicalArsId(value: unknown, key: string): string | null {
   const text = safeText(value, key);
   return text !== null && /^\d{1,5}$/.test(text) && Number(text) > 0 ? text.padStart(5, '0') : null;
