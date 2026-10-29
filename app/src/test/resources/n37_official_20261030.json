@@ -1,0 +1,2389 @@
+{
+  "recordedAt": "2026-10-30 Asia/Seoul",
+  "routeId": "100100585",
+  "boardingStops": {
+    "provider": "seoul-bus",
+    "fetchedAt": "2026-10-29T15:48:00.887Z",
+    "stops": [
+      {
+        "stopId": "100000004",
+        "arsId": "01004",
+        "name": "종로2가.삼일교",
+        "x": 126.9876130976,
+        "y": 37.5685792736
+      }
+    ]
+  },
+  "boardingRoutes": {
+    "provider": "seoul-bus",
+    "fetchedAt": "2026-10-29T15:48:01.406Z",
+    "stopId": "100000004",
+    "arsId": "01004",
+    "routes": [
+      {
+        "routeId": "100100073",
+        "name": "470",
+        "stopOrder": "28",
+        "direction": "안골마을",
+        "routeType": "3",
+        "supported": true
+      },
+      {
+        "routeId": "100100077",
+        "name": "501",
+        "stopOrder": "29",
+        "direction": "종로2가",
+        "routeType": "3",
+        "supported": true
+      },
+      {
+        "routeId": "100100103",
+        "name": "701",
+        "stopOrder": "38",
+        "direction": "종로2가",
+        "routeType": "3",
+        "supported": true
+      },
+      {
+        "routeId": "123000010",
+        "name": "741",
+        "stopOrder": "25",
+        "direction": "세곡동사거리",
+        "routeType": "3",
+        "supported": true
+      },
+      {
+        "routeId": "100100001",
+        "name": "01A",
+        "stopOrder": "23",
+        "direction": "예장주차장",
+        "routeType": "5",
+        "supported": true
+      },
+      {
+        "routeId": "204000189",
+        "name": "G8110(예약)성남",
+        "stopOrder": "23",
+        "direction": "오리역",
+        "routeType": "8",
+        "supported": false
+      },
+      {
+        "routeId": "204000082",
+        "name": "G8110성남",
+        "stopOrder": "23",
+        "direction": "오리역",
+        "routeType": "8",
+        "supported": false
+      },
+      {
+        "routeId": "100100585",
+        "name": "N37",
+        "stopOrder": "81",
+        "direction": "복정역환승센터",
+        "routeType": "15",
+        "supported": false
+      }
+    ]
+  },
+  "stopQueries": {
+    "명동성당.남대문세무서": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:46:55.056Z",
+      "stops": [
+        {
+          "stopId": "101000001",
+          "arsId": "02001",
+          "name": "명동성당.남대문세무서",
+          "x": 126.9875299251,
+          "y": 37.5649848069
+        }
+      ]
+    },
+    "순천향대학병원.한남오거리": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:46:56.701Z",
+      "stops": [
+        {
+          "stopId": "102000071",
+          "arsId": "03165",
+          "name": "순천향대학병원.한남오거리",
+          "x": 127.0057290409,
+          "y": 37.5354906847
+        }
+      ]
+    },
+    "신사역.푸른저축은행": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:46:57.983Z",
+      "stops": [
+        {
+          "stopId": "121000015",
+          "arsId": "22015",
+          "name": "신사역.푸른저축은행",
+          "x": 127.0200569534,
+          "y": 37.5141125248
+        }
+      ]
+    },
+    "논현역": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:46:59.317Z",
+      "stops": [
+        {
+          "stopId": "121000013",
+          "arsId": "22013",
+          "name": "논현역",
+          "x": 127.0230319441,
+          "y": 37.5072264964
+        },
+        {
+          "stopId": "121000014",
+          "arsId": "22014",
+          "name": "논현역",
+          "x": 127.023728,
+          "y": 37.506367
+        },
+        {
+          "stopId": "121000115",
+          "arsId": "22191",
+          "name": "논현역4번출구",
+          "x": 127.0219545344,
+          "y": 37.5091091024
+        },
+        {
+          "stopId": "121900246",
+          "arsId": "22587",
+          "name": "논현역5번출구",
+          "x": 127.0214930177,
+          "y": 37.5102896713
+        },
+        {
+          "stopId": "121000114",
+          "arsId": "22190",
+          "name": "논현역6번출구",
+          "x": 127.0192130073,
+          "y": 37.5102908187
+        },
+        {
+          "stopId": "121000107",
+          "arsId": "22183",
+          "name": "논현역7번출구",
+          "x": 127.0193580416,
+          "y": 37.5106629516
+        },
+        {
+          "stopId": "122000616",
+          "arsId": "23641",
+          "name": "신논현역",
+          "x": 127.0265819837,
+          "y": 37.5007572469
+        },
+        {
+          "stopId": "122000654",
+          "arsId": "23580",
+          "name": "신논현역",
+          "x": 127.0259766968,
+          "y": 37.5019598458
+        },
+        {
+          "stopId": "121000945",
+          "arsId": "22407",
+          "name": "신논현역.BSX빌딩",
+          "x": 127.0256744762,
+          "y": 37.5012831839
+        },
+        {
+          "stopId": "121000942",
+          "arsId": "22411",
+          "name": "신논현역.남서울빌딩",
+          "x": 127.0252427203,
+          "y": 37.5021717639
+        },
+        {
+          "stopId": "121000946",
+          "arsId": "22409",
+          "name": "신논현역.서산빌딩",
+          "x": 127.0255227411,
+          "y": 37.5017311633
+        },
+        {
+          "stopId": "121000943",
+          "arsId": "22410",
+          "name": "신논현역.우신빌딩",
+          "x": 127.0253195719,
+          "y": 37.5019951314
+        },
+        {
+          "stopId": "121000947",
+          "arsId": "22408",
+          "name": "신논현역.유화빌딩",
+          "x": 127.0255490162,
+          "y": 37.5015319154
+        },
+        {
+          "stopId": "121000944",
+          "arsId": "22406",
+          "name": "신논현역.주류성빌딩",
+          "x": 127.0257863714,
+          "y": 37.501058785
+        },
+        {
+          "stopId": "121000117",
+          "arsId": "22193",
+          "name": "신논현역1번출구",
+          "x": 127.023023,
+          "y": 37.504227
+        },
+        {
+          "stopId": "121000116",
+          "arsId": "22192",
+          "name": "신논현역2번출구",
+          "x": 127.023498,
+          "y": 37.505962
+        },
+        {
+          "stopId": "121900218",
+          "arsId": "22631",
+          "name": "신논현역2번출구",
+          "x": 127.023552815,
+          "y": 37.50605355
+        },
+        {
+          "stopId": "122000021",
+          "arsId": "23121",
+          "name": "신논현역3번출구",
+          "x": 127.0258483824,
+          "y": 37.5050754793
+        },
+        {
+          "stopId": "122000022",
+          "arsId": "23122",
+          "name": "신논현역3번출구.교보타워사거리",
+          "x": 127.0241456343,
+          "y": 37.5057773025
+        },
+        {
+          "stopId": "122000163",
+          "arsId": "23266",
+          "name": "신논현역4번출구",
+          "x": 127.025813,
+          "y": 37.504682
+        },
+        {
+          "stopId": "122000183",
+          "arsId": "23286",
+          "name": "신논현역6번출구",
+          "x": 127.0257902121,
+          "y": 37.502359976
+        },
+        {
+          "stopId": "121000096",
+          "arsId": "22172",
+          "name": "신논현역7번출구.교보타워사거리",
+          "x": 127.0251067731,
+          "y": 37.5026203992
+        },
+        {
+          "stopId": "121000940",
+          "arsId": "22413",
+          "name": "신논현역7번출구.교보타워사거리",
+          "x": 127.0249635502,
+          "y": 37.5027683529
+        },
+        {
+          "stopId": "122000017",
+          "arsId": "23117",
+          "name": "영동시장.논현역1번출구",
+          "x": 127.0224536332,
+          "y": 37.5113367768
+        },
+        {
+          "stopId": "122000023",
+          "arsId": "23123",
+          "name": "영동시장.논현역3번출구",
+          "x": 127.0223963092,
+          "y": 37.5093462126
+        }
+      ]
+    },
+    "지하철2호선강남역": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:48:02.068Z",
+      "stops": [
+        {
+          "stopId": "121000011",
+          "arsId": "22011",
+          "name": "지하철2호선강남역",
+          "x": 127.0257426414,
+          "y": 37.501795842
+        },
+        {
+          "stopId": "121000012",
+          "arsId": "22012",
+          "name": "지하철2호선강남역",
+          "x": 127.02637,
+          "y": 37.500785
+        }
+      ]
+    }
+  },
+  "routesByStopId": {
+    "121000115": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:47:01.414Z",
+      "stopId": "121000115",
+      "arsId": "22191",
+      "routes": [
+        {
+          "routeId": "100100500",
+          "name": "4312",
+          "stopOrder": "73",
+          "direction": "개포동",
+          "routeType": "4",
+          "supported": true
+        }
+      ]
+    },
+    "121000014": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:47:00.866Z",
+      "stopId": "121000014",
+      "arsId": "22014",
+      "routes": [
+        {
+          "routeId": "100100507",
+          "name": "6009",
+          "stopOrder": "15",
+          "direction": "인천공항",
+          "routeType": "1",
+          "supported": false
+        },
+        {
+          "routeId": "100100019",
+          "name": "140",
+          "stopOrder": "53",
+          "direction": "도봉산역",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100023",
+          "name": "144",
+          "stopOrder": "56",
+          "direction": "우이동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100024",
+          "name": "145",
+          "stopOrder": "54",
+          "direction": "번동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100595",
+          "name": "241",
+          "stopOrder": "65",
+          "direction": "논현역",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100057",
+          "name": "360",
+          "stopOrder": "24",
+          "direction": "여의도환승센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100454",
+          "name": "361",
+          "stopOrder": "34",
+          "direction": "여의도",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100596",
+          "name": "400",
+          "stopOrder": "13",
+          "direction": "시청",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100063",
+          "name": "402",
+          "stopOrder": "38",
+          "direction": "시청",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100068",
+          "name": "420",
+          "stopOrder": "19",
+          "direction": "청량리",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100409",
+          "name": "421",
+          "stopOrder": "13",
+          "direction": "옥수동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100459",
+          "name": "440",
+          "stopOrder": "41",
+          "direction": "압구정동한양파출소앞",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100070",
+          "name": "441",
+          "stopOrder": "61",
+          "direction": "한강버스압구정선착장",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "113000002",
+          "name": "452",
+          "stopOrder": "53",
+          "direction": "중앙대학교",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100073",
+          "name": "470",
+          "stopOrder": "56",
+          "direction": "상암차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "123000010",
+          "name": "741",
+          "stopOrder": "67",
+          "direction": "진관차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100000028",
+          "name": "새벽A741",
+          "stopOrder": "21",
+          "direction": "구파발역입구",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100391",
+          "name": "9404",
+          "stopOrder": "28",
+          "direction": "신사역",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "100100392",
+          "name": "9408",
+          "stopOrder": "57",
+          "direction": "고속터미널",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "107000005",
+          "name": "9409",
+          "stopOrder": "42",
+          "direction": "신사역",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "100100607",
+          "name": "9711",
+          "stopOrder": "48",
+          "direction": "일산동부경찰서",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "165000163",
+          "name": "9500인천",
+          "stopOrder": "39",
+          "direction": "부평역",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "165000164",
+          "name": "9501인천",
+          "stopOrder": "46",
+          "direction": "마전지구버스차고지",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "165000303",
+          "name": "9802인천",
+          "stopOrder": "47",
+          "direction": "공단사거리",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "168000049",
+          "name": "M6457인천",
+          "stopOrder": "23",
+          "direction": "검암역로열파크씨티푸르지오1단",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "164000007",
+          "name": "M6458인천",
+          "stopOrder": "21",
+          "direction": "청라센텀로제비앙",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "166000024",
+          "name": "M6463인천",
+          "stopOrder": "21",
+          "direction": "e편한세상영종하늘도시",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "222000074",
+          "name": "1100남양주",
+          "stopOrder": "70",
+          "direction": "신사역3번출구",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "208000027",
+          "name": "3030안양",
+          "stopOrder": "41",
+          "direction": "신사역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "236000237",
+          "name": "3100N포천",
+          "stopOrder": "48",
+          "direction": "대진대.학생회관",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "207000070",
+          "name": "3100의정부",
+          "stopOrder": "49",
+          "direction": "대진대.학생회관",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "236000190",
+          "name": "3600포천",
+          "stopOrder": "51",
+          "direction": "설운3통.여단앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "232000081",
+          "name": "6427김포",
+          "stopOrder": "47",
+          "direction": "호수마을이편한세상.한가람우미",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "232000150",
+          "name": "6428김포",
+          "stopOrder": "47",
+          "direction": "수자인.호반아파트",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "222000088",
+          "name": "8001남양주",
+          "stopOrder": "34",
+          "direction": "신사역3번출구",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "208000026",
+          "name": "917안양",
+          "stopOrder": "63",
+          "direction": "신사역8번출구.가로수길",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "227000035",
+          "name": "9202하남",
+          "stopOrder": "57",
+          "direction": "학동역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001244",
+          "name": "9600고양",
+          "stopOrder": "48",
+          "direction": "위시티3.4단지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "219000026",
+          "name": "9700고양",
+          "stopOrder": "50",
+          "direction": "대화역(중)",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "229000111",
+          "name": "G7426파주",
+          "stopOrder": "43",
+          "direction": "당하동",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "232000149",
+          "name": "M6427(예약)김포",
+          "stopOrder": "43",
+          "direction": "양곡터미널",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "232000075",
+          "name": "M6427김포",
+          "stopOrder": "44",
+          "direction": "양곡터미널",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "218000172",
+          "name": "M7412(예약)고양",
+          "stopOrder": "39",
+          "direction": "중산마을2단지.해태쇼핑.코오롱",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "218000167",
+          "name": "M7412고양",
+          "stopOrder": "39",
+          "direction": "중산마을2단지.해태쇼핑.코오롱",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "232000106",
+          "name": "이음2",
+          "stopOrder": "46",
+          "direction": "구래역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "100100593",
+          "name": "N13",
+          "stopOrder": "100",
+          "direction": "상계주공7단지",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "104000011",
+          "name": "N31",
+          "stopOrder": "43",
+          "direction": "국민대",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "100100585",
+          "name": "N37",
+          "stopOrder": "27",
+          "direction": "진관공영차고지",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "111000016",
+          "name": "N75",
+          "stopOrder": "123",
+          "direction": "진관공영차고지",
+          "routeType": "15",
+          "supported": false
+        }
+      ]
+    },
+    "121000011": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:48:02.897Z",
+      "stopId": "121000011",
+      "arsId": "22011",
+      "routes": [
+        {
+          "routeId": "100100507",
+          "name": "6009",
+          "stopOrder": "63",
+          "direction": "가락1동주민센터",
+          "routeType": "1",
+          "supported": false
+        },
+        {
+          "routeId": "100100019",
+          "name": "140",
+          "stopOrder": "36",
+          "direction": "AT센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100023",
+          "name": "144",
+          "stopOrder": "45",
+          "direction": "교대",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100024",
+          "name": "145",
+          "stopOrder": "47",
+          "direction": "강남역",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100057",
+          "name": "360",
+          "stopOrder": "70",
+          "direction": "복정역환승센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100596",
+          "name": "400",
+          "stopOrder": "96",
+          "direction": "염곡동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100063",
+          "name": "402",
+          "stopOrder": "73",
+          "direction": "장지공영차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100068",
+          "name": "420",
+          "stopOrder": "70",
+          "direction": "개포동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100409",
+          "name": "421",
+          "stopOrder": "105",
+          "direction": "염곡동차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100459",
+          "name": "440",
+          "stopOrder": "55",
+          "direction": "복정역환승센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100070",
+          "name": "441",
+          "stopOrder": "70",
+          "direction": "월암공영차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "113000002",
+          "name": "452",
+          "stopOrder": "76",
+          "direction": "송파공영차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100073",
+          "name": "470",
+          "stopOrder": "34",
+          "direction": "안골마을",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "123000010",
+          "name": "741",
+          "stopOrder": "31",
+          "direction": "세곡동사거리",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100000028",
+          "name": "새벽A741",
+          "stopOrder": "15",
+          "direction": "양재역.서초문화예술회관",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100391",
+          "name": "9404",
+          "stopOrder": "33",
+          "direction": "분당구미동",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "100100392",
+          "name": "9408",
+          "stopOrder": "67",
+          "direction": "분당구.구미동",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "107000005",
+          "name": "9409",
+          "stopOrder": "47",
+          "direction": "구미동차고지",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "109000005",
+          "name": "서울06퇴근",
+          "stopOrder": "1",
+          "direction": "광주시능평지구",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "234000065",
+          "name": "1005광주",
+          "stopOrder": "63",
+          "direction": "신분당선강남역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "222000074",
+          "name": "1100남양주",
+          "stopOrder": "74",
+          "direction": "차산리",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "204000081",
+          "name": "1151성남",
+          "stopOrder": "35",
+          "direction": "신분당선강남역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "222000088",
+          "name": "8001남양주",
+          "stopOrder": "38",
+          "direction": "대성리",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "208000026",
+          "name": "917안양",
+          "stopOrder": "68",
+          "direction": "군포공영차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "227000035",
+          "name": "9202하남",
+          "stopOrder": "66",
+          "direction": "상산곡동.공영차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "228000401",
+          "name": "P9201(퇴근)용인",
+          "stopOrder": "1",
+          "direction": "한숲5단지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "232000106",
+          "name": "이음2",
+          "stopOrder": "35",
+          "direction": "신분당선강남역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "100100593",
+          "name": "N13",
+          "stopOrder": "55",
+          "direction": "복정역환승센터",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "104000011",
+          "name": "N31",
+          "stopOrder": "107",
+          "direction": "강동공영차고지",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "100100585",
+          "name": "N37",
+          "stopOrder": "86",
+          "direction": "복정역환승센터",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "111000016",
+          "name": "N75",
+          "stopOrder": "58",
+          "direction": "신림2동차고지",
+          "routeType": "15",
+          "supported": false
+        }
+      ]
+    },
+    "101000001": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:46:55.823Z",
+      "stopId": "101000001",
+      "arsId": "02001",
+      "routes": [
+        {
+          "routeId": "100100073",
+          "name": "470",
+          "stopOrder": "29",
+          "direction": "안골마을",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100075",
+          "name": "472",
+          "stopOrder": "51",
+          "direction": "개포동차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "123000010",
+          "name": "741",
+          "stopOrder": "26",
+          "direction": "세곡동사거리",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100000028",
+          "name": "새벽A741",
+          "stopOrder": "11",
+          "direction": "양재역.서초문화예술회관",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100001",
+          "name": "01A",
+          "stopOrder": "24",
+          "direction": "예장주차장",
+          "routeType": "5",
+          "supported": true
+        },
+        {
+          "routeId": "100100389",
+          "name": "9401",
+          "stopOrder": "37",
+          "direction": "구미동차고지",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "234000882",
+          "name": "1150광주",
+          "stopOrder": "66",
+          "direction": "한국외대종점",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001694",
+          "name": "3201광주",
+          "stopOrder": "37",
+          "direction": "HY인터내셔널",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "204000172",
+          "name": "4103성남",
+          "stopOrder": "34",
+          "direction": "판교대장로서측",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "228000263",
+          "name": "5007용인",
+          "stopOrder": "44",
+          "direction": "광교차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "228000452",
+          "name": "5500-2(예약)용인",
+          "stopOrder": "32",
+          "direction": "광교차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234000148",
+          "name": "5500-2광주",
+          "stopOrder": "48",
+          "direction": "광교차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "228000449",
+          "name": "8100(예약)용인",
+          "stopOrder": "32",
+          "direction": "단국대.치과병원",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234000878",
+          "name": "8100광주",
+          "stopOrder": "32",
+          "direction": "단국대.치과병원",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "200000205",
+          "name": "8800수원",
+          "stopOrder": "41",
+          "direction": "수원버스터미널",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "204000191",
+          "name": "9000(예약)성남",
+          "stopOrder": "48",
+          "direction": "구미동차고지(미정차)",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001574",
+          "name": "9000-1광주",
+          "stopOrder": "50",
+          "direction": "구미동차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234000002",
+          "name": "9000광주",
+          "stopOrder": "49",
+          "direction": "구미동차고지(미정차)",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "204000141",
+          "name": "9200성남",
+          "stopOrder": "47",
+          "direction": "위례중학교.위례센트로엘",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "204000189",
+          "name": "G8110(예약)성남",
+          "stopOrder": "24",
+          "direction": "오리역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "204000082",
+          "name": "G8110성남",
+          "stopOrder": "24",
+          "direction": "오리역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "228000450",
+          "name": "M4101(예약)용인",
+          "stopOrder": "28",
+          "direction": "상현역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234000875",
+          "name": "M4101광주",
+          "stopOrder": "28",
+          "direction": "상현역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "204000190",
+          "name": "M4102(예약)성남",
+          "stopOrder": "28",
+          "direction": "구미동차고지(미정차)",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001159",
+          "name": "M4102광주",
+          "stopOrder": "28",
+          "direction": "구미동차고지(미정차)",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "200000335",
+          "name": "M5107(예약)수원",
+          "stopOrder": "37",
+          "direction": "경희대정문",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001243",
+          "name": "M5107광주",
+          "stopOrder": "37",
+          "direction": "경희대정문",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "200000336",
+          "name": "M5115(예약)수원",
+          "stopOrder": "36",
+          "direction": "상현역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001286",
+          "name": "M5115광주",
+          "stopOrder": "36",
+          "direction": "상현역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001317",
+          "name": "M5121광주",
+          "stopOrder": "36",
+          "direction": "삼성전자중앙문",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "200000343",
+          "name": "M5165수원",
+          "stopOrder": "33",
+          "direction": "수원남부버스공영차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "100100585",
+          "name": "N37",
+          "stopOrder": "82",
+          "direction": "복정역환승센터",
+          "routeType": "15",
+          "supported": false
+        }
+      ]
+    },
+    "102000071": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:46:57.296Z",
+      "stopId": "102000071",
+      "arsId": "03165",
+      "routes": [
+        {
+          "routeId": "100100015",
+          "name": "110B국민대",
+          "stopOrder": "56",
+          "direction": "정릉",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100019",
+          "name": "140",
+          "stopOrder": "33",
+          "direction": "AT센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100021",
+          "name": "142",
+          "stopOrder": "38",
+          "direction": "방배동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100023",
+          "name": "144",
+          "stopOrder": "42",
+          "direction": "교대",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100596",
+          "name": "400",
+          "stopOrder": "93",
+          "direction": "염곡동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100063",
+          "name": "402",
+          "stopOrder": "70",
+          "direction": "장지공영차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100068",
+          "name": "420",
+          "stopOrder": "67",
+          "direction": "개포동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100073",
+          "name": "470",
+          "stopOrder": "31",
+          "direction": "안골마을",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100075",
+          "name": "472",
+          "stopOrder": "53",
+          "direction": "개포동차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "123000010",
+          "name": "741",
+          "stopOrder": "28",
+          "direction": "세곡동사거리",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100000028",
+          "name": "새벽A741",
+          "stopOrder": "12",
+          "direction": "양재역.서초문화예술회관",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100438",
+          "name": "3011",
+          "stopOrder": "46",
+          "direction": "장지공영차고지",
+          "routeType": "4",
+          "supported": true
+        },
+        {
+          "routeId": "100100289",
+          "name": "6211",
+          "stopOrder": "67",
+          "direction": "신월동",
+          "routeType": "4",
+          "supported": true
+        },
+        {
+          "routeId": "100100593",
+          "name": "N13",
+          "stopOrder": "52",
+          "direction": "복정역환승센터",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "104000011",
+          "name": "N31",
+          "stopOrder": "104",
+          "direction": "강동공영차고지",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "100100585",
+          "name": "N37",
+          "stopOrder": "83",
+          "direction": "복정역환승센터",
+          "routeType": "15",
+          "supported": false
+        }
+      ]
+    },
+    "121000013": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:47:00.155Z",
+      "stopId": "121000013",
+      "arsId": "22013",
+      "routes": [
+        {
+          "routeId": "100100507",
+          "name": "6009",
+          "stopOrder": "62",
+          "direction": "가락1동주민센터",
+          "routeType": "1",
+          "supported": false
+        },
+        {
+          "routeId": "100100019",
+          "name": "140",
+          "stopOrder": "35",
+          "direction": "AT센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100023",
+          "name": "144",
+          "stopOrder": "44",
+          "direction": "교대",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100024",
+          "name": "145",
+          "stopOrder": "46",
+          "direction": "강남역",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100057",
+          "name": "360",
+          "stopOrder": "69",
+          "direction": "복정역환승센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100454",
+          "name": "361",
+          "stopOrder": "63",
+          "direction": "복정역환승센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100596",
+          "name": "400",
+          "stopOrder": "95",
+          "direction": "염곡동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100063",
+          "name": "402",
+          "stopOrder": "72",
+          "direction": "장지공영차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100068",
+          "name": "420",
+          "stopOrder": "69",
+          "direction": "개포동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100409",
+          "name": "421",
+          "stopOrder": "104",
+          "direction": "염곡동차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100459",
+          "name": "440",
+          "stopOrder": "54",
+          "direction": "복정역환승센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100070",
+          "name": "441",
+          "stopOrder": "69",
+          "direction": "월암공영차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "113000002",
+          "name": "452",
+          "stopOrder": "75",
+          "direction": "송파공영차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100073",
+          "name": "470",
+          "stopOrder": "33",
+          "direction": "안골마을",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100093",
+          "name": "640",
+          "stopOrder": "39",
+          "direction": "강남역",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "123000010",
+          "name": "741",
+          "stopOrder": "30",
+          "direction": "세곡동사거리",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100000028",
+          "name": "새벽A741",
+          "stopOrder": "14",
+          "direction": "양재역.서초문화예술회관",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100391",
+          "name": "9404",
+          "stopOrder": "32",
+          "direction": "분당구미동",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "100100392",
+          "name": "9408",
+          "stopOrder": "66",
+          "direction": "분당구.구미동",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "107000005",
+          "name": "9409",
+          "stopOrder": "46",
+          "direction": "구미동차고지",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "100100607",
+          "name": "9711",
+          "stopOrder": "31",
+          "direction": "양재역",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "165000163",
+          "name": "9500인천",
+          "stopOrder": "24",
+          "direction": "매헌시민의숲.양재꽃시장",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "165000164",
+          "name": "9501인천",
+          "stopOrder": "31",
+          "direction": "매헌시민의숲.양재꽃시장",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "165000303",
+          "name": "9802인천",
+          "stopOrder": "32",
+          "direction": "매헌시민의숲.양재꽃시장",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "168000049",
+          "name": "M6457인천",
+          "stopOrder": "18",
+          "direction": "강남역도시에빛",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "164000007",
+          "name": "M6458인천",
+          "stopOrder": "14",
+          "direction": "매헌시민의숲.양재꽃시장",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "166000024",
+          "name": "M6463인천",
+          "stopOrder": "17",
+          "direction": "매헌시민의숲.양재꽃시장",
+          "routeType": "7",
+          "supported": false
+        },
+        {
+          "routeId": "222000074",
+          "name": "1100남양주",
+          "stopOrder": "73",
+          "direction": "차산리",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "236000234",
+          "name": "1403포천",
+          "stopOrder": "28",
+          "direction": "고속터미널",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "235000131",
+          "name": "1407양주",
+          "stopOrder": "25",
+          "direction": "고속터미널",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "208000027",
+          "name": "3030안양",
+          "stopOrder": "45",
+          "direction": "군포공영차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "236000237",
+          "name": "3100N포천",
+          "stopOrder": "37",
+          "direction": "양재역신한은행앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "207000070",
+          "name": "3100의정부",
+          "stopOrder": "37",
+          "direction": "양재역신한은행앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "222000088",
+          "name": "8001남양주",
+          "stopOrder": "37",
+          "direction": "대성리",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "208000026",
+          "name": "917안양",
+          "stopOrder": "67",
+          "direction": "군포공영차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "227000035",
+          "name": "9202하남",
+          "stopOrder": "65",
+          "direction": "상산곡동.공영차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001244",
+          "name": "9600고양",
+          "stopOrder": "40",
+          "direction": "강남역12번출구A",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "219000026",
+          "name": "9700고양",
+          "stopOrder": "33",
+          "direction": "말죽거리공원사거리",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "229000111",
+          "name": "G7426파주",
+          "stopOrder": "31",
+          "direction": "양재역.양재1동민원분소",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "218000172",
+          "name": "M7412(예약)고양",
+          "stopOrder": "26",
+          "direction": "강남역서초현대타워앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "218000167",
+          "name": "M7412고양",
+          "stopOrder": "26",
+          "direction": "강남역서초현대타워앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "232000106",
+          "name": "이음2",
+          "stopOrder": "34",
+          "direction": "신분당선강남역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "100100593",
+          "name": "N13",
+          "stopOrder": "54",
+          "direction": "복정역환승센터",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "104000011",
+          "name": "N31",
+          "stopOrder": "106",
+          "direction": "강동공영차고지",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "100100585",
+          "name": "N37",
+          "stopOrder": "85",
+          "direction": "복정역환승센터",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "111000016",
+          "name": "N75",
+          "stopOrder": "57",
+          "direction": "신림2동차고지",
+          "routeType": "15",
+          "supported": false
+        }
+      ]
+    },
+    "121000012": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:48:03.647Z",
+      "stopId": "121000012",
+      "arsId": "22012",
+      "routes": [
+        {
+          "routeId": "100100507",
+          "name": "6009",
+          "stopOrder": "14",
+          "direction": "인천공항",
+          "routeType": "1",
+          "supported": false
+        },
+        {
+          "routeId": "100100019",
+          "name": "140",
+          "stopOrder": "52",
+          "direction": "도봉산역",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100023",
+          "name": "144",
+          "stopOrder": "55",
+          "direction": "우이동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100024",
+          "name": "145",
+          "stopOrder": "53",
+          "direction": "번동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100057",
+          "name": "360",
+          "stopOrder": "23",
+          "direction": "여의도환승센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100596",
+          "name": "400",
+          "stopOrder": "12",
+          "direction": "시청",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100063",
+          "name": "402",
+          "stopOrder": "37",
+          "direction": "시청",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100068",
+          "name": "420",
+          "stopOrder": "18",
+          "direction": "청량리",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100409",
+          "name": "421",
+          "stopOrder": "12",
+          "direction": "옥수동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100459",
+          "name": "440",
+          "stopOrder": "40",
+          "direction": "압구정동한양파출소앞",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100070",
+          "name": "441",
+          "stopOrder": "60",
+          "direction": "한강버스압구정선착장",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "113000002",
+          "name": "452",
+          "stopOrder": "52",
+          "direction": "중앙대학교",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100073",
+          "name": "470",
+          "stopOrder": "55",
+          "direction": "상암차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100096",
+          "name": "643",
+          "stopOrder": "46",
+          "direction": "강남역",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "123000010",
+          "name": "741",
+          "stopOrder": "66",
+          "direction": "진관차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100000028",
+          "name": "새벽A741",
+          "stopOrder": "20",
+          "direction": "구파발역입구",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100391",
+          "name": "9404",
+          "stopOrder": "27",
+          "direction": "신사역",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "100100392",
+          "name": "9408",
+          "stopOrder": "56",
+          "direction": "고속터미널",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "107000005",
+          "name": "9409",
+          "stopOrder": "41",
+          "direction": "신사역",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "107000006",
+          "name": "서울01출근",
+          "stopOrder": "11",
+          "direction": "화성시동탄",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "113000005",
+          "name": "서울06출근",
+          "stopOrder": "11",
+          "direction": "광주시능평동",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "222000074",
+          "name": "1100남양주",
+          "stopOrder": "69",
+          "direction": "신사역3번출구",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "228000454",
+          "name": "1550(예약)용인",
+          "stopOrder": "37",
+          "direction": "지하철2호선강남역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234000136",
+          "name": "1550광주",
+          "stopOrder": "37",
+          "direction": "지하철2호선강남역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "228000455",
+          "name": "1570(예약)용인",
+          "stopOrder": "33",
+          "direction": "광교차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001271",
+          "name": "1570광주",
+          "stopOrder": "33",
+          "direction": "광교차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "208000027",
+          "name": "3030안양",
+          "stopOrder": "40",
+          "direction": "신사역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "236000237",
+          "name": "3100N포천",
+          "stopOrder": "47",
+          "direction": "대진대.학생회관",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "207000070",
+          "name": "3100의정부",
+          "stopOrder": "47",
+          "direction": "대진대.학생회관",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "236000190",
+          "name": "3600포천",
+          "stopOrder": "50",
+          "direction": "설운3통.여단앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "222000088",
+          "name": "8001남양주",
+          "stopOrder": "33",
+          "direction": "신사역3번출구",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "208000026",
+          "name": "917안양",
+          "stopOrder": "62",
+          "direction": "신사역8번출구.가로수길",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "227000035",
+          "name": "9202하남",
+          "stopOrder": "56",
+          "direction": "학동역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "204000153",
+          "name": "9400성남",
+          "stopOrder": "37",
+          "direction": "지하철2호선강남역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "204000156",
+          "name": "9800성남",
+          "stopOrder": "39",
+          "direction": "지하철2호선강남역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "229000111",
+          "name": "G7426파주",
+          "stopOrder": "41",
+          "direction": "당하동",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "228000400",
+          "name": "P9201(출근)용인",
+          "stopOrder": "19",
+          "direction": "지하철2호선강남역",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "100100593",
+          "name": "N13",
+          "stopOrder": "99",
+          "direction": "상계주공7단지",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "104000011",
+          "name": "N31",
+          "stopOrder": "42",
+          "direction": "국민대",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "100100585",
+          "name": "N37",
+          "stopOrder": "26",
+          "direction": "진관공영차고지",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "111000016",
+          "name": "N75",
+          "stopOrder": "122",
+          "direction": "진관공영차고지",
+          "routeType": "15",
+          "supported": false
+        }
+      ]
+    },
+    "121000015": {
+      "provider": "seoul-bus",
+      "fetchedAt": "2026-10-29T15:46:58.702Z",
+      "stopId": "121000015",
+      "arsId": "22015",
+      "routes": [
+        {
+          "routeId": "100100507",
+          "name": "6009",
+          "stopOrder": "61",
+          "direction": "가락1동주민센터",
+          "routeType": "1",
+          "supported": false
+        },
+        {
+          "routeId": "100100019",
+          "name": "140",
+          "stopOrder": "34",
+          "direction": "AT센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100023",
+          "name": "144",
+          "stopOrder": "43",
+          "direction": "교대",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100024",
+          "name": "145",
+          "stopOrder": "45",
+          "direction": "강남역",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100595",
+          "name": "241",
+          "stopOrder": "58",
+          "direction": "논현역",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100596",
+          "name": "400",
+          "stopOrder": "94",
+          "direction": "염곡동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100063",
+          "name": "402",
+          "stopOrder": "71",
+          "direction": "장지공영차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100068",
+          "name": "420",
+          "stopOrder": "68",
+          "direction": "개포동",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100409",
+          "name": "421",
+          "stopOrder": "103",
+          "direction": "염곡동차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100459",
+          "name": "440",
+          "stopOrder": "53",
+          "direction": "복정역환승센터",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100070",
+          "name": "441",
+          "stopOrder": "68",
+          "direction": "월암공영차고지",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100073",
+          "name": "470",
+          "stopOrder": "32",
+          "direction": "안골마을",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "123000010",
+          "name": "741",
+          "stopOrder": "29",
+          "direction": "세곡동사거리",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100000028",
+          "name": "새벽A741",
+          "stopOrder": "13",
+          "direction": "양재역.서초문화예술회관",
+          "routeType": "3",
+          "supported": true
+        },
+        {
+          "routeId": "100100391",
+          "name": "9404",
+          "stopOrder": "31",
+          "direction": "분당구미동",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "107000005",
+          "name": "9409",
+          "stopOrder": "45",
+          "direction": "구미동차고지",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "100100607",
+          "name": "9711",
+          "stopOrder": "30",
+          "direction": "양재역",
+          "routeType": "6",
+          "supported": true
+        },
+        {
+          "routeId": "222000074",
+          "name": "1100남양주",
+          "stopOrder": "72",
+          "direction": "차산리",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "236000234",
+          "name": "1403포천",
+          "stopOrder": "27",
+          "direction": "고속터미널",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "235000131",
+          "name": "1407양주",
+          "stopOrder": "24",
+          "direction": "고속터미널",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "208000027",
+          "name": "3030안양",
+          "stopOrder": "44",
+          "direction": "군포공영차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "236000237",
+          "name": "3100N포천",
+          "stopOrder": "36",
+          "direction": "양재역신한은행앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "207000070",
+          "name": "3100의정부",
+          "stopOrder": "36",
+          "direction": "양재역신한은행앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "222000088",
+          "name": "8001남양주",
+          "stopOrder": "36",
+          "direction": "대성리",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "208000026",
+          "name": "917안양",
+          "stopOrder": "66",
+          "direction": "군포공영차고지",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "234001244",
+          "name": "9600고양",
+          "stopOrder": "39",
+          "direction": "강남역12번출구A",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "219000026",
+          "name": "9700고양",
+          "stopOrder": "32",
+          "direction": "말죽거리공원사거리",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "229000111",
+          "name": "G7426파주",
+          "stopOrder": "30",
+          "direction": "양재역.양재1동민원분소",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "218000172",
+          "name": "M7412(예약)고양",
+          "stopOrder": "25",
+          "direction": "강남역서초현대타워앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "218000167",
+          "name": "M7412고양",
+          "stopOrder": "25",
+          "direction": "강남역서초현대타워앞",
+          "routeType": "8",
+          "supported": false
+        },
+        {
+          "routeId": "100100593",
+          "name": "N13",
+          "stopOrder": "53",
+          "direction": "복정역환승센터",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "104000011",
+          "name": "N31",
+          "stopOrder": "105",
+          "direction": "강동공영차고지",
+          "routeType": "15",
+          "supported": false
+        },
+        {
+          "routeId": "100100585",
+          "name": "N37",
+          "stopOrder": "84",
+          "direction": "복정역환승센터",
+          "routeType": "15",
+          "supported": false
+        }
+      ]
+    }
+  }
+}

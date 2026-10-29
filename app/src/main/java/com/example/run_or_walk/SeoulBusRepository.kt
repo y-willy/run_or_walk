@@ -192,7 +192,8 @@ internal fun normalizeSeoulBusStopQuery(query: String): String {
     val ars = trimmed.replace(Regex("[\\s-]"), "")
     return if (ars.matches(Regex("[0-9]{5}"))) ars else trimmed
         .removeSuffix("버스정류장").removeSuffix("정류장").removeSuffix("정류소")
-        .replace(Regex("\\s+"), "").replace(Regex("[,·ㆍ，．。]+"), ".")
+        .replace(Regex("\\s+"), "").removeSuffix("(중)")
+        .replace(Regex("[,·ㆍ，．。]+"), ".")
         .replace("경희의료원", "경희대의료원")
 }
 
@@ -239,7 +240,9 @@ internal fun parseWorkerSeoulBusRoutes(json: String, stop: OfficialSeoulBusStop)
             val name = row.busText("name") ?: continue
             val direction = row.busText("direction").orEmpty()
             val routeType = row.busText("routeType").orEmpty()
-            val supported = row.busBoolean("supported") != false &&
+            // Older Workers classified official Seoul night type 15 as unsupported.
+            // Accept that known type while preserving explicit exclusions for other types.
+            val supported = routeType == "15" || row.busBoolean("supported") != false &&
                 (routeType.isBlank() || routeType in setOf("2", "3", "4", "5", "6"))
             add(OfficialSeoulBusRoute(stop.stopId, id, name, order, direction, routeType, supported))
         }

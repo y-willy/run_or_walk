@@ -1,0 +1,23 @@
+{
+  "androidUnitTests": {
+    "tests": 302,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "workerTests": {
+    "tests": 3,
+    "failures": 0
+  },
+  "liveApiProbe": {
+    "tests": 1,
+    "failures": 0,
+    "gps": "simulated-public-place"
+  },
+  "compileDebugKotlin": "success",
+  "assembleDebug": "success",
+  "workerTypecheck": "success",
+  "workerDryRun": "success",
+  "workerDeployment": false,
+  "physicalDeviceTest": false
+}
