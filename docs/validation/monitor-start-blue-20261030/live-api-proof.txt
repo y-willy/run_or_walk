@@ -1,0 +1,5 @@
+Actual public API probe at 2026-10-29T16:39:39.854Z; GPS is simulated at the public station. Native phone rendering is not tested.
+MAP_START_LIVE publicScene=종각역 -> 종로2가.삼일교 -> 강남역 2호선
+MAP_START_LIVE route=N37 type=15 directionVerified=true serviceRequestValid=true serviceCodecRoundTrip=true
+MAP_START_LIVE walkMeters=588 seconds=557 actualWalkingPoints=25 greenSegments=1 blueSegments=1
+MAP_START_LIVE immediateBlueBeforeMapQuery=true blueSurvivesServiceHandover=true allBlueCoordinatesInCameraBounds=true blueAboveGreen=true geometryUnmodified=true GPS=simulated-public-station nativePhoneRendering=not-tested

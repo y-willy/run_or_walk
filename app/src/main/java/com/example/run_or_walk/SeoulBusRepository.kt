@@ -242,8 +242,8 @@ internal fun parseWorkerSeoulBusRoutes(json: String, stop: OfficialSeoulBusStop)
             val routeType = row.busText("routeType").orEmpty()
             // Older Workers classified official Seoul night type 15 as unsupported.
             // Accept that known type while preserving explicit exclusions for other types.
-            val supported = routeType == "15" || row.busBoolean("supported") != false &&
-                (routeType.isBlank() || routeType in setOf("2", "3", "4", "5", "6"))
+            val supported = (routeType == "15" || row.busBoolean("supported") != false) &&
+                isSupportedSeoulBusRouteType(routeType)
             add(OfficialSeoulBusRoute(stop.stopId, id, name, order, direction, routeType, supported))
         }
     }.groupBy { it.routeId to it.stopOrder }.values.mapNotNull { it.distinct().singleOrNull() }

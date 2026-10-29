@@ -53,7 +53,7 @@ internal data class JourneyMonitoringRequest(
             } == true
             "seoul-bus" -> gyeonggiMatch == null && subwayStation == null && busStop?.let { stop ->
                 busRoute?.let { route -> stop.stopId == route.stopId && route.identity == identity &&
-                    route.supported && (route.routeType.isBlank() || route.routeType in setOf("2", "3", "4", "5", "6")) &&
+                    route.supported && isSupportedSeoulBusRouteType(route.routeType) &&
                     route.name.isNotBlank() && route.direction.length <= 512 && route.direction.none(Char::isISOControl) &&
                     stop.point == boardingPoint && stop.stopId.matches(Regex("[1-9][0-9]{8}")) &&
                     stop.arsId.matches(Regex("[0-9]{5}")) && stop.arsId != "00000" &&

@@ -1388,6 +1388,8 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     val mapChoice = rootScreen.selectedRoute?.kakao
     val sharedLocation=if(hasLocationPermission(context)) session.locationAt(now,screen.location,rootScreen.location,monitoring.location) else null
     val mapGps=sharedLocation
+    val mapAccessToDisplay=rootScreen.mapAccessSegmentsForDisplay(mapGps,mapDeparture,now,
+        monitoring.takeIf {isMonitored(rootScreen)})
     var mapJourneyMessage by remember(rootScreen,mapDeparture,mapDestination,mapChoice?.itineraryKey) { mutableStateOf<String?>(null) }
     val latestMapGps by rememberUpdatedState(mapGps)
     val chosenAccess = rootScreen.accessJourney?.selectedRoute?.kakao
@@ -1453,7 +1455,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             if(fresh && !shouldRefreshAccessMap(rootScreen.mapAccessOrigin,rootScreen.mapAccessDestination,fix.point,destination,rootScreen.mapAccessSegments.isNotEmpty())) return
             // Last geometry is a reference overlay only; never renew its calculation timestamp.
 
-            if(rootScreen.accessTransitLoading || rootScreen.busy) return
+            if(!rootScreen.canFetchMapAccess()) return
             if(!rootScreen.mapAccessRequests.begin(destination to chosen?.itineraryKey,time,true)) return
             var success=false
             try {
@@ -1865,7 +1867,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         }
                     } else {
                         Button(onClick = { requestMonitoring(screen) },
-                            enabled = canMonitor && !screen.busy && pendingLocation == null &&
+                            enabled = canMonitor && pendingLocation == null &&
                                 pendingMonitoring == null && !startingMonitoring,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
@@ -2005,8 +2007,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 JourneyMapCard(mapExpanded,{ mapExpanded=!mapExpanded }) {
                     KakaoMapPanel(lifecycleOwner = lifecycleOwner, center = screen.mapCenter,
                         routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
-                        accessSegments = rootScreen.mapAccessSegments.takeIf {
-                            mode == FeatureMode.ROUTE && rootScreen.mapAccessDestination == mapDeparture }.orEmpty(),
+                        accessSegments = mapAccessToDisplay,
                         journeySegments = mapChoice?.pathSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
                         departurePoint = mapDeparture, destinationPoint = mapDestination,
                         journeyKey = Triple(mapDeparture,mapDestination,mapChoice?.itineraryKey),

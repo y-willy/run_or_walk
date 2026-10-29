@@ -33,6 +33,10 @@ internal fun shouldRefreshAccessMap(storedOrigin: MapPoint?, storedDeparture: Ma
     !hasGeometry || storedDeparture != departure || storedOrigin == null ||
         walkingAccessDistance(storedOrigin,currentOrigin) > 35.0
 
+/** A selected map leg has its own request gate; an unrelated UI refresh is not a blocker. */
+internal fun JourneyScreenState.canFetchMapAccess():Boolean = mode==FeatureMode.ROUTE &&
+    departure.selected!=null && (boarding!=null || selectedRoute!=null) && !accessTransitLoading
+
 /** Validate actual provider geometry before attaching GPS/boarding coordinates to its duration. */
 internal fun validWalkingAccess(route: KakaoWalkingRoute, origin: MapPoint, destination: MapPoint): Boolean {
     fun valid(point: MapPoint) = point.x.isFinite() && point.y.isFinite() &&
@@ -118,22 +122,45 @@ internal fun JourneyScreenState.reuseMapWalkingForBoarding(location:GuidanceLoca
 /** Reuse only a real, fresh route to the designated departure, including provider-snapped
  * endpoints. The original request binding is stronger than an arbitrary 20m endpoint test.
  */
-internal fun JourneyScreenState.reuseWalkingForMapAccess(fix:GuidanceLocation,destination:MapPoint,now:Long):Boolean {
-    if(departure.selected?.point!=destination || locationSampleFailure(fix,now)!=null) return false
-    val fetched=walkFetchedAtEpochMillis ?: return false
+internal fun JourneyScreenState.walkingForMapAccess(fix:GuidanceLocation,destination:MapPoint,now:Long):WalkingRouteTracker? {
+    if(departure.selected?.point!=destination || locationSampleFailure(fix,now)!=null) return null
+    val fetched=walkFetchedAtEpochMillis ?: return null
     val tracker=walkingTracker
-    val origin=tracker?.origin ?: walkOrigin ?: return false
+    val origin=tracker?.origin ?: walkOrigin ?: return null
     val source=tracker?.route ?: walkRoute?.let {KakaoWalkingRoute(it.distanceMeters,it.durationSeconds,walkingPoints)}
-        ?: return false
+        ?: return null
     if(now-fetched !in 0L..120_000L || tracker?.let {it.fetchedAt!=fetched}==true ||
         pedestrianDistance(origin,fix.point)>35.0 ||
         (source.requestedDestination==null && boarding?.point!=destination) ||
-        !validWalkingAccess(source,origin,destination)) return false
-    mapAccessSegments=listOf(source.points)
-    mapAccessOrigin=origin;mapAccessDestination=destination
+        !validWalkingAccess(source,origin,destination)) return null
+    return tracker ?: WalkingRouteTracker(origin,source,fetched)
+}
+
+internal fun JourneyScreenState.reuseWalkingForMapAccess(fix:GuidanceLocation,destination:MapPoint,now:Long):Boolean {
+    val source=walkingForMapAccess(fix,destination,now) ?: return false
+    mapAccessSegments=listOf(source.route.points)
+    mapAccessOrigin=source.origin;mapAccessDestination=destination
     mapAccessMessage=null;mapAccessIsReference=false
-    mapAccessWalking=tracker ?: WalkingRouteTracker(origin,source,fetched)
+    mapAccessWalking=source
     return true
+}
+
+/** Display available provider geometry immediately, without waiting for a map-only API job.
+ * Service walking geometry is physical evidence only for the same selected boarding/departure.
+ */
+internal fun JourneyScreenState.mapAccessSegmentsForDisplay(fix:GuidanceLocation?,destination:MapPoint?,now:Long,
+    monitoring:JourneyMonitoringState?=null):List<List<MapPoint>> {
+    if(mode!=FeatureMode.ROUTE || destination==null || departure.selected?.point!=destination) return emptyList()
+    val cached=mapAccessSegments.takeIf {mapAccessDestination==destination}.orEmpty()
+    if(cached.any {it.size>=2}) return cached
+    if(fix==null || locationSampleFailure(fix,now)!=null) return emptyList()
+    val service=monitoring?.takeIf {it.running && it.request?.matches(confirmedServiceIdentity,boarding?.point)==true &&
+        it.request.boardingPoint==destination}
+    val tracker=service?.walkingGeometry?.takeIf {
+        now-it.fetchedAt in 0L..120_000L && pedestrianDistance(it.origin,fix.point)<=35.0 &&
+            validWalkingAccess(it.route,it.origin,destination)
+    } ?: walkingForMapAccess(fix,destination,now)
+    return tracker?.route?.points?.let {listOf(it)}.orEmpty()
 }
 
 /** Display a verified physical walking route even while official service binding is pending.

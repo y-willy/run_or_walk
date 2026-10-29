@@ -10,6 +10,10 @@ data class OfficialSeoulBusStop(
 
 data class OfficialSeoulBusRouteStop(val routeId: String, val stopId: String, val stopOrder: String, val name: String)
 
+/** One scope for discovery, service startup and saved selections. Type 15 is Seoul night bus. */
+internal fun isSupportedSeoulBusRouteType(type:String):Boolean =
+    type.isBlank() || type in setOf("2","3","4","5","6","15")
+
 /** The official stop sequence distinguishes a route's opposite direction and loop occurrences. */
 data class OfficialSeoulBusRoute(
     val stopId: String,
