@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash only: 66dp -> 72.6dp on the 108dp adaptive canvas (+10%).
+     Keep the home-screen launcher foreground unchanged. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="16.3889%"
+    android:insetTop="16.3889%"
+    android:insetRight="16.3889%"
+    android:insetBottom="16.3889%">
+    <bitmap
+        android:src="@drawable/brand_launcher_artwork"
+        android:antialias="true"
+        android:filter="true"
+        android:gravity="fill" />
+</inset>

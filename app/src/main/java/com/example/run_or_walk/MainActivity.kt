@@ -73,12 +73,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         journeySession = ViewModelProvider(this)[JourneySessionViewModel::class.java]
         val activityLifecycleOwner: LifecycleOwner = this
-        val showLaunchArtwork = savedInstanceState == null
         setContent {
             RUN_or_WALKTheme {
-                BrandLaunchGate(showOnLaunch = showLaunchArtwork) {
-                    PaceNudgeScreen(lifecycleOwner = activityLifecycleOwner, session = journeySession)
-                }
+                PaceNudgeScreen(lifecycleOwner = activityLifecycleOwner, session = journeySession)
             }
         }
     }
