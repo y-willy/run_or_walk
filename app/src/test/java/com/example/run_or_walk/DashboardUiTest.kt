@@ -65,7 +65,7 @@ class DashboardUiTest {
             Assert.assertEquals(220f,compose.onNodeWithTag("map-slot").fetchSemanticsNode().boundsInRoot.height,1f)
 
             // Return to the header for the submitted fixture render.
-            compose.onNodeWithContentDescription("run_or_walk 로고").performScrollTo()
+            compose.onNodeWithContentDescription("탑승의 민족 로고").performScrollTo()
             System.getProperty("pacenudge.proofDir")?.let { directory ->
                 val view=lifecycle.get().window.decorView
                 val bitmap=Bitmap.createBitmap(view.width,view.height,Bitmap.Config.ARGB_8888);view.draw(Canvas(bitmap))

@@ -2,5 +2,6 @@
 <resources>
     <color name="brand_launch_background">#F6F8FC</color>
     <color name="brand_navigation_legacy">#0F172A</color>
-    <string name="brand_launch_description">Run_or_Walk 시작 화면</string>
+    <string name="brand_launch_description">탑승의 민족 시작 화면</string>
+    <string name="brand_logo_description">탑승의 민족 로고</string>
 </resources>
