@@ -1,0 +1,23 @@
+{
+  "unitComposeServiceTests": {
+    "tests": 321,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "newRegressionTests": 12,
+  "compileDebugKotlin": "success",
+  "assembleDebug": "success",
+  "liveApiProbe": {
+    "tests": 1,
+    "failures": 0,
+    "actualOfficialDirection": true,
+    "actualWalkingResponse": true,
+    "gps": "simulated-public-station",
+    "nativePhoneRendering": false,
+    "freshBusEtaQuery": false
+  },
+  "previousMapCommitIncluded": "27b2016499ab115763678a4872e959eeed2ce281",
+  "workerChanges": false,
+  "mainMerged": false
+}

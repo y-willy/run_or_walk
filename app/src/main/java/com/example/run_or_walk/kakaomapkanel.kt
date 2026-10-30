@@ -359,30 +359,27 @@ fun KakaoMapPanel(
         }
     }
 
-    var drawnPaths by remember(kakaoMap) { mutableStateOf<List<Pair<List<MapPoint>,Int>>>(emptyList()) }
+    var drawnPaths by remember(kakaoMap) { mutableStateOf<List<JourneyMapPath>>(emptyList()) }
     var drawnLines by remember(kakaoMap) { mutableStateOf<List<com.kakao.vectormap.route.RouteLine>>(emptyList()) }
     LaunchedEffect(kakaoMap, routePoints, accessSegments, journeySegments, departurePoint) {
         val map = kakaoMap ?: return@LaunchedEffect
         val layer = map.routeLineManager?.layer ?: return@LaunchedEffect
-        val paths = if (departurePoint != null) accessSegments.map { it to AndroidColor.rgb(37,99,235) } +
-            journeySegments.map { it to AndroidColor.rgb(22,163,74) }
-            else listOf(routePoints to AndroidColor.rgb(20,184,166))
-        val valid=paths.filter {it.first.size>=2}
+        val valid=journeyMapPaths(departurePoint,routePoints,accessSegments,journeySegments)
         if(drawnPaths==valid) return@LaunchedEffect
         val updated=mutableListOf<com.kakao.vectormap.route.RouteLine>()
-        for ((path,color) in valid) {
-            val styles = RouteLineStyles.from(RouteLineStyle.from(12f, color))
-            val positions = path.map { LatLng.from(it.y, it.x) }
+        for (path in valid) {
+            val styles = RouteLineStyles.from(RouteLineStyle.from(path.width, path.color))
+            val positions = path.points.map { LatLng.from(it.y, it.x) }
             val segment = RouteLineSegment.from(positions, styles)
-            updated+=layer.addRouteLine(RouteLineOptions.from(segment))
+            updated+=layer.addRouteLine(RouteLineOptions.from(segment).setZOrder(path.zOrder))
         }
         drawnLines.forEach {it.remove()}
         drawnLines=updated;drawnPaths=valid
     }
 
-    LaunchedEffect(kakaoMap, journeyKey, accessSegments, journeySegments, routePoints, currentPoint,boardingPoint,userMovedCamera) {
+    LaunchedEffect(kakaoMap, journeyKey, accessSegments, journeySegments, routePoints, currentPoint,boardingPoint,departurePoint,userMovedCamera) {
         val map = kakaoMap ?: return@LaunchedEffect
-        val points = walkingMapViewportPoints(routePoints,currentPoint,boardingPoint,accessSegments+journeySegments)
+        val points = walkingMapViewportPoints(routePoints,currentPoint,boardingPoint,journeySegments,accessSegments,departurePoint)
         // Fit each newly available extent before a gesture. Never recenter on ETA ticks/GPS updates.
         val fitKey = Triple(journeyKey,boardingPoint,routePoints.isNotEmpty() to (accessSegments.isNotEmpty() to journeySegments.isNotEmpty()))
         if (!userMovedCamera && points.isNotEmpty() && lastFitKey != fitKey) {

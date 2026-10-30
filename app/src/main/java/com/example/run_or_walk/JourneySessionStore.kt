@@ -253,7 +253,7 @@ private fun OfficialSeoulBusRoute.toJson() = JSONObject().put("stopId", stopId).
     .put("name", name).put("stopOrder", stopOrder).put("direction", direction).put("routeType", routeType)
     .put("supported", supported)
 private fun JSONObject.busRoute(): OfficialSeoulBusRoute? {
-    val type = optionalBusText("routeType", 2)?.takeIf { it.isBlank() || it in setOf("2", "3", "4", "5", "6") } ?: return null
+    val type = optionalBusText("routeType", 2)?.takeIf(::isSupportedSeoulBusRouteType) ?: return null
     if (!flag("supported")) return null
     return OfficialSeoulBusRoute(text("stopId", 9)?.takeIf(::busId) ?: return null,
         text("routeId", 9)?.takeIf(::busId) ?: return null, text("name", 100) ?: return null,

@@ -25,6 +25,27 @@ class SeoulNightBusTest {
         assertEquals("81", route.stopOrder)
     }
 
+    @Test fun recordedNightRouteCanStartMonitoringAndRoundTripTheServiceRequest() {
+        val request=JourneyMonitoringRequest(stop.name,requireNotNull(stop.point),route.identity,busStop=stop,busRoute=route)
+        assertTrue("A supported official night route must also be accepted by the service",request.isValid())
+        assertEquals(request,JourneyMonitoringRequestCodec.decode(JourneyMonitoringRequestCodec.encode(request)))
+        assertTrue(FavoriteBus(request).isValid())
+    }
+
+    @Test fun verifiedNightBoardingSurvivesSessionRestoreWithoutLosingItsRouteOrDirection() {
+        val screens=restoreJourneyScreens(null)
+        val officialStop=stop;val officialRoute=route
+        screens.getValue(FeatureMode.ROUTE).apply {
+            boarding=officialStop.toJourneyPlace();boardingMatchedAutomatically=true;busRoutePathVerified=true
+            selectedBusStop=officialStop;selectedBusRoute=officialRoute;confirmedServiceIdentity=officialRoute.identity
+        }
+        val restored=restoreJourneyScreens(decodeJourneySession(encodeJourneySession(captureJourneySession(FeatureMode.ROUTE,screens))))
+            .getValue(FeatureMode.ROUTE)
+        assertEquals(route,restored.selectedBusRoute)
+        assertEquals(route.identity,restored.confirmedServiceIdentity)
+        assertTrue(restored.boardingConfirmed)
+    }
+
     @Test fun kakaoNightLabelMatchesTheOfficialRouteWithoutMergingOtherServices() {
         val official = route.copy(supported = true)
         assertEquals(official, resolveOfficialSeoulBusRoute(listOf(official), stop.stopId, choice.serviceName))

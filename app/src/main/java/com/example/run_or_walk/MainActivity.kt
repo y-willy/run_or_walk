@@ -1388,6 +1388,8 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
     val mapChoice = rootScreen.selectedRoute?.kakao
     val sharedLocation=if(hasLocationPermission(context)) session.locationAt(now,screen.location,rootScreen.location,monitoring.location) else null
     val mapGps=sharedLocation
+    val mapAccessToDisplay=rootScreen.mapAccessSegmentsForDisplay(mapGps,mapDeparture,now,
+        monitoring.takeIf {isMonitored(rootScreen)})
     var mapJourneyMessage by remember(rootScreen,mapDeparture,mapDestination,mapChoice?.itineraryKey) { mutableStateOf<String?>(null) }
     val latestMapGps by rememberUpdatedState(mapGps)
     val chosenAccess = rootScreen.accessJourney?.selectedRoute?.kakao
@@ -1416,7 +1418,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
             }
         }
     }
-    LaunchedEffect(rootScreen,mapDeparture,mapDestination,mapChoice?.itineraryKey,showMapAndArrivals) {
+    LaunchedEffect(rootScreen,mapDeparture,chosenAccess?.itineraryKey,showMapAndArrivals) {
         val destination=mapDeparture
         if(rootScreen.mapAccessDestination!=destination) {
             rootScreen.mapAccessSegments=emptyList();rootScreen.mapAccessOrigin=null;rootScreen.mapAccessWalking=null
@@ -1447,19 +1449,13 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 rootScreen.mapAccessSegments=shared;rootScreen.mapAccessOrigin=sharedStart;rootScreen.mapAccessMessage=null;rootScreen.mapAccessWalking=null
                 return
             }
-            val walked=rootScreen.walkingPoints
-            if(walked.size>=2 && distanceBetweenMeters(walked.first(),fix.point)<=35.0 && distanceBetweenMeters(walked.last(),destination)<=20.0 &&
-                rootScreen.walkFetchedAtEpochMillis?.let {displayClock.now()-it in 0L..120000L}==true) {
-                rootScreen.mapAccessSegments=listOf(walked);rootScreen.mapAccessOrigin=walked.first();rootScreen.mapAccessMessage=null
-                rootScreen.mapAccessWalking=rootScreen.walkingTracker
-                return
-            }
+            if(rootScreen.reuseWalkingForMapAccess(fix,destination,displayClock.now())) return
             val fresh=rootScreen.mapAccessRequests.isGeometryFresh(time)
             rootScreen.updateMapAccessPresentation(fresh,fix.point,time)
             if(fresh && !shouldRefreshAccessMap(rootScreen.mapAccessOrigin,rootScreen.mapAccessDestination,fix.point,destination,rootScreen.mapAccessSegments.isNotEmpty())) return
             // Last geometry is a reference overlay only; never renew its calculation timestamp.
 
-            if(rootScreen.accessTransitLoading || rootScreen.busy) return
+            if(!rootScreen.canFetchMapAccess()) return
             if(!rootScreen.mapAccessRequests.begin(destination to chosen?.itineraryKey,time,true)) return
             var success=false
             try {
@@ -1871,7 +1867,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                         }
                     } else {
                         Button(onClick = { requestMonitoring(screen) },
-                            enabled = canMonitor && !screen.busy && pendingLocation == null &&
+                            enabled = canMonitor && pendingLocation == null &&
                                 pendingMonitoring == null && !startingMonitoring,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
@@ -2011,7 +2007,7 @@ internal fun JourneyDashboardContent(lifecycleOwner: LifecycleOwner, session: Jo
                 JourneyMapCard(mapExpanded,{ mapExpanded=!mapExpanded }) {
                     KakaoMapPanel(lifecycleOwner = lifecycleOwner, center = screen.mapCenter,
                         routePoints = if (monitored) monitoring.walkingPoints else screen.walkingPoints,
-                        accessSegments = rootScreen.mapAccessSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
+                        accessSegments = mapAccessToDisplay,
                         journeySegments = mapChoice?.pathSegments.takeIf { mode == FeatureMode.ROUTE }.orEmpty(),
                         departurePoint = mapDeparture, destinationPoint = mapDestination,
                         journeyKey = Triple(mapDeparture,mapDestination,mapChoice?.itineraryKey),
