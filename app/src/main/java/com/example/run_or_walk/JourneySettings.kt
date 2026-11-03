@@ -57,7 +57,7 @@ data class JourneySettings(
     companion object {
         const val MIN_SPEED_KMH = 2.0
         const val MAX_SPEED_KMH = 7.0
-        const val MIN_BUFFER_SECONDS = 30
+        const val MIN_BUFFER_SECONDS = 0
         const val MAX_BUFFER_SECONDS = 600
 
         // 0.9 / 1.3 / 1.7 metres per second.

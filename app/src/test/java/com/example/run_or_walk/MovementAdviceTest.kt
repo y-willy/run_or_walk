@@ -79,6 +79,34 @@ class MovementAdviceTest {
             assertEquals(source.arrivals,actual.arrivals)
         }
     }
+    @Test fun zeroBufferSurvivesSettingsAndMonitoringRestoreAndIsAppliedInBothGuidancePaths() {
+        val zero=settings.copy(bufferSeconds=0,useProviderWalkingTime=true)
+        assertEquals(zero,JourneySettingsCodec.decode(JourneySettingsCodec.encode(zero)))
+        val request=JourneyMonitoringRequest("서울역",point,id,
+            subwayStation=OfficialSubwayStation(id.stopId,id.routeId,"서울역","1호선"),settings=zero)
+        val restored=JourneyMonitoringRequestCodec.decode(JourneyMonitoringRequestCodec.encode(request))!!
+        assertEquals(zero,restored.settings)
+        val source=input(600)
+        val foreground=calculateMovementGuidance(source,now,zero)
+        val background=monitoringStateWithSettings(JourneyMonitoringState(true,restored,
+            location=source.location,walkingRoute=source.walkingRoute,arrivals=source.arrivals,
+            walkingDistanceMeters=500,providerWalkingSeconds=400),restored,now,true)
+        // 600s ETA - 400s walking - 0s preparation = 200s slack (WALK).
+        assertEquals(MovementAdvice.WALK,foreground.movementAdvice())
+        assertEquals(0,foreground.bufferSeconds)
+        assertEquals(foreground,background.assessment)
+        assertEquals(source.arrivals,background.arrivals)
+        assertEquals(MovementAdvice.CAUTION,
+            calculateMovementGuidance(source,now,zero.copy(bufferSeconds=120)).movementAdvice())
+    }
+    @Test fun zeroBufferDoesNotAllowNegativeNonStepOrOverMaximumSettings() {
+        for(seconds in listOf(-30,15,630)) {
+            assertThrows(IllegalArgumentException::class.java) { settings.copy(bufferSeconds=seconds) }
+            assertEquals(120,JourneySettingsCodec.decode(
+                """{"version":3,"bufferSeconds":$seconds}""").bufferSeconds)
+        }
+        assertEquals(120,JourneySettings().bufferSeconds)
+    }
     @Test fun officialRealtimeWinsAndPositionTimetableUsesItsMidpointWithoutInventedNextArrival() {
         val estimate=OfficialTimetableEstimate(id,"6132",java.time.LocalDate.of(2026,10,26),
             OfficialServiceDayType.WEEKDAY,OfficialTrainOperationType.LOCAL,"pattern","previous",3,

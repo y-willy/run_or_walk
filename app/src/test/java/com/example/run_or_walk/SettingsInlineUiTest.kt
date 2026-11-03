@@ -23,6 +23,26 @@ class SettingsInlineUiTest {
     @get:Rule val compose=createEmptyComposeRule()
     @Test fun settingsTabExposesEverySettingWithoutOpeningAnotherSheetOrAdvancedSection()=settings(false)
     @Test @Config(qualifiers="w320dp-h1000dp-mdpi") fun compactSettingsExposeControlsAt130Percent()=settings(true)
+    @Test fun safetyBufferCanReachZeroPersistAndIncreaseAgain() {
+        val activity=Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        try {
+            val vm=ViewModelProvider(activity.get(),ViewModelProvider.AndroidViewModelFactory(activity.get().application))[JourneySessionViewModel::class.java]
+            vm.updateSettings(JourneySettings(bufferSeconds=30))
+            activity.get().setContent {RUN_or_WALKTheme {PaceNudgeScreen(activity.get(),vm)}}
+            compose.onNodeWithContentDescription("설정").performClick()
+            compose.onNodeWithContentDescription("안전 여유시간 줄이기").performScrollTo().performClick()
+            compose.onNodeWithText("0초").assertIsDisplayed()
+            compose.onNodeWithContentDescription("안전 여유시간 줄이기").assertIsNotEnabled()
+            compose.runOnIdle {
+                Assert.assertEquals(0,vm.settings.bufferSeconds)
+                Assert.assertEquals(vm.settings,JourneySettingsStore(activity.get().application).load())
+            }
+            compose.onNodeWithContentDescription("안전 여유시간 늘리기").performClick()
+            compose.onNodeWithText("30초").assertIsDisplayed()
+            compose.onNodeWithContentDescription("안전 여유시간 줄이기").assertIsEnabled()
+            compose.runOnIdle {Assert.assertEquals(30,vm.settings.bufferSeconds)}
+        } finally {activity.pause().stop().destroy()}
+    }
     private fun save(activity:ComponentActivity,name:String) {
         System.getProperty("pacenudge.proofDir")?.let {dir ->
             val view=activity.window.decorView
